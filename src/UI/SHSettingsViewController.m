@@ -53,7 +53,7 @@
     cell.accessoryView = nil;
     cell.accessoryType = UITableViewCellAccessoryNone;
     cell.textLabel.textColor = [[SHTheme shared] textColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 
     if (indexPath.section == 0) {
         cell.textLabel.text = [SHSettings isLoggedIn]

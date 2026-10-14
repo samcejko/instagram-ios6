@@ -210,7 +210,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     return SHIsPad() || orient == UIInterfaceOrientationPortrait;
 }
 
-- (UIStatusBarStyle)preferredStatusBarStyle { return UIStatusBarStyleLightContent; }
+- (UIStatusBarStyle)preferredStatusBarStyle { return (UIStatusBarStyle)1; }
 - (BOOL)prefersStatusBarHidden { return YES; }
 
 @end
