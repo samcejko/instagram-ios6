@@ -152,7 +152,23 @@ foreach ($name in $wanted) {
     Expand-Archive -Path $zip -DestinationPath $extract -Force
     $got++
 }
-if ($got -eq 0) { throw "Nothing downloaded" }
+if ($got -eq 0) {
+    Write-Host "Artifacts not available, trying CI release tags..."
+    foreach ($name in $wanted) {
+        $tag = if ($name -like '*arm64*') { 'ci-ios14-arm64' } else { 'ci-ios6-armv7' }
+        try {
+            $rel = Invoke-GH GET "/releases/tags/$tag"
+            if ($rel.body -notmatch [string]$run.id) { Write-Warning "Release $tag is from a different run, skipping"; continue }
+            foreach ($asset in $rel.assets) {
+                $dest = Join-Path $extract $asset.name
+                & curl.exe -sSL -f -H "Authorization: Bearer $Token" -H "Accept: application/octet-stream" -o $dest $asset.url
+                if ($LASTEXITCODE -ne 0) { Write-Warning "Failed to download $($asset.name)"; continue }
+                $got++
+            }
+        } catch { Write-Warning "Release $tag`: $_" }
+    }
+    if ($got -eq 0) { throw "Nothing downloaded (artifacts and release fallback both failed)" }
+}
 $files = Get-ChildItem $extract -File
 $files | ForEach-Object { Write-Host "Downloaded: $($_.FullName) ($([math]::Round($_.Length/1KB)) KB)" }
 

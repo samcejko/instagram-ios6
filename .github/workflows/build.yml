@@ -8,7 +8,7 @@ on:
 
 # The build only reads the repository; nothing here needs a write token.
 permissions:
-  contents: read
+  contents: write
 
 env:
   THEOS: /home/runner/theos
@@ -220,6 +220,19 @@ jobs:
             packages/*.ipa
             packages/*.deb
           if-no-files-found: error
+
+      - name: Upload to release (artifact quota fallback)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls packages/*.ipa packages/*.deb 2>/dev/null || exit 0
+          TAG="ci-${{ matrix.name }}"
+          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          gh release create "$TAG" packages/*.ipa packages/*.deb \
+            --title "CI ${{ matrix.name }}" \
+            --notes "run=${{ github.run_id }} sha=${{ github.sha }}" \
+            --prerelease
 
       - name: Upload build log
         if: always()
