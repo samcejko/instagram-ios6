@@ -1,0 +1,57 @@
+/* Login */
+"Sign in with your Instagram account" = "Sign in with your Instagram account";
+"Username" = "Username";
+"Password" = "Password";
+"Log In" = "Log In";
+"Enter your username and password." = "Enter your username and password.";
+"Login failed." = "Login failed.";
+"Two-Factor Authentication" = "Two-Factor Authentication";
+"Enter the code from your authenticator app or SMS." = "Enter the code from your authenticator app or SMS.";
+"Code" = "Code";
+"Verify" = "Verify";
+"Verification failed." = "Verification failed.";
+"Cancel" = "Cancel";
+
+/* Feed */
+"%@ likes" = "%@ likes";
+
+/* Profile */
+"Profile" = "Profile";
+"Posts" = "Posts";
+"Followers" = "Followers";
+"Following" = "Following";
+"Follow" = "Follow";
+"User not found." = "User not found.";
+
+/* Stories */
+"Stories" = "Stories";
+
+/* Comments */
+"Comments" = "Comments";
+"Done" = "Done";
+"Add a comment..." = "Add a comment...";
+"Post" = "Post";
+"Comment" = "Comment";
+
+/* Search */
+"Search" = "Search";
+"Search users..." = "Search users...";
+
+/* Settings */
+"Settings" = "Settings";
+"Account" = "Account";
+"Network" = "Network";
+"Not logged in" = "Not logged in";
+"Log Out" = "Log Out";
+"Are you sure?" = "Are you sure?";
+"Verify TLS certificates" = "Verify TLS certificates";
+"Clear search history" = "Clear search history";
+"Search history cleared." = "Search history cleared.";
+
+/* Links */
+"Open a link" = "Open a link";
+"That does not look like an Instagram link." = "That does not look like an Instagram link.";
+
+/* Errors */
+"Request failed (HTTP %ld)." = "Request failed (HTTP %ld).";
+"Unexpected response format." = "Unexpected response format.";

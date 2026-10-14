@@ -1,0 +1,57 @@
+/* Login */
+"Sign in with your Instagram account" = "Přihlaste se svým Instagram účtem";
+"Username" = "Uživatelské jméno";
+"Password" = "Heslo";
+"Log In" = "Přihlásit se";
+"Enter your username and password." = "Zadejte uživatelské jméno a heslo.";
+"Login failed." = "Přihlášení se nezdařilo.";
+"Two-Factor Authentication" = "Dvoufaktorové ověření";
+"Enter the code from your authenticator app or SMS." = "Zadejte kód z ověřovací aplikace nebo SMS.";
+"Code" = "Kód";
+"Verify" = "Ověřit";
+"Verification failed." = "Ověření se nezdařilo.";
+"Cancel" = "Zrušit";
+
+/* Feed */
+"%@ likes" = "%@ To se mi líbí";
+
+/* Profile */
+"Profile" = "Profil";
+"Posts" = "Příspěvky";
+"Followers" = "Sledující";
+"Following" = "Sledovaní";
+"Follow" = "Sledovat";
+"User not found." = "Uživatel nenalezen.";
+
+/* Stories */
+"Stories" = "Příběhy";
+
+/* Comments */
+"Comments" = "Komentáře";
+"Done" = "Hotovo";
+"Add a comment..." = "Přidejte komentář…";
+"Post" = "Odeslat";
+"Comment" = "Komentář";
+
+/* Search */
+"Search" = "Hledat";
+"Search users..." = "Hledat uživatele…";
+
+/* Settings */
+"Settings" = "Nastavení";
+"Account" = "Účet";
+"Network" = "Síť";
+"Not logged in" = "Nepřihlášen/a";
+"Log Out" = "Odhlásit se";
+"Are you sure?" = "Opravdu se chcete odhlásit?";
+"Verify TLS certificates" = "Ověřovat TLS certifikáty";
+"Clear search history" = "Vymazat historii hledání";
+"Search history cleared." = "Historie hledání vymazána.";
+
+/* Links */
+"Open a link" = "Otevřít odkaz";
+"That does not look like an Instagram link." = "To nevypadá jako odkaz na Instagram.";
+
+/* Errors */
+"Request failed (HTTP %ld)." = "Požadavek selhal (HTTP %ld).";
+"Unexpected response format." = "Neočekávaný formát odpovědi.";

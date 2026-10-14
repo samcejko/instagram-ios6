@@ -1,0 +1,9 @@
+Package: com.samcejko.shutter
+Name: Shutter
+Version: 0.1.0
+Architecture: iphoneos-arm
+Description: Unofficial photo, video and chat client for iOS 6 (universal), in English and Czech: sign in with your account, home feed, stories, reels, profiles, likes, comments and direct messages. Private build, not for redistribution.
+Maintainer: samcejko
+Author: samcejko
+Section: Social
+Depends: firmware (>= 6.0), firmware (<< 11.0)

@@ -1,0 +1,230 @@
+name: Build Shutter (iOS 6 armv7 + iOS 14 arm64)
+
+on:
+  push:
+    branches: ['**']   # not for tags, a release tag points at a commit that was already built
+  pull_request:
+  workflow_dispatch:
+
+# The build only reads the repository; nothing here needs a write token.
+permissions:
+  contents: read
+
+env:
+  THEOS: /home/runner/theos
+  MBEDTLS_VERSION: "3.6.7"
+  # Theos + toolchain + the iOS 9.3 and 16.5 SDKs (bump when any of them changes)
+  THEOS_CACHE_KEY: theos-linux-clang11-sdk93-sdk165-v2
+
+jobs:
+  build:
+    # One source tree, two packages: armv7 for iOS 6 (Cydia, ipainstaller) and arm64 for iOS 14-17 (the .deb for
+    # rootless jailbreaks, the IPA for TrollStore). THEOS_PACKAGE_SCHEME=rootless selects the latter in the Makefile.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ios6-armv7
+            scheme: ""
+            suffix: ""
+            artifact: Shutter-packages
+          - name: ios14-arm64
+            scheme: rootless
+            suffix: "-arm64"
+            artifact: Shutter-packages-arm64
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential fakeroot rsync curl perl zip unzip git libxml2 xz-utils python3-pil fonts-dejavu-core librsvg2-bin libplist-utils libtinfo5 || \
+          sudo apt-get install -y --no-install-recommends \
+            build-essential fakeroot rsync curl perl zip unzip git libxml2 xz-utils python3-pil fonts-dejavu-core librsvg2-bin libplist-utils
+
+      - name: Restore Theos cache
+        id: theos-cache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/theos
+          key: ${{ env.THEOS_CACHE_KEY }}
+
+      - name: Install Theos, toolchain and the iOS 9.3 and 16.5 SDKs
+        if: steps.theos-cache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
+
+          echo "== toolchain =="
+          curl -sSL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz | tar -xJ -C "$THEOS/toolchain/"
+          if [ ! -x "$THEOS/toolchain/linux/iphone/bin/clang" ]; then
+            CLANG=$(find "$THEOS/toolchain" -type f -name clang -path '*/bin/*' | head -n1)
+            echo "clang found at: $CLANG"
+            ROOT=$(dirname "$(dirname "$CLANG")")
+            mkdir -p "$THEOS/toolchain/linux"
+            ln -sfn "$ROOT" "$THEOS/toolchain/linux/iphone"
+          fi
+          ls -la "$THEOS/toolchain/linux/iphone/bin" | head -n 40
+
+          echo "== SDKs =="
+          RELEASE=$(curl -sS https://api.github.com/repos/theos/sdks/releases/latest)
+          for SDK in 9.3 16.5; do
+            SDK_URL=$(echo "$RELEASE" | grep -o "https://[^\"]*iPhoneOS${SDK}\.sdk[^\"]*" | head -n1 || true)
+            echo "SDK $SDK asset: $SDK_URL"
+            if [ -n "$SDK_URL" ]; then
+              curl -sSL "$SDK_URL" -o /tmp/sdk.archive
+              (tar -xJf /tmp/sdk.archive -C "$THEOS/sdks/" 2>/dev/null || tar -xzf /tmp/sdk.archive -C "$THEOS/sdks/" 2>/dev/null || unzip -q /tmp/sdk.archive -d "$THEOS/sdks/")
+            fi
+            if [ ! -d "$THEOS/sdks/iPhoneOS${SDK}.sdk" ]; then
+              echo "Falling back to sparse checkout of theos/sdks for $SDK"
+              rm -rf /tmp/sdks
+              git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/sdks
+              (cd /tmp/sdks && git sparse-checkout set "iPhoneOS${SDK}.sdk")
+              mv "/tmp/sdks/iPhoneOS${SDK}.sdk" "$THEOS/sdks/"
+            fi
+          done
+          ls "$THEOS/sdks"
+
+      - name: Toolchain diagnostics
+        run: |
+          export PATH="$THEOS/toolchain/linux/iphone/bin:$THEOS/bin:$PATH"
+          which clang ld64 ldid || true
+          clang --version || true
+          ldd "$THEOS/toolchain/linux/iphone/bin/clang" | grep -i "not found" || echo "clang: all shared libraries resolved"
+          ls "$THEOS/sdks/iPhoneOS9.3.sdk" | head
+
+      - name: Fetch mbedTLS ${{ env.MBEDTLS_VERSION }}
+        run: |
+          set -e
+          curl -sSL "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2" -o /tmp/mbedtls.tar.bz2
+          rm -rf vendor/mbedtls && mkdir -p vendor/mbedtls
+          tar -xjf /tmp/mbedtls.tar.bz2 -C vendor/mbedtls --strip-components=1
+          mv vendor/mbedtls/include/mbedtls/mbedtls_config.h vendor/mbedtls/include/mbedtls/mbedtls_config_default.h
+          cp vendor/mbedtls_config_ios6.h vendor/mbedtls/include/mbedtls/mbedtls_config.h
+          echo "mbedTLS sources: $(ls vendor/mbedtls/library/*.c | wc -l)"
+
+      - name: Fetch CA bundle
+        run: |
+          curl -sSf https://curl.se/ca/cacert.pem -o Resources/cacert.pem
+          grep -c "BEGIN CERTIFICATE" Resources/cacert.pem
+
+      - name: Collect license texts (shipped inside the app)
+        run: |
+          set -e
+          rm -rf Resources/licenses && mkdir -p Resources/licenses
+          cp THIRD-PARTY-NOTICES.md Resources/licenses/THIRD-PARTY-NOTICES.txt
+          cp vendor/mbedtls/LICENSE Resources/licenses/mbedtls-LICENSE.txt
+          ls -la Resources/licenses
+
+      - name: Generate icons and launch images
+        run: python3 tools/gen_assets.py Resources
+
+      - name: Patch the iOS 9.3 SDK (stub re-exported libraries missing from theos/sdks)
+        run: |
+          set -e
+          # The toolchain's plistutil is linked against libplist-2.0.so.4, which Ubuntu 22.04 does not ship.
+          # Use the distro binary instead (same CLI).
+          TBIN="$THEOS/toolchain/linux/iphone/bin"
+          if [ -x /usr/bin/plistutil ]; then
+            ln -sf /usr/bin/plistutil "$TBIN/plistutil"
+            plistutil --help >/dev/null 2>&1 && echo "plistutil OK" || echo "plistutil still broken"
+          fi
+          SDK="$THEOS/sdks/iPhoneOS9.3.sdk"
+          LIBSYS="$SDK/usr/lib/libSystem.tbd"
+          test -f "$LIBSYS"
+          # libSystem.tbd re-exports /usr/lib/system/*.dylib; the packaged SDK lacks a few of those stubs
+          # (e.g. liblaunch), which makes ld64 fail with "file not found". Create empty TBD stubs.
+          for lib in $(grep -o "/usr/lib/system/lib[A-Za-z0-9_]*\.dylib" "$LIBSYS" | sort -u); do
+            base="${lib%.dylib}"
+            if [ ! -f "$SDK$base.tbd" ] && [ ! -f "$SDK$lib" ]; then
+              mkdir -p "$(dirname "$SDK$base.tbd")"
+              printf -- '---\narchs:           [ armv7, armv7s, arm64 ]\nplatform:        ios\ninstall-name:    %s\ncurrent-version: 1.0\ncompatibility-version: 1.0\nexports:\n  - archs:           [ armv7, armv7s, arm64 ]\n    symbols:         [ ]\n...\n' "$lib" > "$SDK$base.tbd"
+              echo "stubbed $lib"
+            fi
+          done
+          ls "$SDK/usr/lib/system" | head -n 60
+
+          # The packaged libsystem_c.tbd / libsystem_platform.tbd lack the plain libc string/memory
+          # symbols (only __platform_* and *_chk variants are listed), so C code fails to link.
+          # At runtime libSystem.B.dylib provides them on every iOS version, so add them to the stub.
+          LIBC="$SDK/usr/lib/system/libsystem_c.tbd"
+          ADD=""
+          for sym in _memcpy _memset _memmove _memcmp _memchr _strchr _strcmp _strncmp _strlen _strnlen _bzero \
+                     _strcpy _strncpy _strcat _strlcpy _strlcat _strstr _strrchr _strdup _memset_s _memset_pattern4 \
+                     _memset_pattern8 _memset_pattern16 _strncasecmp _strcasecmp; do
+            if ! grep -Eq "[[ ,]${sym}[], ]" "$LIBC" "$SDK/usr/lib/system/libsystem_platform.tbd"; then
+              ADD="${ADD}${sym}, "
+            fi
+          done
+          if [ -n "$ADD" ]; then
+            echo "adding to libsystem_c.tbd: $ADD"
+            sed -i "0,/symbols:            \[ /s//symbols:            [ ${ADD}/" "$LIBC"
+            grep -c "_memcpy" "$LIBC"
+          fi
+
+      - name: Syntax check (every error of our own sources in one go)
+        run: |
+          export PATH="$THEOS/toolchain/linux/iphone/bin:$THEOS/bin:$PATH"
+          SDK="$THEOS/sdks/iPhoneOS9.3.sdk"
+          FLAGS="-target armv7-apple-ios6.0 -isysroot $SDK -fsyntax-only -w -ferror-limit=0 \
+                 -Isrc -Isrc/Net -Isrc/API -Isrc/UI -Isrc/Util -Ivendor -Ivendor/mbedtls/include -Ivendor/mbedtls/library"
+          status=0
+          for f in $(find src -name '*.m' | sort); do
+            clang $FLAGS -fobjc-arc -x objective-c "$f" 2>&1 | grep -E 'error:' && status=1
+          done
+          if [ $status -ne 0 ]; then echo "SYNTAX CHECK FOUND ERRORS (see above)"; else echo "syntax check clean"; fi
+
+      - name: Build (${{ matrix.name }})
+        run: |
+          set -o pipefail
+          export PATH="$THEOS/toolchain/linux/iphone/bin:$THEOS/bin:$PATH"
+          if [ -n "${{ matrix.scheme }}" ]; then export THEOS_PACKAGE_SCHEME="${{ matrix.scheme }}"; fi
+          make clean || true
+          # (-k: every file is compiled even after one fails, so one run shows every compile error)
+          make package FINALPACKAGE=1 -j"$(nproc)" -k 2>&1 | tee build.log
+          APP=$(find .theos/_ -type d -name Shutter.app | head -n1)
+          test -n "$APP"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          echo "== staged app ($APP) =="
+          ls -la "$APP"
+          lipo -info "$APP/Shutter" 2>/dev/null || true
+
+      - name: Make IPA
+        run: |
+          set -e
+          export PATH="$THEOS/toolchain/linux/iphone/bin:$THEOS/bin:$PATH"
+          echo "app: $APP"
+          LDID=$(command -v ldid || find "$THEOS" -type f -name ldid | head -n1)
+          echo "ldid: $LDID"
+          "$LDID" -S"$GITHUB_WORKSPACE/entitlements.xml" "$APP/Shutter"
+          "$LDID" -e "$APP/Shutter" | head -n 20
+          VERSION=$(grep '^Version:' control | cut -d' ' -f2)
+          rm -rf /tmp/ipa && mkdir -p /tmp/ipa/Payload packages
+          cp -a "$APP" /tmp/ipa/Payload/
+          # (the bundle inside keeps the working name, Shutter.app; the file is named as the app is shown)
+          SHOWN=$(python3 -c "import plistlib; print(plistlib.load(open('Resources/Info.plist', 'rb'))['CFBundleDisplayName'])")
+          (cd /tmp/ipa && zip -qr9 "$GITHUB_WORKSPACE/packages/$SHOWN-$VERSION${{ matrix.suffix }}.ipa" Payload)
+          ls -la packages/
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            packages/*.ipa
+            packages/*.deb
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.name }}
+          path: build.log
+          if-no-files-found: ignore
