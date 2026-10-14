@@ -10,7 +10,7 @@
 		<string>cs</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Shutter</string>
+	<string>Gramify</string>
 	<key>CFBundleExecutable</key>
 	<string>Shutter</string>
 	<key>CFBundleIdentifier</key>
@@ -18,7 +18,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Shutter</string>
+	<string>Gramify</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleSignature</key>

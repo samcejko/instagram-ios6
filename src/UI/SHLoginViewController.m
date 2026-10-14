@@ -32,7 +32,7 @@
     CGFloat y = SHIsPad() ? 120 : 80;
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(x, y, w, 40)];
-    title.text = @"Shutter";
+    title.text = @"Gramify";
     title.font = [UIFont boldSystemFontOfSize:28];
     title.textColor = [[SHTheme shared] textColor];
     title.textAlignment = NSTextAlignmentCenter;

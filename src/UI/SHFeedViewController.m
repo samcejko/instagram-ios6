@@ -33,7 +33,7 @@ static NSString * const SHFeedCellId = @"FeedCell";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.title = @"Shutter";
+    self.title = @"Gramify";
     self.view.backgroundColor = [[SHTheme shared] backgroundColor];
     _posts = [NSMutableArray array];
 

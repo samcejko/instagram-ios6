@@ -21,7 +21,7 @@
 {
     signal(SIGPIPE, SIG_IGN);
     [SHSettings registerDefaults];
-    SHLog(@"Shutter %@ starting on %@ (iOS %@)", [SHUtils appVersion], [SHUtils deviceModel],
+    SHLog(@"Gramify %@ starting on %@ (iOS %@)", [SHUtils appVersion], [SHUtils deviceModel],
           [UIDevice currentDevice].systemVersion);
     SHModernSetUp([[SHTheme shared] barStyle]);
     [SHTLSSocket warmUp];

@@ -75,7 +75,7 @@
             cell.detailTextLabel.text = nil;
         }
     } else {
-        cell.textLabel.text = [NSString stringWithFormat:@"Shutter %@", [SHUtils appVersion]];
+        cell.textLabel.text = [NSString stringWithFormat:@"Gramify %@", [SHUtils appVersion]];
         cell.textLabel.textColor = [[SHTheme shared] secondaryTextColor];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         cell.detailTextLabel.text = nil;
