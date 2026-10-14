@@ -75,21 +75,21 @@ static NSString * const SHGridCellId = @"GridRow";
     [_task cancel];
     __weak SHGridViewController *weak = self;
     _task = _loader(more ? _nextMaxId : nil, ^(NSArray *posts, NSString *nextMaxId, NSError *error) {
-        SHGridViewController *self = weak;
-        if (!self) return;
-        self.loading = NO;
-        self.loadedOnce = YES;
-        [self.spinner stopAnimating];
+        SHGridViewController *strong = weak;
+        if (!strong) return;
+        strong.loading = NO;
+        strong.loadedOnce = YES;
+        [strong.spinner stopAnimating];
         if (error) {
-            if (self.posts.count == 0) [self showStatus:error.localizedDescription];
+            if (strong.posts.count == 0) [strong showStatus:error.localizedDescription];
             return;
         }
-        if (!more) [self.posts removeAllObjects];
-        [self.posts addObjectsFromArray:posts];
-        self.nextMaxId = nextMaxId;
-        if (self.posts.count == 0) [self showStatus:self.emptyMessage ?: L(@"Nothing here yet.")];
-        else self.statusLabel.hidden = YES;
-        [self.tableView reloadData];
+        if (!more) [strong.posts removeAllObjects];
+        [strong.posts addObjectsFromArray:posts];
+        strong.nextMaxId = nextMaxId;
+        if (strong.posts.count == 0) [strong showStatus:strong.emptyMessage ?: L(@"Nothing here yet.")];
+        else strong.statusLabel.hidden = YES;
+        [strong.tableView reloadData];
     });
 }
 

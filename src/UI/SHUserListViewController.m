@@ -84,7 +84,7 @@ static NSString * const SHUserCellId = @"UserCell";
 {
     if ((self = [super init])) {
         self.title = title;
-        _users = [[users ?: @[]] mutableCopy];
+        _users = users.count ? [users mutableCopy] : [NSMutableArray array];
         _done = YES;
     }
     return self;
@@ -124,15 +124,15 @@ static NSString * const SHUserCellId = @"UserCell";
     _loading = YES;
     __weak SHUserListViewController *weak = self;
     _task = _loader(more ? _nextMaxId : nil, _query, ^(NSArray *users, NSString *nextMaxId, NSError *error) {
-        SHUserListViewController *self = weak;
-        if (!self) return;
-        self.loading = NO;
+        SHUserListViewController *strong = weak;
+        if (!strong) return;
+        strong.loading = NO;
         if (error) return;
-        if (!more) [self.users removeAllObjects];
-        [self.users addObjectsFromArray:users];
-        self.nextMaxId = nextMaxId;
-        self.done = nextMaxId.length == 0;
-        [self.tableView reloadData];
+        if (!more) [strong.users removeAllObjects];
+        [strong.users addObjectsFromArray:users];
+        strong.nextMaxId = nextMaxId;
+        strong.done = nextMaxId.length == 0;
+        [strong.tableView reloadData];
     });
 }
 
