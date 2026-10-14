@@ -33,7 +33,9 @@ static NSString * const SHFeedCellId = @"FeedCell";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.title = @"Gramify";
+    // The brand name belongs in the navigation bar; the tab keeps its own "Home" item (setting self.title would
+    // overwrite the tab bar item on iOS 6).
+    self.navigationItem.title = @"Gramify";
     self.view.backgroundColor = [[SHTheme shared] backgroundColor];
     _posts = [NSMutableArray array];
 
