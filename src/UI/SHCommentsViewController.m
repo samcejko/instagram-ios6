@@ -60,9 +60,10 @@
     _textField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [_inputBar addSubview:_textField];
 
-    UIButton *send = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButton *send = [UIButton buttonWithType:UIButtonTypeCustom];
     send.frame = CGRectMake(bounds.size.width - 64, 6, 56, 32);
     [send setTitle:L(@"Post") forState:UIControlStateNormal];
+    [send setTitleColor:[[SHTheme shared] linkColor] forState:UIControlStateNormal];
     send.titleLabel.font = [UIFont boldSystemFontOfSize:14];
     send.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [send addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];

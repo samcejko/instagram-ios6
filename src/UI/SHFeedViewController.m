@@ -151,7 +151,7 @@ static NSString * const SHFeedCellId = @"FeedCell";
 {
     NSMutableArray *pks = [NSMutableArray array];
     for (SHStoryReel *r in _storyBar.reels) [pks addObject:r.user.pk];
-    [SHInstagram storiesForUserPks:pks completion:^(NSArray *reels, NSError *error) {
+    [SHInstagram storiesForUserIds:pks completion:^(NSArray *reels, NSError *error) {
         if (error || !reels.count) return;
         SHStoryViewController *vc = [[SHStoryViewController alloc] initWithReels:reels startIndex:index];
         vc.modalPresentationStyle = UIModalPresentationFullScreen;
