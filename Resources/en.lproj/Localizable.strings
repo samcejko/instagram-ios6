@@ -55,3 +55,88 @@
 /* Errors */
 "Request failed (HTTP %ld)." = "Request failed (HTTP %ld).";
 "Unexpected response format." = "Unexpected response format.";
+
+/* Tab bar */
+"Home" = "Home";
+"Explore" = "Explore";
+"Activity" = "Activity";
+"Direct" = "Direct";
+
+/* Profile / grid */
+"\U0001F512 This account is private" = "\U0001F512 This account is private";
+"Follow this account to see their photos and videos." = "Follow this account to see their photos and videos.";
+"Couldn't load your profile." = "Couldn't load your profile.";
+"Saved" = "Saved";
+"You haven't saved anything yet." = "You haven't saved anything yet.";
+"Nothing here yet." = "Nothing here yet.";
+"Nothing to explore right now." = "Nothing to explore right now.";
+"Likes" = "Likes";
+"That post isn't available." = "That post isn't available.";
+"Photo" = "Photo";
+
+/* Activity */
+"No recent activity." = "No recent activity.";
+
+/* Direct messages */
+"No messages yet." = "No messages yet.";
+"Message..." = "Message...";
+"Send" = "Send";
+"The message didn't send." = "The message didn't send.";
+"Shared a post" = "Shared a post";
+"Shared a story" = "Shared a story";
+"Voice message" = "Voice message";
+"Unsupported message" = "Unsupported message";
+
+/* Challenge / checkpoint */
+"Verify it's you" = "Verify it's you";
+"Instagram needs to verify it's you. A code will be sent to your e-mail or phone." = "Instagram needs to verify it's you. A code will be sent to your e-mail or phone.";
+"Enter the code Instagram sent to your email or phone." = "Enter the code Instagram sent to your email or phone.";
+"Where should we send the code?" = "Where should we send the code?";
+"Email" = "Email";
+"Text message" = "Text message";
+"That code didn't work. Try again." = "That code didn't work. Try again.";
+"There is no pending verification." = "There is no pending verification.";
+"Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again." = "Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again.";
+"The password you entered is incorrect." = "The password you entered is incorrect.";
+"That username doesn't belong to an account." = "That username doesn't belong to an account.";
+
+/* Links / external */
+"Copy link" = "Copy link";
+"Open in Safari" = "Open in Safari";
+"Open in Surfari" = "Open in Surfari";
+"Open in Tubie" = "Open in Tubie";
+"Open in Twitcher" = "Open in Twitcher";
+"Open in Kicker" = "Open in Kicker";
+
+/* Relative dates */
+"just now" = "just now";
+"yesterday" = "yesterday";
+"%ld min" = "%ld min";
+"%ld min ago" = "%ld min ago";
+"%ld h ago" = "%ld h ago";
+"%ld days ago" = "%ld days ago";
+"%@ viewers" = "%@ viewers";
+"The live stream ended." = "The live stream ended.";
+
+/* Network / TLS errors */
+"OK" = "OK";
+"Cancelled" = "Cancelled";
+"Connection failed." = "Connection failed.";
+"Connection lost." = "Connection lost.";
+"connection timed out" = "connection timed out";
+"Content decoding failed." = "Content decoding failed.";
+"Could not connect to %@: %@" = "Could not connect to %@: %@";
+"Could not resolve %@ (%s). Is the device online?" = "Could not resolve %@ (%s). Is the device online?";
+"Receiving the response failed: %@" = "Receiving the response failed: %@";
+"Sending the request failed." = "Sending the request failed.";
+"Sending the request failed: %@" = "Sending the request failed: %@";
+"The server closed the connection without responding." = "The server closed the connection without responding.";
+"The server sent an invalid response." = "The server sent an invalid response.";
+"The server stopped responding (timeout)." = "The server stopped responding (timeout).";
+"Unexpected response: %@" = "Unexpected response: %@";
+"Server certificate rejected: %@. %@" = "Server certificate rejected: %@. %@";
+"Certificate verification can be turned off in Settings." = "Certificate verification can be turned off in Settings.";
+"Check the date and time of this device." = "Check the date and time of this device.";
+"The certificate bundle is missing, cannot verify the server." = "The certificate bundle is missing, cannot verify the server.";
+"TLS handshake failed: %@" = "TLS handshake failed: %@";
+"TLS handshake timed out." = "TLS handshake timed out.";

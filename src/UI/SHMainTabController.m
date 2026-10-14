@@ -14,9 +14,11 @@
 
 - (UINavigationController *)wrap:(UIViewController *)vc title:(NSString *)title image:(UIImage *)image
 {
+    // The tab item must be set on the content controller: a navigation controller mirrors its top controller's
+    // item, so setting it on the nav is overwritten once the root controller loads its own title (e.g. "Gramify").
+    vc.tabBarItem = [[UITabBarItem alloc] initWithTitle:title image:image tag:0];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [[SHTheme shared] applyToNavigationBar:nav.navigationBar];
-    nav.tabBarItem = [[UITabBarItem alloc] initWithTitle:title image:image tag:0];
     return nav;
 }
 
