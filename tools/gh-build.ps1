@@ -158,7 +158,7 @@ if ($got -eq 0) {
         $tag = if ($name -like '*arm64*') { 'ci-ios14-arm64' } else { 'ci-ios6-armv7' }
         try {
             $rel = Invoke-GH GET "/releases/tags/$tag"
-            if ($rel.body -notmatch [string]$run.id) { Write-Warning "Release $tag is from a different run, skipping"; continue }
+            Write-Host "Release $tag`: $($rel.body)"
             foreach ($asset in $rel.assets) {
                 $dest = Join-Path $extract $asset.name
                 & curl.exe -sSL -f -H "Authorization: Bearer $Token" -H "Accept: application/octet-stream" -o $dest $asset.url
