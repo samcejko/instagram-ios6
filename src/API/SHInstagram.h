@@ -10,6 +10,11 @@ typedef void (^SHStoriesCompletion)(NSArray *reels, NSError *error);
 typedef void (^SHCommentsCompletion)(NSArray *comments, NSString *nextMinId, NSError *error);
 typedef void (^SHSearchCompletion)(NSArray *users, NSError *error);
 typedef void (^SHActionCompletion)(BOOL success, NSError *error);
+typedef void (^SHThreadsCompletion)(NSArray *threads, NSString *cursor, NSError *error);
+typedef void (^SHThreadCompletion)(SHDirectThread *thread, NSString *cursor, NSError *error);
+typedef void (^SHMediaCompletion)(SHPost *post, NSError *error);
+typedef void (^SHNewsCompletion)(NSArray *stories, NSError *error);
+typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice, NSError *error);
 
 @interface SHInstagram : NSObject
 
@@ -19,11 +24,45 @@ typedef void (^SHActionCompletion)(BOOL success, NSError *error);
 + (SHHTTPTask *)twoFactorLoginWithIdentifier:(NSString *)identifier code:(NSString *)code
                                   completion:(SHLoginCompletion)completion;
 
+// Checkpoint / challenge flow (used after login returns SHErrorChallenge). A fresh device almost always hits this.
++ (BOOL)hasPendingChallenge;
++ (SHHTTPTask *)challengeFetchWithCompletion:(SHChallengeCompletion)completion;      // GET: learn the current step
++ (SHHTTPTask *)challengeSelectMethod:(NSInteger)choice completion:(SHChallengeCompletion)completion;  // 1=email, 0=SMS
++ (SHHTTPTask *)challengeSubmitCode:(NSString *)code completion:(SHLoginCompletion)completion;
+
+// Password-free connectivity probe: fetches the pre-login key sync and reports what came back.
++ (SHHTTPTask *)probeConnectivityWithCompletion:(void (^)(BOOL ok, NSString *detail, NSError *error))completion;
+
 + (SHHTTPTask *)timelineFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
 
 + (SHHTTPTask *)userInfoByUsername:(NSString *)username completion:(SHUserCompletion)completion;
 + (SHHTTPTask *)userInfoByPk:(NSString *)pk completion:(SHUserCompletion)completion;
++ (SHHTTPTask *)currentUserWithCompletion:(SHUserCompletion)completion;
 + (SHHTTPTask *)userFeedForPk:(NSString *)pk maxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
+
+// Followers / following lists and post likers (SHUser arrays, paginated by maxId).
++ (SHHTTPTask *)followersForPk:(NSString *)pk maxId:(NSString *)maxId query:(NSString *)query
+                    completion:(void (^)(NSArray *users, NSString *nextMaxId, NSError *error))completion;
++ (SHHTTPTask *)followingForPk:(NSString *)pk maxId:(NSString *)maxId query:(NSString *)query
+                    completion:(void (^)(NSArray *users, NSString *nextMaxId, NSError *error))completion;
++ (SHHTTPTask *)likersForPost:(NSString *)mediaPk completion:(SHSearchCompletion)completion;
+
+// A single post by its numeric pk (used to resolve activity items and shortcodes).
++ (SHHTTPTask *)mediaInfo:(NSString *)mediaPk completion:(SHMediaCompletion)completion;
+
+// Explore grid and the activity ("news") inbox.
++ (SHHTTPTask *)exploreWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
++ (SHHTTPTask *)newsInboxWithCompletion:(SHNewsCompletion)completion;
+
+// Saved posts (bookmarks).
++ (SHHTTPTask *)savedFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
++ (SHHTTPTask *)savePost:(NSString *)mediaPk completion:(SHActionCompletion)completion;
++ (SHHTTPTask *)unsavePost:(NSString *)mediaPk completion:(SHActionCompletion)completion;
+
+// Direct messages.
++ (SHHTTPTask *)directInboxWithCursor:(NSString *)cursor completion:(SHThreadsCompletion)completion;
++ (SHHTTPTask *)directThread:(NSString *)threadId cursor:(NSString *)cursor completion:(SHThreadCompletion)completion;
++ (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 
 + (SHHTTPTask *)storiesTrayWithCompletion:(SHStoriesCompletion)completion;
 + (SHHTTPTask *)storiesForUserIds:(NSArray *)userIds completion:(SHStoriesCompletion)completion;

@@ -36,6 +36,7 @@ enum {
     SHErrorOffline        = -11,
     SHErrorAuth           = -12,   // authentication required or session expired
     SHErrorRestricted     = -13,   // private account, blocked content
+    SHErrorChallenge      = -14,   // Instagram wants an e-mail/SMS verification code before the login completes
 };
 
 NSError *SHMakeError(NSInteger code, NSString *message);

@@ -10,6 +10,12 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/base64.h"
 
+@interface SHInstagram ()
++ (void)setChallengePath:(NSString *)path;
++ (NSString *)challengeURL;
++ (SHHTTPTask *)fetchEncryptionKeyWithCompletion:(void (^)(NSString *pubKey, NSInteger keyId, NSError *error))completion;
+@end
+
 static NSString * const SHApiBase      = @"https://i.instagram.com/api/v1";
 static NSString * const SHAppId        = @"567067343352427";
 static NSString * const SHAppVersion   = @"269.0.0.18.75";
@@ -46,7 +52,20 @@ static NSDictionary *SHAuthHeaders(void)
     if (token.length) h[@"Authorization"] = [@"Bearer IGT:2:" stringByAppendingString:token];
     NSString *csrf = [SHSettings csrfToken];
     if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    NSString *claim = [SHSettings wwwClaim];
+    h[@"X-IG-WWW-Claim"] = claim.length ? claim : @"0";
+    NSString *uid = [SHSettings userId];
+    if (uid.length) h[@"IG-U-DS-User-ID"] = uid;
     return h;
+}
+
+// jazoest = "2" + the sum of the byte values of the phone_id. Instagram checks it against phone_id on login.
+static NSString *SHJazoest(NSString *phoneId)
+{
+    const char *p = [phoneId UTF8String] ?: "";
+    NSInteger sum = 0;
+    for (size_t i = 0; p[i]; i++) sum += (unsigned char)p[i];
+    return [NSString stringWithFormat:@"2%ld", (long)sum];
 }
 
 #pragma mark - Signed body
@@ -90,7 +109,10 @@ static NSString *SHEncryptPassword(NSString *password, NSString *pubKeyBase64, N
     mbedtls_ctr_drbg_random(&ctr_drbg, iv, 12);
 
     mbedtls_rsa_context *rsa = mbedtls_pk_rsa(pk);
-    mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V21, MBEDTLS_MD_SHA256);
+    // Instagram decrypts this with RSA-OAEP using SHA-1 for both the hash and MGF1 (the default of
+    // PKCS1_OAEP in pycryptodome and of RSA_PKCS1_OAEP_PADDING in Node, which every working client uses).
+    // Using SHA-256 here makes the server's decrypt fail and the login is reported as a wrong password.
+    mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V21, MBEDTLS_MD_SHA1);
     size_t rsaLen = mbedtls_rsa_get_len(rsa);
     unsigned char *rsaOut = malloc(rsaLen);
     ret = mbedtls_rsa_rsaes_oaep_encrypt(rsa, mbedtls_ctr_drbg_random, &ctr_drbg,
@@ -150,7 +172,10 @@ static void SHSaveTokensFromHeaders(NSDictionary *headers)
             }
         }
         if ([lower isEqualToString:@"x-ig-set-www-claim"]) {
-            // not needed but acknowledge
+            NSString *claim = headers[key];
+            // The server hands back "0" before login and a real "hmac....." claim afterwards; keep the real one,
+            // which every subsequent request must echo in X-IG-WWW-Claim or it is rejected with login_required.
+            if (claim.length && ![claim isEqualToString:@"0"]) [SHSettings setWwwClaim:claim];
         }
     }
 }
@@ -221,7 +246,8 @@ static NSString *SHExtractCSRF(NSDictionary *headers)
         }
 
         NSDictionary *params = @{
-            @"jazoest": @"22548",
+            @"jazoest": SHJazoest([SHSettings phoneId]),
+            @"country_codes": @"[{\"country_code\":\"1\",\"source\":[\"default\"]}]",
             @"phone_id": [SHSettings phoneId],
             @"enc_password": encPassword,
             @"username": username,
@@ -253,8 +279,32 @@ static NSString *SHExtractCSRF(NSDictionary *headers)
                     completion(nil, tfId, nil);
                     return;
                 }
+                NSString *message = SHStr(d[@"message"]);
+                if ([message isEqualToString:@"challenge_required"]) {
+                    // A fresh device almost always triggers this: Instagram wants an e-mail/SMS code before the
+                    // account may sign in. Remember where to continue and let the UI run the challenge flow.
+                    NSDictionary *challenge = SHDict(d[@"challenge"]);
+                    NSString *path = SHStr(challenge[@"api_path"]);
+                    if (!path.length) {
+                        NSString *url = SHStr(challenge[@"url"]);
+                        NSRange r = [url rangeOfString:@"/challenge/"];
+                        if (r.location != NSNotFound) path = [url substringFromIndex:r.location];
+                    }
+                    [self setChallengePath:path];
+                    NSError *err = SHMakeError(SHErrorChallenge,
+                        L(@"Instagram needs to verify it's you. A code will be sent to your e-mail or phone."));
+                    completion(nil, nil, err);
+                    return;
+                }
                 if (loginErr || !SHBool(d[@"authenticated"])) {
-                    NSString *msg = SHStr(d[@"message"]) ?: (loginErr.localizedDescription ?: L(@"Login failed."));
+                    NSString *msg = message;
+                    if ([message isEqualToString:@"checkpoint_required"])
+                        msg = L(@"Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again.");
+                    else if (SHStr(d[@"error_type"]) && [SHStr(d[@"error_type"]) isEqualToString:@"bad_password"])
+                        msg = L(@"The password you entered is incorrect.");
+                    else if (SHStr(d[@"error_type"]) && [SHStr(d[@"error_type"]) isEqualToString:@"invalid_user"])
+                        msg = L(@"That username doesn't belong to an account.");
+                    if (!msg.length) msg = loginErr.localizedDescription ?: L(@"Login failed.");
                     completion(nil, nil, SHMakeError(status ?: SHErrorAPI, msg));
                     return;
                 }
@@ -558,6 +608,306 @@ static NSString *SHExtractCSRF(NSDictionary *headers)
             [SHSettings logout];
             completion(YES, nil);
         }];
+}
+
+#pragma mark - Challenge (checkpoint) flow
+
+static NSString *g_challengePath = nil;
+
++ (void)setChallengePath:(NSString *)path { g_challengePath = [path copy]; }
++ (BOOL)hasPendingChallenge { return g_challengePath.length > 0; }
+
++ (NSString *)challengeURL
+{
+    NSString *p = g_challengePath;
+    if (!p.length) return nil;
+    if ([p hasPrefix:@"http"]) return p;
+    if (![p hasPrefix:@"/"]) p = [@"/" stringByAppendingString:p];
+    // api_path looks like "/challenge/12345/abcdef/"; it lives under the same /api/v1 base.
+    return [SHApiBase stringByAppendingString:p];
+}
+
++ (SHHTTPTask *)challengeFetchWithCompletion:(SHChallengeCompletion)completion
+{
+    NSString *url = [self challengeURL];
+    if (!url) { completion(nil, NO, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
+    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+    NSString *csrf = [SHSettings csrfToken];
+    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    return [SHHTTP getJSON:url headers:h completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, NO, error); return; }
+        NSString *step = SHStr(SHDict(json)[@"step_name"]) ?: @"";
+        completion(step, [step isEqualToString:@"select_verify_method"], nil);
+    }];
+}
+
++ (SHHTTPTask *)challengeSelectMethod:(NSInteger)choice completion:(SHChallengeCompletion)completion
+{
+    NSString *url = [self challengeURL];
+    if (!url) { completion(nil, NO, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
+    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+    NSString *csrf = [SHSettings csrfToken];
+    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    return [SHHTTP postForm:url headers:h fields:@{ @"choice": [NSString stringWithFormat:@"%ld", (long)choice] }
+                 completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, NO, error); return; }
+        NSString *step = SHStr(SHDict(json)[@"step_name"]) ?: @"verify_code";
+        completion(step, NO, nil);
+    }];
+}
+
++ (SHHTTPTask *)challengeSubmitCode:(NSString *)code completion:(SHLoginCompletion)completion
+{
+    NSString *url = [self challengeURL];
+    if (!url) { completion(nil, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
+    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *csrf = [SHSettings csrfToken];
+    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    NSString *c = [code stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+    NSData *body = [[NSString stringWithFormat:@"security_code=%@", [SHUtils urlEncode:c]] dataUsingEncoding:NSUTF8StringEncoding];
+    return [SHHTTP request:@"POST" url:url headers:h body:body retries:0
+                completion:^(NSInteger status, NSData *bodyData, NSDictionary *headers, NSError *error) {
+        NSString *newCsrf = SHExtractCSRF(headers);
+        if (newCsrf) [SHSettings setCsrfToken:newCsrf];
+        SHSaveTokensFromHeaders(headers);
+        NSDictionary *d = SHDict(bodyData.length ? [SHUtils JSONObjectFromData:bodyData] : nil);
+        NSDictionary *loggedIn = SHDict(d[@"logged_in_user"]);
+        if (loggedIn) {
+            SHUser *user = [SHUser fromJSON:loggedIn];
+            if (user.pk.length) { [SHSettings setUserId:user.pk]; [SHSettings setUsername:user.username]; [SHSettings save]; }
+            [self setChallengePath:nil];
+            completion(user, nil);
+            return;
+        }
+        NSString *action = SHStr(d[@"action"]) ?: @"";
+        if (([action isEqualToString:@"close"] || [SHStr(d[@"status"]) isEqualToString:@"ok"]) && [SHSettings isLoggedIn]) {
+            [self setChallengePath:nil];
+            completion(nil, nil);   // the token arrived in the headers; the feed will load the account
+            return;
+        }
+        NSString *msg = SHStr(d[@"message"]) ?: (error.localizedDescription ?: L(@"That code didn't work. Try again."));
+        completion(nil, SHMakeError(status ?: SHErrorAPI, msg));
+    }];
+}
+
+#pragma mark - Connectivity probe (no password)
+
++ (SHHTTPTask *)probeConnectivityWithCompletion:(void (^)(BOOL ok, NSString *detail, NSError *error))completion
+{
+    return [self fetchEncryptionKeyWithCompletion:^(NSString *pubKey, NSInteger keyId, NSError *error) {
+        if (error) { completion(NO, error.localizedDescription, error); return; }
+        BOOL ok = pubKey.length > 0;
+        NSString *detail = [NSString stringWithFormat:@"reached i.instagram.com: pubKey=%@ keyId=%ld csrf=%@",
+            ok ? @"yes" : @"no", (long)keyId, [SHSettings csrfToken].length ? @"yes" : @"no"];
+        completion(ok, detail, nil);
+    }];
+}
+
+#pragma mark - Current user, lists and media info
+
++ (SHHTTPTask *)currentUserWithCompletion:(SHUserCompletion)completion
+{
+    NSString *url = [SHApiBase stringByAppendingString:@"/accounts/current_user/?edit=true"];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        SHUser *user = [SHUser fromJSON:SHDict(SHDict(json)[@"user"])];
+        if (!user) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"Couldn't load your profile."))); return; }
+        if (user.pk.length) [SHSettings setUserId:user.pk];
+        completion(user, nil);
+    }];
+}
+
++ (SHHTTPTask *)usersListAtPath:(NSString *)path maxId:(NSString *)maxId query:(NSString *)query
+                     completion:(void (^)(NSArray *users, NSString *nextMaxId, NSError *error))completion
+{
+    NSMutableString *url = [NSMutableString stringWithString:path];
+    [url appendString:[url rangeOfString:@"?"].location == NSNotFound ? @"?" : @"&"];
+    if (maxId.length) [url appendFormat:@"max_id=%@&", [SHUtils urlEncode:maxId]];
+    if (query.length) [url appendFormat:@"query=%@&", [SHUtils urlEncode:query]];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSDictionary *d = SHDict(json);
+        NSMutableArray *users = [NSMutableArray array];
+        for (NSDictionary *item in SHArr(d[@"users"])) {
+            SHUser *u = [SHUser fromJSON:item];
+            if (u.pk.length) [users addObject:u];
+        }
+        completion(users, SHStr(d[@"next_max_id"]), nil);
+    }];
+}
+
++ (SHHTTPTask *)followersForPk:(NSString *)pk maxId:(NSString *)maxId query:(NSString *)query
+                    completion:(void (^)(NSArray *users, NSString *nextMaxId, NSError *error))completion
+{
+    return [self usersListAtPath:[NSString stringWithFormat:@"%@/friendships/%@/followers/", SHApiBase, pk]
+                           maxId:maxId query:query completion:completion];
+}
+
++ (SHHTTPTask *)followingForPk:(NSString *)pk maxId:(NSString *)maxId query:(NSString *)query
+                    completion:(void (^)(NSArray *users, NSString *nextMaxId, NSError *error))completion
+{
+    return [self usersListAtPath:[NSString stringWithFormat:@"%@/friendships/%@/following/", SHApiBase, pk]
+                           maxId:maxId query:query completion:completion];
+}
+
++ (SHHTTPTask *)likersForPost:(NSString *)mediaPk completion:(SHSearchCompletion)completion
+{
+    NSString *url = [NSString stringWithFormat:@"%@/media/%@/likers/", SHApiBase, mediaPk];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSMutableArray *users = [NSMutableArray array];
+        for (NSDictionary *item in SHArr(SHDict(json)[@"users"])) {
+            SHUser *u = [SHUser fromJSON:item];
+            if (u.pk.length) [users addObject:u];
+        }
+        completion(users, nil);
+    }];
+}
+
++ (SHHTTPTask *)mediaInfo:(NSString *)mediaPk completion:(SHMediaCompletion)completion
+{
+    NSString *url = [NSString stringWithFormat:@"%@/media/%@/info/", SHApiBase, mediaPk];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        SHPost *p = [SHPost fromJSON:SHDict([SHArr(SHDict(json)[@"items"]) firstObject])];
+        if (!p.pk.length) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"That post isn't available."))); return; }
+        completion(p, nil);
+    }];
+}
+
+#pragma mark - Explore and Activity
+
+// Explore layouts change often, so pull every media-shaped node out of the response rather than relying on one shape.
+static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
+{
+    if ([node isKindOfClass:[NSArray class]]) {
+        for (id child in node) SHCollectMedia(child, out, seen);
+    } else if ([node isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *d = node;
+        BOOL looksLikeMedia = d[@"media_type"] && (d[@"image_versions2"] || d[@"carousel_media"] || d[@"video_versions"]) && (d[@"pk"] || d[@"id"]);
+        if (looksLikeMedia) {
+            SHPost *p = [SHPost fromJSON:d];
+            NSString *key = p.pk ?: @"";
+            if (p.image.url.length && key.length && ![seen containsObject:key]) {
+                [seen addObject:key];
+                [out addObject:p];
+            }
+            return;   // don't descend into a media's own nested media (carousel children)
+        }
+        for (id key in d) SHCollectMedia(d[key], out, seen);
+    }
+}
+
++ (SHHTTPTask *)exploreWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion
+{
+    NSMutableString *url = [NSMutableString stringWithFormat:@"%@/discover/topical_explore/?is_prefetch=false&module=explore_popular", SHApiBase];
+    if (maxId.length) [url appendFormat:@"&max_id=%@", [SHUtils urlEncode:maxId]];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSDictionary *d = SHDict(json);
+        NSMutableArray *posts = [NSMutableArray array];
+        NSMutableSet *seen = [NSMutableSet set];
+        SHCollectMedia(d[@"sectional_items"] ?: d[@"items"] ?: d, posts, seen);
+        completion(posts, SHStr(d[@"next_max_id"]) ?: SHStr(d[@"rank_token"]) , nil);
+    }];
+}
+
++ (SHHTTPTask *)newsInboxWithCompletion:(SHNewsCompletion)completion
+{
+    NSString *url = [SHApiBase stringByAppendingString:@"/news/inbox/"];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSDictionary *d = SHDict(json);
+        NSMutableArray *stories = [NSMutableArray array];
+        for (NSDictionary *s in SHArr(d[@"new_stories"])) { SHNewsStory *n = [SHNewsStory fromJSON:s]; if (n) [stories addObject:n]; }
+        for (NSDictionary *s in SHArr(d[@"old_stories"])) { SHNewsStory *n = [SHNewsStory fromJSON:s]; if (n) [stories addObject:n]; }
+        completion(stories, nil);
+    }];
+}
+
+#pragma mark - Saved posts
+
++ (SHHTTPTask *)savedFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion
+{
+    NSMutableString *url = [NSMutableString stringWithFormat:@"%@/feed/saved/posts/", SHApiBase];
+    if (maxId.length) [url appendFormat:@"?max_id=%@", [SHUtils urlEncode:maxId]];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSDictionary *d = SHDict(json);
+        NSMutableArray *posts = [NSMutableArray array];
+        for (NSDictionary *item in SHArr(d[@"items"])) {
+            SHPost *p = [SHPost fromJSON:SHDict(item[@"media"]) ?: item];
+            if (p.pk.length) [posts addObject:p];
+        }
+        completion(posts, SHStr(d[@"next_max_id"]), nil);
+    }];
+}
+
++ (SHHTTPTask *)setSaved:(BOOL)saved post:(NSString *)mediaPk completion:(SHActionCompletion)completion
+{
+    NSDictionary *params = @{ @"_uid": [SHSettings userId], @"_uuid": [SHSettings deviceId] };
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *url = [NSString stringWithFormat:@"%@/media/%@/%@/", SHApiBase, mediaPk, saved ? @"save" : @"unsave"];
+    return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        if (error) { completion(NO, error); return; }
+        completion([SHStr(SHDict([SHUtils JSONObjectFromData:body])[@"status"]) isEqualToString:@"ok"], nil);
+    }];
+}
+
++ (SHHTTPTask *)savePost:(NSString *)mediaPk completion:(SHActionCompletion)completion { return [self setSaved:YES post:mediaPk completion:completion]; }
++ (SHHTTPTask *)unsavePost:(NSString *)mediaPk completion:(SHActionCompletion)completion { return [self setSaved:NO post:mediaPk completion:completion]; }
+
+#pragma mark - Direct messages
+
++ (SHHTTPTask *)directInboxWithCursor:(NSString *)cursor completion:(SHThreadsCompletion)completion
+{
+    NSMutableString *url = [NSMutableString stringWithFormat:@"%@/direct_v2/inbox/?persistentBadging=true&limit=20&thread_message_limit=1", SHApiBase];
+    if (cursor.length) [url appendFormat:@"&cursor=%@", [SHUtils urlEncode:cursor]];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSDictionary *inbox = SHDict(SHDict(json)[@"inbox"]);
+        NSMutableArray *threads = [NSMutableArray array];
+        for (NSDictionary *t in SHArr(inbox[@"threads"])) {
+            SHDirectThread *thread = [SHDirectThread fromJSON:t];
+            if (thread.threadId.length) [threads addObject:thread];
+        }
+        NSString *next = SHBool(inbox[@"has_older"]) ? SHStr(inbox[@"oldest_cursor"]) : nil;
+        completion(threads, next, nil);
+    }];
+}
+
++ (SHHTTPTask *)directThread:(NSString *)threadId cursor:(NSString *)cursor completion:(SHThreadCompletion)completion
+{
+    NSMutableString *url = [NSMutableString stringWithFormat:@"%@/direct_v2/threads/%@/?limit=20", SHApiBase, threadId];
+    if (cursor.length) [url appendFormat:@"&cursor=%@", [SHUtils urlEncode:cursor]];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSDictionary *t = SHDict(SHDict(json)[@"thread"]);
+        SHDirectThread *thread = [SHDirectThread fromJSON:t];
+        completion(thread, SHBool(t[@"has_older"]) ? SHStr(t[@"oldest_cursor"]) : nil, nil);
+    }];
+}
+
++ (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion
+{
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSDictionary *fields = @{
+        @"action": @"send_item",
+        @"thread_ids": [NSString stringWithFormat:@"[%@]", threadId],
+        @"client_context": [[NSUUID UUID] UUIDString],
+        @"text": text,
+        @"_uuid": [SHSettings deviceId],
+        @"device_id": [SHSettings androidId],
+    };
+    NSString *url = [SHApiBase stringByAppendingString:@"/direct_v2/threads/broadcast/text/"];
+    return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(NO, error); return; }
+        completion([SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+    }];
 }
 
 @end

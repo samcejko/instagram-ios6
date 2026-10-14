@@ -1,6 +1,7 @@
 #import "SHAppDelegate.h"
 #import "SHLoginViewController.h"
 #import "SHFeedViewController.h"
+#import "SHMainTabController.h"
 #import "SHLinkRouter.h"
 #import "SHInstagram.h"
 #import "SHMediaProxy.h"
@@ -11,6 +12,7 @@
 #import "SHUtils.h"
 #import "SHModern.h"
 #import "SHCommon.h"
+#import <QuartzCore/QuartzCore.h>
 #include <signal.h>
 
 @implementation SHAppDelegate
@@ -49,10 +51,7 @@
 
 - (void)showFeed
 {
-    SHFeedViewController *feed = [[SHFeedViewController alloc] init];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:feed];
-    [[SHTheme shared] applyToNavigationBar:nav.navigationBar];
-    self.window.rootViewController = nav;
+    self.window.rootViewController = [[SHMainTabController alloc] init];
 }
 
 - (UIViewController *)topController
@@ -91,6 +90,32 @@
         SHLog(@"Top: %@, proxy %@", NSStringFromClass([[self topController] class]), [[SHMediaProxy shared] statsDescription]);
         return YES;
     }
+    if ([target isEqualToString:@"snapshot"] || [target isEqualToString:@"screen"]) {
+        [self writeSnapshot];
+        return YES;
+    }
+    if ([target isEqualToString:@"probe"]) {
+        [SHInstagram probeConnectivityWithCompletion:^(BOOL ok, NSString *detail, NSError *error) {
+            SHLog(@"PROBE %@ — %@%@", ok ? @"OK" : @"FAIL", detail ?: @"", error ? [@" error: " stringByAppendingString:error.localizedDescription] : @"");
+        }];
+        return YES;
+    }
+    if ([target isEqualToString:@"showtabs"]) {
+        [self showFeed];   // the main tab shell, even without a session, to inspect the layout
+        return YES;
+    }
+    if ([target isEqualToString:@"tab"]) {
+        NSInteger idx = [params[@"i"] integerValue];
+        UIViewController *root = self.window.rootViewController;
+        if ([root isKindOfClass:[UITabBarController class]] && idx >= 0 && idx < (NSInteger)[(UITabBarController *)root viewControllers].count)
+            [(UITabBarController *)root setSelectedIndex:idx];
+        return YES;
+    }
+    if ([target isEqualToString:@"press"]) {
+        CGPoint pt = CGPointMake([params[@"x"] floatValue], [params[@"y"] floatValue]);
+        [self pressAtPoint:pt];
+        return YES;
+    }
     if ([target isEqualToString:@"lang"]) {
         NSString *set = params[@"set"] ?: @"system";
         NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
@@ -106,5 +131,58 @@
 
 - (void)applicationWillEnterForeground:(UIApplication *)application { [[SHMediaProxy shared] ensureRunning]; }
 - (void)applicationDidEnterBackground:(UIApplication *)application { [SHSettings save]; }
+
+#pragma mark - Debug helpers (only reached when a "debug" file exists in Documents)
+
+// Renders every visible window (including alerts and action sheets, which use their own windows on iOS 6)
+// into tmp/screen.png, where tools/ipad.ps1 reads it.
+- (void)writeSnapshot
+{
+    CGSize size = [UIScreen mainScreen].bounds.size;
+    UIGraphicsBeginImageContextWithOptions(size, NO, 0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    for (UIWindow *w in [UIApplication sharedApplication].windows) {
+        if (w.hidden || w.alpha < 0.01) continue;
+        CGContextSaveGState(ctx);
+        CGContextTranslateCTM(ctx, w.center.x, w.center.y);
+        CGContextConcatCTM(ctx, w.transform);
+        CGContextTranslateCTM(ctx, -w.bounds.size.width * w.layer.anchorPoint.x, -w.bounds.size.height * w.layer.anchorPoint.y);
+        [w.layer renderInContext:ctx];
+        CGContextRestoreGState(ctx);
+    }
+    UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    NSData *png = UIImagePNGRepresentation(img);
+    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"screen.png"];
+    [png writeToFile:path atomically:YES];
+    SHLog(@"snapshot %ldx%ld -> %@ (%lu bytes)", (long)size.width, (long)size.height, path, (unsigned long)png.length);
+}
+
+// A best-effort synthetic tap for headless testing: hit-tests the point and triggers the control or table row under it.
+- (void)pressAtPoint:(CGPoint)pt
+{
+    UIWindow *win = [UIApplication sharedApplication].keyWindow;
+    UIView *hit = [win hitTest:pt withEvent:nil];
+    SHLog(@"press (%.0f,%.0f) -> %@", pt.x, pt.y, NSStringFromClass([hit class]));
+    UIView *v = hit;
+    while (v) {
+        if ([v isKindOfClass:[UIControl class]]) {
+            [(UIControl *)v sendActionsForControlEvents:UIControlEventTouchUpInside];
+            return;
+        }
+        if ([v isKindOfClass:[UITableViewCell class]]) {
+            UITableViewCell *cell = (UITableViewCell *)v;
+            UITableView *table = nil;
+            UIView *p = cell.superview;
+            while (p && !table) { if ([p isKindOfClass:[UITableView class]]) table = (UITableView *)p; p = p.superview; }
+            NSIndexPath *ip = table ? [table indexPathForCell:cell] : nil;
+            if (table && ip && [table.delegate respondsToSelector:@selector(tableView:didSelectRowAtIndexPath:)]) {
+                [table.delegate tableView:table didSelectRowAtIndexPath:ip];
+            }
+            return;
+        }
+        v = v.superview;
+    }
+}
 
 @end

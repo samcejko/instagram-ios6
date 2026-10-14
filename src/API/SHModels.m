@@ -79,6 +79,7 @@
     p.likeCount = SHInt(d[@"like_count"]);
     p.commentCount = SHInt(d[@"comment_count"]);
     p.hasLiked = SHBool(d[@"has_liked"]);
+    p.saved = SHBool(d[@"has_viewer_saved"]);
     NSTimeInterval ts = SHDbl(d[@"taken_at"]);
     p.takenAt = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
 
@@ -163,6 +164,112 @@
     r.items = items;
     r.seen = SHDbl(d[@"seen"]) > 0;
     return r;
+}
+
+@end
+
+@implementation SHNewsStory
+
++ (instancetype)fromJSON:(NSDictionary *)json
+{
+    NSDictionary *d = SHDict(json);
+    if (!d) return nil;
+    SHNewsStory *n = [[SHNewsStory alloc] init];
+    NSDictionary *args = SHDict(d[@"args"]);
+    n.text = SHStr(args[@"text"]) ?: @"";
+    NSTimeInterval ts = SHDbl(args[@"timestamp"]);
+    n.timestamp = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
+    n.profilePicURL = SHStr(args[@"profile_image"]) ?: @"";
+    // The related media, when the story is about a post (a like/comment): a small thumbnail and its id.
+    NSDictionary *media = SHDict([SHArr(args[@"media"]) firstObject]);
+    n.mediaThumbURL = SHStr(media[@"image"]) ?: @"";
+    n.mediaPk = SHStr(media[@"id"]) ?: @"";
+    NSArray *links = SHArr(args[@"links"]);
+    NSDictionary *link = SHDict([links firstObject]);
+    n.userPk = SHStr(args[@"profile_id"]) ?: SHStr(link[@"id"]) ?: @"";
+    n.username = SHStr(args[@"profile_name"]) ?: @"";
+    if (!n.text.length) return nil;
+    return n;
+}
+
+@end
+
+@implementation SHDirectMessage
+
++ (instancetype)fromJSON:(NSDictionary *)json
+{
+    NSDictionary *d = SHDict(json);
+    if (!d) return nil;
+    SHDirectMessage *m = [[SHDirectMessage alloc] init];
+    m.pk = SHStr(d[@"item_id"]) ?: @"";
+    m.type = SHStr(d[@"item_type"]) ?: @"";
+    m.senderPk = SHStr(d[@"user_id"]) ?: @"";
+    NSTimeInterval ts = SHDbl(d[@"timestamp"]);   // microseconds
+    if (ts > 1e14) ts /= 1e6;
+    m.timestamp = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
+
+    if ([m.type isEqualToString:@"text"]) {
+        m.text = SHStr(d[@"text"]) ?: @"";
+    } else if ([m.type isEqualToString:@"like"]) {
+        m.text = SHStr(d[@"like"]) ?: @"❤";   // a heart
+    } else if ([m.type isEqualToString:@"link"]) {
+        m.text = SHStr(SHDict(d[@"link"])[@"text"]) ?: @"";
+    } else if ([m.type isEqualToString:@"media"]) {
+        NSDictionary *media = SHDict(d[@"media"]);
+        m.previewURL = SHStr([SHMediaImage bestFromCandidates:SHArr(media[@"image_versions2"][@"candidates"])].url) ?: @"";
+        m.placeholderText = L(@"Photo");
+    } else if ([m.type isEqualToString:@"media_share"] || [m.type isEqualToString:@"clip"] || [m.type isEqualToString:@"felix_share"]) {
+        NSDictionary *media = SHDict(d[@"media_share"]) ?: SHDict(SHDict(d[@"clip"])[@"clip"]);
+        m.previewURL = SHStr([SHMediaImage bestFromCandidates:SHArr(media[@"image_versions2"][@"candidates"])].url) ?: @"";
+        m.placeholderText = L(@"Shared a post");
+    } else if ([m.type isEqualToString:@"story_share"]) {
+        m.placeholderText = L(@"Shared a story");
+    } else if ([m.type isEqualToString:@"voice_media"]) {
+        m.placeholderText = L(@"Voice message");
+    } else {
+        m.placeholderText = SHStr(d[@"text"]) ?: L(@"Unsupported message");
+    }
+    return m;
+}
+
+@end
+
+@implementation SHDirectThread
+
++ (instancetype)fromJSON:(NSDictionary *)json
+{
+    NSDictionary *d = SHDict(json);
+    if (!d) return nil;
+    SHDirectThread *t = [[SHDirectThread alloc] init];
+    t.threadId = SHStr(d[@"thread_id"]) ?: @"";
+
+    NSMutableArray *users = [NSMutableArray array];
+    for (NSDictionary *u in SHArr(d[@"users"])) {
+        SHUser *user = [SHUser fromJSON:u];
+        if (user) [users addObject:user];
+    }
+    t.users = users;
+
+    NSString *title = SHStr(d[@"thread_title"]);
+    if (!title.length) {
+        NSMutableArray *names = [NSMutableArray array];
+        for (SHUser *u in users) if (u.username.length) [names addObject:u.username];
+        title = [names componentsJoinedByString:@", "];
+    }
+    t.title = title.length ? title : L(@"Direct");
+
+    NSMutableArray *messages = [NSMutableArray array];
+    for (NSDictionary *item in SHArr(d[@"items"])) {
+        SHDirectMessage *m = [SHDirectMessage fromJSON:item];
+        if (m) [messages addObject:m];
+    }
+    t.messages = messages;
+
+    SHDirectMessage *last = [messages firstObject];
+    t.lastText = last.text.length ? last.text : (last.placeholderText ?: @"");
+    t.lastActivity = last.timestamp;
+    t.unread = SHInt(d[@"read_state"]) != 0;
+    return t;
 }
 
 @end

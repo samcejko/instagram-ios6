@@ -10,6 +10,8 @@
 + (void)setSessionToken:(NSString *)token;
 + (NSString *)csrfToken;
 + (void)setCsrfToken:(NSString *)token;
++ (NSString *)wwwClaim;
++ (void)setWwwClaim:(NSString *)claim;
 + (NSString *)userId;
 + (void)setUserId:(NSString *)uid;
 + (NSString *)username;

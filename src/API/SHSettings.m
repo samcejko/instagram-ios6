@@ -47,6 +47,9 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
 + (NSString *)csrfToken { return [SHKeychain stringForKey:SHCsrfTokenKey] ?: @""; }
 + (void)setCsrfToken:(NSString *)token { [SHKeychain setString:token forKey:SHCsrfTokenKey]; }
 
++ (NSString *)wwwClaim { return [DEF stringForKey:@"wwwClaim"] ?: @""; }
++ (void)setWwwClaim:(NSString *)claim { [DEF setObject:claim ?: @"" forKey:@"wwwClaim"]; }
+
 + (NSString *)userId { return [DEF stringForKey:@"userId"] ?: @""; }
 + (void)setUserId:(NSString *)uid { [DEF setObject:uid ?: @"" forKey:@"userId"]; [self save]; }
 
@@ -61,6 +64,7 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
 {
     [self setSessionToken:@""];
     [self setCsrfToken:@""];
+    [self setWwwClaim:@""];
     [self setUserId:@""];
     [self setUsername:@""];
     [self notify];

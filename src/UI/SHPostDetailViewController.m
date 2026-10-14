@@ -1,6 +1,7 @@
 #import "SHPostDetailViewController.h"
 #import "SHCommentsViewController.h"
 #import "SHProfileViewController.h"
+#import "SHUserListViewController.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
@@ -12,13 +13,14 @@
 #import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
 
-@interface SHPostDetailViewController ()
+@interface SHPostDetailViewController () <UIScrollViewDelegate>
 @property (nonatomic, strong) SHPost *post;
 @property (nonatomic, strong) UIScrollView *scrollView;
-@property (nonatomic, strong) SHImageView *imageView;
-@property (nonatomic, strong) UILabel *captionLabel;
+@property (nonatomic, strong) UIScrollView *carousel;     // horizontal pager for multi-image posts
+@property (nonatomic, strong) UIPageControl *pageControl;
 @property (nonatomic, strong) UILabel *likesLabel;
 @property (nonatomic, strong) UIButton *likeButton;
+@property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) MPMoviePlayerController *player;
 @end
 
@@ -30,10 +32,16 @@
     return self;
 }
 
+- (NSArray *)mediaItems
+{
+    if (_post.carouselMedia.count > 1) return _post.carouselMedia;
+    return _post ? @[ _post ] : @[];
+}
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.title = _post.user.username.length ? [@"@" stringByAppendingString:_post.user.username] : L(@"Post");
+    self.title = _post.user.username.length ? _post.user.username : L(@"Post");
     self.view.backgroundColor = [[SHTheme shared] backgroundColor];
 
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:L(@"Comments")
@@ -48,54 +56,111 @@
     if (_post.image && _post.image.width > 0 && _post.image.height > 0) {
         imgH = w * ((CGFloat)_post.image.height / (CGFloat)_post.image.width);
         if (imgH > w * 1.5) imgH = w * 1.5;
+        if (imgH < w * 0.6) imgH = w * 0.6;
     }
 
-    _imageView = [[SHImageView alloc] initWithFrame:CGRectMake(0, 0, w, imgH)];
-    _imageView.contentMode = UIViewContentModeScaleAspectFill;
-    _imageView.clipsToBounds = YES;
-    _imageView.backgroundColor = [[SHTheme shared] separatorColor];
-    [_imageView setImageURL:_post.image.url placeholder:nil];
-    [_scrollView addSubview:_imageView];
+    NSArray *items = [self mediaItems];
+    BOOL isVideo = _post.carouselMedia.count <= 1 && _post.videoURL.length > 0;
 
-    CGFloat y = imgH + 8;
-
-    if (_post.videoURL.length) {
+    if (isVideo) {
+        SHImageView *poster = [[SHImageView alloc] initWithFrame:CGRectMake(0, 0, w, imgH)];
+        poster.contentMode = UIViewContentModeScaleAspectFill;
+        poster.clipsToBounds = YES;
+        poster.backgroundColor = [[SHTheme shared] separatorColor];
+        [poster setImageURL:_post.image.url placeholder:nil];
+        [_scrollView addSubview:poster];
         NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:_post.videoURL]];
         _player = [[MPMoviePlayerController alloc] initWithContentURL:[NSURL URLWithString:proxied]];
         _player.view.frame = CGRectMake(0, 0, w, imgH);
         _player.controlStyle = MPMovieControlStyleEmbedded;
         _player.shouldAutoplay = NO;
         [_scrollView addSubview:_player.view];
+    } else {
+        _carousel = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, w, imgH)];
+        _carousel.pagingEnabled = YES;
+        _carousel.showsHorizontalScrollIndicator = NO;
+        _carousel.delegate = self;
+        _carousel.contentSize = CGSizeMake(w * items.count, imgH);
+        for (NSUInteger i = 0; i < items.count; i++) {
+            SHPost *item = items[i];
+            SHImageView *iv = [[SHImageView alloc] initWithFrame:CGRectMake(w * (CGFloat)i, 0, w, imgH)];
+            iv.contentMode = UIViewContentModeScaleAspectFill;
+            iv.clipsToBounds = YES;
+            iv.backgroundColor = [[SHTheme shared] separatorColor];
+            [iv setImageURL:item.image.url placeholder:nil];
+            [_carousel addSubview:iv];
+        }
+        [_scrollView addSubview:_carousel];
+        if (items.count > 1) {
+            _pageControl = [[UIPageControl alloc] initWithFrame:CGRectMake(0, imgH - 24, w, 16)];
+            _pageControl.numberOfPages = (NSInteger)items.count;
+            _pageControl.userInteractionEnabled = NO;
+            [_scrollView addSubview:_pageControl];
+        }
     }
 
+    CGFloat y = imgH + 8;
+
     _likeButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    _likeButton.frame = CGRectMake(12, y, 30, 30);
+    _likeButton.frame = CGRectMake(10, y, 36, 32);
     [_likeButton setTitle:@"♥" forState:UIControlStateNormal];
     _likeButton.titleLabel.font = [UIFont systemFontOfSize:26];
     [_likeButton setTitleColor:_post.hasLiked ? [UIColor redColor] : [[SHTheme shared] textColor] forState:UIControlStateNormal];
     [_likeButton addTarget:self action:@selector(likeTapped) forControlEvents:UIControlEventTouchUpInside];
     [_scrollView addSubview:_likeButton];
 
-    _likesLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, y + 32, w - 24, 18)];
+    UIButton *commentButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    commentButton.frame = CGRectMake(50, y, 40, 32);
+    [commentButton setTitle:@"\U0001F4AC" forState:UIControlStateNormal];
+    commentButton.titleLabel.font = [UIFont systemFontOfSize:22];
+    [commentButton addTarget:self action:@selector(commentsTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_scrollView addSubview:commentButton];
+
+    _saveButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    _saveButton.frame = CGRectMake(w - 46, y, 36, 32);
+    _saveButton.titleLabel.font = [UIFont systemFontOfSize:24];
+    [_saveButton addTarget:self action:@selector(saveTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self updateSaveUI];
+    [_scrollView addSubview:_saveButton];
+
+    _likesLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, y + 34, w - 24, 18)];
     _likesLabel.font = [UIFont boldSystemFontOfSize:14];
     _likesLabel.textColor = [[SHTheme shared] textColor];
-    _likesLabel.text = [NSString stringWithFormat:L(@"%@ likes"), [SHUtils formatCount:_post.likeCount]];
+    _likesLabel.userInteractionEnabled = YES;
+    [_likesLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(showLikers)]];
+    [self updateLikeUI];
     [_scrollView addSubview:_likesLabel];
-    y += 56;
+    y += 58;
 
     if (_post.captionText.length) {
-        _captionLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 24, 0)];
-        _captionLabel.numberOfLines = 0;
-        _captionLabel.font = [UIFont systemFontOfSize:14];
-        _captionLabel.textColor = [[SHTheme shared] textColor];
-        _captionLabel.text = [SHUtils displayText:_post.captionText];
-        CGSize sz = [_captionLabel sizeThatFits:CGSizeMake(w - 24, 9999)];
-        _captionLabel.frame = CGRectMake(12, y, w - 24, sz.height);
-        [_scrollView addSubview:_captionLabel];
-        y += sz.height + 12;
+        UILabel *caption = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 24, 0)];
+        caption.numberOfLines = 0;
+        caption.font = [UIFont systemFontOfSize:14];
+        caption.textColor = [[SHTheme shared] textColor];
+        NSString *user = _post.user.username.length ? [_post.user.username stringByAppendingString:@"  "] : @"";
+        caption.text = [user stringByAppendingString:[SHUtils displayText:_post.captionText]];
+        CGSize sz = [caption sizeThatFits:CGSizeMake(w - 24, 9999)];
+        caption.frame = CGRectMake(12, y, w - 24, sz.height);
+        [_scrollView addSubview:caption];
+        y += sz.height + 10;
+    }
+
+    if (_post.takenAt) {
+        UILabel *date = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 24, 16)];
+        date.font = [UIFont systemFontOfSize:11];
+        date.textColor = [[SHTheme shared] secondaryTextColor];
+        date.text = [[SHUtils formatRelativeDate:_post.takenAt] uppercaseString];
+        [_scrollView addSubview:date];
+        y += 22;
     }
 
     _scrollView.contentSize = CGSizeMake(w, y + 20);
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+{
+    if (scrollView == _carousel && _pageControl)
+        _pageControl.currentPage = (NSInteger)(scrollView.contentOffset.x / scrollView.bounds.size.width + 0.5);
 }
 
 - (void)viewWillDisappear:(BOOL)animated
@@ -118,10 +183,38 @@
     }
 }
 
+- (void)saveTapped
+{
+    BOOL willSave = !_post.saved;
+    _post.saved = willSave;   // optimistic
+    [self updateSaveUI];
+    void (^done)(BOOL, NSError *) = ^(BOOL ok, NSError *err) {
+        if (!ok) { self->_post.saved = !willSave; [self updateSaveUI]; }
+    };
+    if (willSave) [SHInstagram savePost:_post.pk completion:done];
+    else [SHInstagram unsavePost:_post.pk completion:done];
+}
+
 - (void)updateLikeUI
 {
     [_likeButton setTitleColor:_post.hasLiked ? [UIColor redColor] : [[SHTheme shared] textColor] forState:UIControlStateNormal];
     _likesLabel.text = [NSString stringWithFormat:L(@"%@ likes"), [SHUtils formatCount:_post.likeCount]];
+}
+
+- (void)updateSaveUI
+{
+    [_saveButton setTitle:_post.saved ? @"\U0001F516" : @"\U0001F517" forState:UIControlStateNormal];
+    _saveButton.alpha = _post.saved ? 1.0 : 0.55;
+}
+
+- (void)showLikers
+{
+    if (!_post.pk.length || _post.likeCount == 0) return;
+    [SHInstagram likersForPost:_post.pk completion:^(NSArray *users, NSError *error) {
+        if (error) { [SHUtils alertWithTitle:L(@"Likes") message:error.localizedDescription]; return; }
+        SHUserListViewController *vc = [[SHUserListViewController alloc] initWithTitle:L(@"Likes") users:users];
+        [self.navigationController pushViewController:vc animated:YES];
+    }];
 }
 
 - (void)commentsTapped
