@@ -63,6 +63,7 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 
 // Explore grid and the activity ("news") inbox.
 + (SHHTTPTask *)exploreWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
++ (SHHTTPTask *)reelsWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;   // clips/discover
 + (SHHTTPTask *)newsInboxWithCompletion:(SHNewsCompletion)completion;
 
 // Saved posts (bookmarks).

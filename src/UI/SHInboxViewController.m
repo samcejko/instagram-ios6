@@ -1,5 +1,6 @@
 #import "SHInboxViewController.h"
 #import "SHThreadViewController.h"
+#import "SHProfileViewController.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
@@ -14,6 +15,7 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *previewLabel;
 @property (nonatomic, strong) UIView *unreadDot;
+@property (nonatomic, copy) void (^onAvatarTap)(void);   // tapping the picture opens that person's profile
 @end
 
 @implementation SHThreadRowCell
@@ -23,7 +25,10 @@ static NSString * const SHThreadCellId = @"ThreadCell";
         _avatar = [[SHImageView alloc] initWithFrame:CGRectMake(12, 12, 48, 48)];
         _avatar.layer.cornerRadius = 24;
         _avatar.clipsToBounds = YES;
+        _avatar.maxPixels = 128;
         _avatar.backgroundColor = [[SHTheme shared] separatorColor];
+        _avatar.userInteractionEnabled = YES;
+        [_avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)]];
         [self.contentView addSubview:_avatar];
         _titleLabel = [[UILabel alloc] init];
         _titleLabel.font = [UIFont boldSystemFontOfSize:14];
@@ -43,6 +48,8 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     }
     return self;
 }
+- (void)avatarTapped { if (_onAvatarTap) _onAvatarTap(); }
+
 - (void)layoutSubviews
 {
     [super layoutSubviews];
@@ -128,6 +135,12 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     SHDirectThread *t = _threads[(NSUInteger)indexPath.row];
     SHUser *first = [t.users firstObject];
     [cell.avatar setImageURL:first.profilePicURL placeholder:nil];
+    __weak SHInboxViewController *weakSelf = self;
+    cell.onAvatarTap = ^{
+        if (!first.username.length && !first.pk.length) return;
+        SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:first.username pk:first.pk];
+        [weakSelf.navigationController pushViewController:vc animated:YES];
+    };
     cell.titleLabel.text = t.title;
     cell.previewLabel.text = [SHUtils displayText:t.lastText ?: @""];
     cell.unreadDot.hidden = !t.unread;

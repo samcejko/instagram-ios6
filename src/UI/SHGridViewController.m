@@ -60,7 +60,18 @@ static NSString * const SHGridCellId = @"GridRow";
     _spinner.hidesWhenStopped = YES;
     [self.view addSubview:_spinner];
 
+    if (_secondaryTitle.length && _secondaryLoader) {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:_secondaryTitle style:UIBarButtonItemStyleBordered
+                                                                                  target:self action:@selector(showSecondary)];
+    }
     [self loadMore:NO];
+}
+
+- (void)showSecondary
+{
+    SHGridViewController *vc = [[SHGridViewController alloc] initWithTitle:_secondaryTitle loader:_secondaryLoader];
+    vc.emptyMessage = L(@"Nothing here yet.");
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)dealloc { [_task cancel]; }

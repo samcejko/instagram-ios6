@@ -51,6 +51,7 @@ static const CGFloat SHStoryPad = 8;
         SHImageView *avatar = [[SHImageView alloc] initWithFrame:CGRectMake(4, 4, SHStorySize, SHStorySize)];
         avatar.layer.cornerRadius = SHStorySize / 2;
         avatar.clipsToBounds = YES;
+        avatar.maxPixels = 160;
         avatar.backgroundColor = [[SHTheme shared] separatorColor];
         [avatar setImageURL:reel.user.profilePicURL placeholder:nil];
         [container addSubview:avatar];

@@ -48,6 +48,24 @@
     return img;
 }
 
++ (instancetype)candidateFromCandidates:(NSArray *)candidates minWidth:(NSInteger)minWidth
+{
+    NSArray *arr = SHArr(candidates);
+    if (!arr.count) return nil;
+    NSDictionary *pick = nil;
+    for (NSDictionary *c in arr) {
+        NSInteger w = SHInt(c[@"width"]);
+        if (w < minWidth) continue;
+        if (!pick || w < SHInt(pick[@"width"])) pick = c;
+    }
+    if (!pick) return [self bestFromCandidates:arr];
+    SHMediaImage *img = [[SHMediaImage alloc] init];
+    img.url = SHStr(pick[@"url"]) ?: @"";
+    img.width = SHInt(pick[@"width"]);
+    img.height = SHInt(pick[@"height"]);
+    return img;
+}
+
 @end
 
 @implementation SHPost
@@ -61,7 +79,10 @@
     p.code = SHStr(d[@"code"]) ?: @"";
     p.mediaType = SHInt(d[@"media_type"]);
     p.user = [SHUser fromJSON:SHDict(d[@"user"])];
-    p.image = [SHMediaImage bestFromCandidates:SHArr(d[@"image_versions2"][@"candidates"])];
+    NSArray *candidates = SHArr(d[@"image_versions2"][@"candidates"]);
+    p.image = [SHMediaImage bestFromCandidates:candidates];
+    p.mediumImage = [SHMediaImage candidateFromCandidates:candidates minWidth:640] ?: p.image;
+    p.thumbImage = [SHMediaImage candidateFromCandidates:candidates minWidth:300] ?: p.mediumImage;
     NSArray *videoVersions = SHArr(d[@"video_versions"]);
     if (videoVersions.count) {
         NSDictionary *best = nil;
@@ -177,6 +198,24 @@
     SHNewsStory *n = [[SHNewsStory alloc] init];
     NSDictionary *args = SHDict(d[@"args"]);
     n.text = SHStr(args[@"text"]) ?: @"";
+    if (!n.text.length) {
+        // newer items carry "rich_text" with {username|id} markers; keep just the name
+        NSString *rich = SHStr(args[@"rich_text"]) ?: @"";
+        NSMutableString *out = [NSMutableString string];
+        NSScanner *sc = [NSScanner scannerWithString:rich];
+        sc.charactersToBeSkipped = nil;
+        while (![sc isAtEnd]) {
+            NSString *plain = nil;
+            if ([sc scanUpToString:@"{" intoString:&plain]) [out appendString:plain];
+            if ([sc scanString:@"{" intoString:NULL]) {
+                NSString *inner = nil;
+                [sc scanUpToString:@"}" intoString:&inner];
+                [sc scanString:@"}" intoString:NULL];
+                [out appendString:[[inner componentsSeparatedByString:@"|"] firstObject] ?: @""];
+            }
+        }
+        n.text = out;
+    }
     NSTimeInterval ts = SHDbl(args[@"timestamp"]);
     n.timestamp = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
     n.profilePicURL = SHStr(args[@"profile_image"]) ?: @"";
@@ -215,17 +254,33 @@
     } else if ([m.type isEqualToString:@"link"]) {
         m.text = SHStr(SHDict(d[@"link"])[@"text"]) ?: @"";
     } else if ([m.type isEqualToString:@"media"]) {
+        // a photo or video sent directly
         NSDictionary *media = SHDict(d[@"media"]);
-        m.previewURL = SHStr([SHMediaImage bestFromCandidates:SHArr(media[@"image_versions2"][@"candidates"])].url) ?: @"";
-        m.placeholderText = L(@"Photo");
+        m.previewURL = [SHMediaImage candidateFromCandidates:SHArr(media[@"image_versions2"][@"candidates"]) minWidth:300].url ?: @"";
+        NSDictionary *vv = SHDict([SHArr(media[@"video_versions"]) firstObject]);
+        m.videoURL = SHStr(vv[@"url"]);
+        m.placeholderText = m.videoURL.length ? L(@"Video") : L(@"Photo");
     } else if ([m.type isEqualToString:@"media_share"] || [m.type isEqualToString:@"clip"] || [m.type isEqualToString:@"felix_share"]) {
-        NSDictionary *media = SHDict(d[@"media_share"]) ?: SHDict(SHDict(d[@"clip"])[@"clip"]);
-        m.previewURL = SHStr([SHMediaImage bestFromCandidates:SHArr(media[@"image_versions2"][@"candidates"])].url) ?: @"";
-        m.placeholderText = L(@"Shared a post");
+        NSDictionary *media = SHDict(d[@"media_share"]) ?: SHDict(SHDict(d[@"clip"])[@"clip"]) ?: SHDict(SHDict(d[@"felix_share"])[@"video"]);
+        m.sharedPost = [SHPost fromJSON:media];
+        m.previewURL = m.sharedPost.thumbImage.url ?: @"";
+        NSString *who = m.sharedPost.user.username;
+        m.placeholderText = who.length ? [NSString stringWithFormat:L(@"Shared a post by %@"), who] : L(@"Shared a post");
     } else if ([m.type isEqualToString:@"story_share"]) {
+        NSDictionary *media = SHDict(SHDict(d[@"story_share"])[@"media"]);
+        m.previewURL = [SHMediaImage candidateFromCandidates:SHArr(media[@"image_versions2"][@"candidates"]) minWidth:300].url ?: @"";
         m.placeholderText = L(@"Shared a story");
     } else if ([m.type isEqualToString:@"voice_media"]) {
+        NSDictionary *audio = SHDict(SHDict(SHDict(d[@"voice_media"])[@"media"])[@"audio"]);
+        m.audioURL = SHStr(audio[@"audio_src"]);
+        m.audioDuration = SHDbl(audio[@"duration"]) / 1000.0;   // milliseconds
         m.placeholderText = L(@"Voice message");
+    } else if ([m.type isEqualToString:@"animated_media"]) {
+        NSDictionary *images = SHDict(SHDict(d[@"animated_media"])[@"images"]);
+        m.previewURL = SHStr(SHDict(images[@"fixed_height"])[@"url"]) ?: @"";
+        m.placeholderText = @"GIF";
+    } else if ([m.type isEqualToString:@"action_log"]) {
+        m.placeholderText = SHStr(SHDict(d[@"action_log"])[@"description"]) ?: @"";
     } else {
         m.placeholderText = SHStr(d[@"text"]) ?: L(@"Unsupported message");
     }

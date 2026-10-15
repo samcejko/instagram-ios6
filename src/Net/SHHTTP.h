@@ -25,6 +25,8 @@ typedef void (^SHJSONCompletion)(id json, NSInteger status, NSError *error);
 + (SHHTTPTask *)postJSON:(NSString *)url headers:(NSDictionary *)headers object:(id)object retries:(NSInteger)retries
               completion:(SHJSONCompletion)completion;
 + (SHHTTPTask *)postForm:(NSString *)url fields:(NSDictionary *)fields completion:(SHJSONCompletion)completion;
+// The human-readable message in an error reply ({"message":…}, {"error_description":…}, …), or nil.
++ (NSString *)messageFromErrorJSON:(id)json;
 + (SHHTTPTask *)postForm:(NSString *)url headers:(NSDictionary *)headers fields:(NSDictionary *)fields completion:(SHJSONCompletion)completion;
 
 @end

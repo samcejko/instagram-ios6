@@ -32,6 +32,10 @@
         return [SHInstagram exploreWithMaxId:maxId completion:completion];
     }];
     explore.emptyMessage = L(@"Nothing to explore right now.");
+    explore.secondaryTitle = L(@"Reels");
+    explore.secondaryLoader = ^SHHTTPTask *(NSString *maxId, SHFeedCompletion completion) {
+        return [SHInstagram reelsWithMaxId:maxId completion:completion];
+    };
 
     SHActivityViewController *activity = [[SHActivityViewController alloc] init];
     SHInboxViewController *inbox = [[SHInboxViewController alloc] init];

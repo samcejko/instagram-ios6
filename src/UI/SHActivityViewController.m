@@ -25,6 +25,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
         _avatar = [[SHImageView alloc] initWithFrame:CGRectMake(12, 10, 40, 40)];
         _avatar.layer.cornerRadius = 20;
         _avatar.clipsToBounds = YES;
+        _avatar.maxPixels = 128;
         _avatar.backgroundColor = [[SHTheme shared] separatorColor];
         [self.contentView addSubview:_avatar];
         _textView2 = [[UILabel alloc] init];

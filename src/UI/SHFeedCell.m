@@ -110,8 +110,10 @@ static const CGFloat SHIconSize = 26;
 
     _timeLabel.text = post.takenAt ? [SHUtils formatRelativeDate:post.takenAt] : @"";
 
+    _avatarView.maxPixels = 128;
+    _photoView.maxPixels = 800;
     [_avatarView setImageURL:post.user.profilePicURL placeholder:nil];
-    [_photoView setImageURL:post.image.url placeholder:nil];
+    [_photoView setImageURL:post.mediumImage.url ?: post.image.url placeholder:nil];
 }
 
 - (void)layoutSubviews

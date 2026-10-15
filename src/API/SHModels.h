@@ -20,7 +20,10 @@
 @property (nonatomic, copy) NSString *url;
 @property (nonatomic) NSInteger width;
 @property (nonatomic) NSInteger height;
-+ (instancetype)bestFromCandidates:(NSArray *)candidates;
++ (instancetype)bestFromCandidates:(NSArray *)candidates;                       // the largest
+// The smallest candidate at least `minWidth` wide (the largest when none is): an iPad 2 should not pull a
+// 1080 px JPEG for a 56 px avatar or a 250 px grid thumbnail.
++ (instancetype)candidateFromCandidates:(NSArray *)candidates minWidth:(NSInteger)minWidth;
 @end
 
 @interface SHPost : NSObject
@@ -28,7 +31,9 @@
 @property (nonatomic, copy) NSString *code;
 @property (nonatomic) NSInteger mediaType;
 @property (nonatomic, strong) SHUser *user;
-@property (nonatomic, strong) SHMediaImage *image;
+@property (nonatomic, strong) SHMediaImage *image;        // the largest version (post detail)
+@property (nonatomic, strong) SHMediaImage *mediumImage;  // ~640 px (feed cells)
+@property (nonatomic, strong) SHMediaImage *thumbImage;   // ~320 px (grids, DM shares)
 @property (nonatomic, copy) NSString *videoURL;
 @property (nonatomic) NSTimeInterval videoDuration;
 @property (nonatomic, copy) NSString *captionText;
@@ -89,6 +94,10 @@
 @property (nonatomic, strong) NSDate *timestamp;
 @property (nonatomic, copy) NSString *previewURL;       // a thumbnail for media/shared items
 @property (nonatomic, copy) NSString *placeholderText;  // a label for items we cannot render ("Shared a post")
+@property (nonatomic, copy) NSString *audioURL;         // voice messages: the audio file to play
+@property (nonatomic) NSTimeInterval audioDuration;
+@property (nonatomic, strong) SHPost *sharedPost;       // media_share / clip: the post, to open it on tap
+@property (nonatomic, copy) NSString *videoURL;         // a video sent directly
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end
 

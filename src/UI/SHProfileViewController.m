@@ -191,24 +191,31 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
     if (_isCurrentUser) {
         UIButton *saved = [UIButton buttonWithType:UIButtonTypeCustom];
         saved.frame = CGRectMake(pad, y, w - pad * 2, 32);
-        saved.layer.cornerRadius = 4;
-        saved.layer.borderWidth = 1;
-        saved.layer.borderColor = [[SHTheme shared] separatorColor].CGColor;
         saved.titleLabel.font = [UIFont boldSystemFontOfSize:14];
         [saved setTitle:L(@"Saved") forState:UIControlStateNormal];
         [saved setTitleColor:[[SHTheme shared] textColor] forState:UIControlStateNormal];
+        [saved setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:NO] forState:UIControlStateNormal];
+        [saved setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
+        [[SHTheme shared] embossButton:saved];
         [saved addTarget:self action:@selector(showSaved) forControlEvents:UIControlEventTouchUpInside];
         [_headerView addSubview:saved];
         y += 42;
     } else {
         UIButton *followBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         followBtn.frame = CGRectMake(pad, y, w - pad * 2, 32);
-        followBtn.layer.cornerRadius = 4;
         followBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
         BOOL following = _user.friendshipFollowing;
         [followBtn setTitle:following ? L(@"Following") : L(@"Follow") forState:UIControlStateNormal];
         [followBtn setTitleColor:following ? [[SHTheme shared] textColor] : [UIColor whiteColor] forState:UIControlStateNormal];
-        followBtn.backgroundColor = following ? [[SHTheme shared] separatorColor] : [SHUtils colorFromHex:@"#0095F6"];
+        // glossy iOS 6 buttons: grey when already following, the accent capsule otherwise
+        if (following) {
+            [followBtn setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:NO] forState:UIControlStateNormal];
+            [followBtn setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
+        } else {
+            [followBtn setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:NO disabled:NO] forState:UIControlStateNormal];
+            [followBtn setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:YES disabled:NO] forState:UIControlStateHighlighted];
+        }
+        [[SHTheme shared] embossButton:followBtn];
         [followBtn addTarget:self action:@selector(followTapped:) forControlEvents:UIControlEventTouchUpInside];
         followBtn.tag = following ? 1 : 0;
         [_headerView addSubview:followBtn];

@@ -77,8 +77,17 @@
 /* Activity */
 "No recent activity." = "No recent activity.";
 
+/* Feed / explore */
+"Suggested for you" = "Suggested for you";
+"Reels" = "Reels";
+"Couldn't load the story." = "Couldn't load the story.";
+"This story is no longer available." = "This story is no longer available.";
+
 /* Direct messages */
 "No messages yet." = "No messages yet.";
+"Shared a post by %@" = "Shared a post by %@";
+"Video" = "Video";
+"Voice" = "Voice";
 "Message..." = "Message...";
 "Send" = "Send";
 "The message didn't send." = "The message didn't send.";

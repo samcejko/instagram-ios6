@@ -73,8 +73,11 @@
     [_loginButton setTitle:L(@"Log In") forState:UIControlStateNormal];
     [_loginButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     _loginButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
-    _loginButton.backgroundColor = [SHUtils colorFromHex:@"#0095F6"];
-    _loginButton.layer.cornerRadius = 6;
+    // the glossy iOS 6 capsule button from the theme instead of a flat fill
+    [_loginButton setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:NO disabled:NO] forState:UIControlStateNormal];
+    [_loginButton setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:YES disabled:NO] forState:UIControlStateHighlighted];
+    [_loginButton setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:NO disabled:YES] forState:UIControlStateDisabled];
+    [[SHTheme shared] embossButton:_loginButton];
     [_loginButton addTarget:self action:@selector(loginTapped) forControlEvents:UIControlEventTouchUpInside];
     [_scrollView addSubview:_loginButton];
     y += 52;

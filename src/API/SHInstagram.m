@@ -636,18 +636,20 @@ static NSString *SHExtractBloksError(NSString *body)
 
 + (SHHTTPTask *)storiesForUserIds:(NSArray *)userIds completion:(SHStoriesCompletion)completion
 {
-    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    // reels_media takes a SIGNED JSON body with user_ids as an array (a plain form with a comma list is rejected).
     NSMutableArray *ids = [NSMutableArray array];
-    for (id uid in userIds) [ids addObject:SHStr(uid) ?: @""];
-    params[@"user_ids"] = ids;
-
+    for (id uid in userIds) if (SHStr(uid).length) [ids addObject:SHStr(uid)];
+    NSDictionary *params = @{ @"user_ids": ids, @"_uuid": [SHSettings deviceId], @"_csrftoken": [SHSettings csrfToken] ?: @"",
+                              @"source": @"feed_timeline" };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"Content-Type"] = @"application/x-www-form-urlencoded";
 
-    return [SHHTTP postForm:[NSString stringWithFormat:@"%@/feed/reels_media/", SHApiBase]
-                    headers:h fields:@{ @"user_ids": [[ids componentsJoinedByString:@","] stringByReplacingOccurrencesOfString:@" " withString:@""] }
-                 completion:^(id json, NSInteger status, NSError *error) {
+    return [SHHTTP request:@"POST" url:[NSString stringWithFormat:@"%@/feed/reels_media/", SHApiBase]
+                   headers:h body:SHSignedBodyData(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
         if (error) { completion(nil, error); return; }
+        if (status >= 400) { completion(nil, SHMakeError(status, [SHHTTP messageFromErrorJSON:json] ?: L(@"Couldn't load the story."))); return; }
         NSDictionary *d = SHDict(json);
         NSDictionary *reelsMedia = SHDict(d[@"reels_media"]) ?: SHDict(d[@"reels"]);
         NSMutableArray *reels = [NSMutableArray array];
@@ -1058,14 +1060,38 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
 
 + (SHHTTPTask *)newsInboxWithCompletion:(SHNewsCompletion)completion
 {
-    NSString *url = [SHApiBase stringByAppendingString:@"/news/inbox/"];
+    NSString *url = [SHApiBase stringByAppendingString:@"/news/inbox/?mark_as_seen=false"];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *stories = [NSMutableArray array];
-        for (NSDictionary *s in SHArr(d[@"new_stories"])) { SHNewsStory *n = [SHNewsStory fromJSON:s]; if (n) [stories addObject:n]; }
-        for (NSDictionary *s in SHArr(d[@"old_stories"])) { SHNewsStory *n = [SHNewsStory fromJSON:s]; if (n) [stories addObject:n]; }
+        for (NSString *key in @[ @"new_stories", @"old_stories", @"stories" ]) {
+            for (NSDictionary *s in SHArr(d[key])) { SHNewsStory *n = [SHNewsStory fromJSON:s]; if (n) [stories addObject:n]; }
+        }
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
+            SHLog(@"NEWS status=%ld keys=%@ new=%lu old=%lu parsed=%lu", (long)status, [[d allKeys] componentsJoinedByString:@","],
+                  (unsigned long)SHArr(d[@"new_stories"]).count, (unsigned long)SHArr(d[@"old_stories"]).count, (unsigned long)stories.count);
         completion(stories, nil);
+    }];
+}
+
+// Reels: the clips discovery feed (short videos), paginated by max_id.
++ (SHHTTPTask *)reelsWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion
+{
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSMutableDictionary *fields = [@{ @"_uuid": [SHSettings deviceId], @"container_module": @"clips_viewer_clips_tab",
+                                      @"should_refetch_chaining_media": @"false", @"seen_reels": @"[]" } mutableCopy];
+    if (maxId.length) fields[@"max_id"] = maxId;
+    return [SHHTTP postForm:[SHApiBase stringByAppendingString:@"/clips/discover/"] headers:h fields:fields
+                 completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSDictionary *d = SHDict(json);
+        NSMutableArray *posts = [NSMutableArray array];
+        NSMutableSet *seen = [NSMutableSet set];
+        SHCollectMedia(d[@"items"] ?: d, posts, seen);
+        NSDictionary *paging = SHDict(d[@"paging_info"]);
+        completion(posts, SHStr(paging[@"max_id"]) ?: SHStr(d[@"next_max_id"]), nil);
     }];
 }
 

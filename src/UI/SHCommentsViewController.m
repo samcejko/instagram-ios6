@@ -47,6 +47,10 @@
     _inputBar = [[UIView alloc] initWithFrame:CGRectMake(0, bounds.size.height - barH, bounds.size.width, barH)];
     _inputBar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
     _inputBar.backgroundColor = [[SHTheme shared] backgroundColor];
+    UIImageView *barArt = [[UIImageView alloc] initWithImage:[[SHTheme shared] barBackgroundImage]];   // the glossy iOS 6 bar
+    barArt.frame = _inputBar.bounds;
+    barArt.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_inputBar addSubview:barArt];
     UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, bounds.size.width, 0.5)];
     sep.backgroundColor = [[SHTheme shared] separatorColor];
     sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;

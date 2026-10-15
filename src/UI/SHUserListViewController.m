@@ -22,6 +22,7 @@ static NSString * const SHUserCellId = @"UserCell";
         _avatar = [[SHImageView alloc] initWithFrame:CGRectMake(12, 9, 40, 40)];
         _avatar.layer.cornerRadius = 20;
         _avatar.clipsToBounds = YES;
+        _avatar.maxPixels = 128;
         _avatar.backgroundColor = [[SHTheme shared] separatorColor];
         [self.contentView addSubview:_avatar];
         _nameLabel = [[UILabel alloc] init];

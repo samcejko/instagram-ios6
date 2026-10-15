@@ -77,8 +77,17 @@
 /* Activity */
 "No recent activity." = "Žádná nedávná aktivita.";
 
+/* Feed / explore */
+"Suggested for you" = "Navrhované pro vás";
+"Reels" = "Reels";
+"Couldn't load the story." = "Příběh se nepodařilo načíst.";
+"This story is no longer available." = "Tento příběh už není dostupný.";
+
 /* Direct messages */
 "No messages yet." = "Zatím žádné zprávy.";
+"Shared a post by %@" = "Sdílel(a) příspěvek od %@";
+"Video" = "Video";
+"Voice" = "Hlasovka";
 "Message..." = "Zpráva…";
 "Send" = "Odeslat";
 "The message didn't send." = "Zprávu se nepodařilo odeslat.";

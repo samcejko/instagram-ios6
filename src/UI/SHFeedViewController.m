@@ -27,6 +27,13 @@ static NSString * const SHFeedCellId = @"FeedCell";
 @property (nonatomic, strong) SHHTTPTask *actionTask;
 @property (nonatomic) BOOL loading;
 @property (nonatomic) NSInteger autoPages;
+// "Suggested for you": what Instagram shows when the followed accounts are quiet. Filled from the explore feed
+// once the timeline runs dry, as its own section under the timeline posts.
+@property (nonatomic, strong) NSMutableArray *suggested;
+@property (nonatomic, copy) NSString *suggestedMaxId;
+@property (nonatomic) BOOL loadingSuggested;
+@property (nonatomic, strong) SHHTTPTask *suggestedTask;
+@property (nonatomic, strong) SHHTTPTask *storyTask;
 @end
 
 @implementation SHFeedViewController
@@ -39,6 +46,7 @@ static NSString * const SHFeedCellId = @"FeedCell";
     self.navigationItem.title = @"Gramify";
     self.view.backgroundColor = [[SHTheme shared] backgroundColor];
     _posts = [NSMutableArray array];
+    _suggested = [NSMutableArray array];
 
     UIBarButtonItem *search = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch
                                 target:self action:@selector(searchTapped)];
@@ -74,17 +82,41 @@ static NSString * const SHFeedCellId = @"FeedCell";
     _feedTask = [SHInstagram timelineFeedWithMaxId:more ? _nextMaxId : nil completion:^(NSArray *posts, NSString *nextMaxId, NSError *error) {
         self->_loading = NO;
         if (error) { SHLog(@"Feed error: %@", error.localizedDescription); return; }
-        if (!more) [self->_posts removeAllObjects];
+        if (!more) { [self->_posts removeAllObjects]; [self->_suggested removeAllObjects]; self->_suggestedMaxId = nil; }
         [self->_posts addObjectsFromArray:posts];
         self->_nextMaxId = nextMaxId;
         [self->_tableView reloadData];
         // The timeline opens with "Suggested for you" demarcators and no media on the first page(s); keep paging
-        // until some real posts arrive (capped) so the feed is never left blank when more is available.
-        if (self->_posts.count == 0 && nextMaxId.length && self->_autoPages < 6) {
+        // until some real posts arrive (capped). When it stays dry, fill in suggested posts like the real app.
+        if (self->_posts.count == 0 && nextMaxId.length && self->_autoPages < 4) {
             self->_autoPages++;
             [self loadFeed:YES];
+        } else if (self->_posts.count < 3 && self->_suggested.count == 0) {
+            [self loadSuggested:NO];
         }
     }];
+}
+
+- (void)loadSuggested:(BOOL)more
+{
+    if (_loadingSuggested) return;
+    if (more && !_suggestedMaxId.length) return;
+    _loadingSuggested = YES;
+    [_suggestedTask cancel];
+    _suggestedTask = [SHInstagram exploreWithMaxId:more ? _suggestedMaxId : nil completion:^(NSArray *posts, NSString *nextMaxId, NSError *error) {
+        self->_loadingSuggested = NO;
+        if (error) { SHLog(@"Suggested error: %@", error.localizedDescription); return; }
+        if (!more) [self->_suggested removeAllObjects];
+        for (SHPost *p in posts) if (p.image.url.length) [self->_suggested addObject:p];
+        self->_suggestedMaxId = nextMaxId;
+        [self->_tableView reloadData];
+    }];
+}
+
+- (SHPost *)postAt:(NSIndexPath *)ip
+{
+    NSArray *src = ip.section == 0 ? _posts : _suggested;
+    return (NSUInteger)ip.row < src.count ? src[(NSUInteger)ip.row] : nil;
 }
 
 - (void)loadStories
@@ -97,15 +129,35 @@ static NSString * const SHFeedCellId = @"FeedCell";
 
 #pragma mark - UITableView
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return _suggested.count ? 2 : 1; }
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    return (NSInteger)_posts.count;
+    return (NSInteger)(section == 0 ? _posts.count : _suggested.count);
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section { return section == 1 ? 26 : 0; }
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
+{
+    if (section != 1) return nil;
+    // the blue-grey gradient header of iOS 6 plain tables, with the title pressed into it
+    UIImageView *header = [[UIImageView alloc] initWithImage:[[SHTheme shared] sectionHeaderBackgroundImage]];
+    header.frame = CGRectMake(0, 0, tableView.bounds.size.width, 26);
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, tableView.bounds.size.width - 24, 26)];
+    label.text = L(@"Suggested for you");
+    label.font = [[SHTheme shared] tinyBoldFont];
+    label.textColor = [[SHTheme shared] embossTextColor];
+    label.backgroundColor = [UIColor clearColor];
+    [[SHTheme shared] embossLabel:label];
+    [header addSubview:label];
+    return header;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    SHPost *post = _posts[(NSUInteger)indexPath.row];
-    return [SHFeedCell heightForPost:post width:tableView.bounds.size.width];
+    SHPost *post = [self postAt:indexPath];
+    return post ? [SHFeedCell heightForPost:post width:tableView.bounds.size.width] : 0;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -113,14 +165,16 @@ static NSString * const SHFeedCellId = @"FeedCell";
     SHFeedCell *cell = [tableView dequeueReusableCellWithIdentifier:SHFeedCellId];
     if (!cell) cell = [[SHFeedCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:SHFeedCellId];
     cell.delegate = self;
-    [cell configureWithPost:_posts[(NSUInteger)indexPath.row]];
+    [cell configureWithPost:[self postAt:indexPath]];
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    if ((NSUInteger)indexPath.row >= _posts.count - 3 && _nextMaxId.length && !_loading) {
-        [self loadFeed:YES];
+    if (indexPath.section == 0) {
+        if ((NSUInteger)indexPath.row + 3 >= _posts.count && _nextMaxId.length && !_loading) [self loadFeed:YES];
+    } else {
+        if ((NSUInteger)indexPath.row + 3 >= _suggested.count && _suggestedMaxId.length && !_loadingSuggested) [self loadSuggested:YES];
     }
 }
 
@@ -161,13 +215,25 @@ static NSString * const SHFeedCellId = @"FeedCell";
 
 - (void)storyBar:(SHStoryBarView *)bar didSelectReel:(SHStoryReel *)reel atIndex:(NSUInteger)index
 {
-    NSMutableArray *pks = [NSMutableArray array];
-    for (SHStoryReel *r in _storyBar.reels) [pks addObject:r.user.pk];
-    [SHInstagram storiesForUserIds:pks completion:^(NSArray *reels, NSError *error) {
-        if (error || !reels.count) return;
+    // The tray already carries the items of the first reels; only a reel that came without them is fetched, and
+    // only that one, so a tap opens at once instead of after a round trip for everybody's stories.
+    NSArray *tray = _storyBar.reels;
+    void (^open)(NSArray *) = ^(NSArray *reels) {
         SHStoryViewController *vc = [[SHStoryViewController alloc] initWithReels:reels startIndex:index];
         vc.modalPresentationStyle = UIModalPresentationFullScreen;
         [self presentViewController:vc animated:YES completion:nil];
+    };
+    if (reel.items.count) { open(tray); return; }
+    [_storyTask cancel];
+    _storyTask = [SHInstagram storiesForUserIds:@[ reel.user.pk ?: @"" ] completion:^(NSArray *reels, NSError *error) {
+        SHStoryReel *fetched = [reels firstObject];
+        if (error || !fetched.items.count) {
+            [SHUtils alertWithTitle:L(@"Stories") message:error.localizedDescription ?: L(@"This story is no longer available.")];
+            return;
+        }
+        NSMutableArray *merged = [tray mutableCopy];
+        if (index < merged.count) merged[index] = fetched;
+        open(merged);
     }];
 }
 

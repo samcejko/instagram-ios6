@@ -68,7 +68,8 @@
             SHPost *p = posts[i];
             t.post = p;
             t.hidden = NO;
-            [t setImageURL:p.image.url placeholder:nil];
+            t.maxPixels = 320;
+            [t setImageURL:p.thumbImage.url ?: p.image.url placeholder:nil];
             [self markThumb:t forPost:p];
         } else {
             t.post = nil;
