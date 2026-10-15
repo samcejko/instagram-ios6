@@ -869,6 +869,19 @@ static NSString *g_challengePath = nil;
 + (void)setChallengePath:(NSString *)path { g_challengePath = [path copy]; }
 + (BOOL)hasPendingChallenge { return g_challengePath.length > 0; }
 
++ (void)registerChallengeObserver
+{
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(challengeRequiredNotification:)
+                                                 name:SHHTTPChallengeRequiredNotification object:nil];
+}
+
++ (void)challengeRequiredNotification:(NSNotification *)note
+{
+    NSString *path = SHStr(note.userInfo[@"path"]);
+    if (path.length) [self setChallengePath:path];
+    SHLog(@"Instagram stopped the session for a security check (challenge path %@)", path.length ? @"known" : @"missing");
+}
+
 + (NSString *)challengeURL
 {
     NSString *p = g_challengePath;
@@ -883,12 +896,15 @@ static NSString *g_challengePath = nil;
 {
     NSString *url = [self challengeURL];
     if (!url) { completion(nil, NO, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
-    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
-    return [SHHTTP getJSON:url headers:h completion:^(id json, NSInteger status, NSError *error) {
+    // SHAuthHeaders carries the session when there is one (a checkpoint of a live session); before a login it is
+    // just the device headers and the CSRF token. The device identifies itself like the app does.
+    url = [url stringByAppendingFormat:@"%@guid=%@&device_id=%@", [url rangeOfString:@"?"].location == NSNotFound ? @"?" : @"&",
+           [SHUtils urlEncode:[SHSettings deviceId]], [SHUtils urlEncode:[SHSettings androidId]]];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, NO, error); return; }
-        NSString *step = SHStr(SHDict(json)[@"step_name"]) ?: @"";
+        NSDictionary *d = SHDict(json);
+        NSString *step = SHStr(d[@"step_name"]) ?: @"";
+        if (!step.length && [SHStr(d[@"action"]) isEqualToString:@"close"]) step = @"close";
         completion(step, [step isEqualToString:@"select_verify_method"], nil);
     }];
 }
@@ -897,14 +913,21 @@ static NSString *g_challengePath = nil;
 {
     NSString *url = [self challengeURL];
     if (!url) { completion(nil, NO, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
-    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
-    return [SHHTTP postForm:url headers:h fields:@{ @"choice": [NSString stringWithFormat:@"%ld", (long)choice] }
-                 completion:^(id json, NSInteger status, NSError *error) {
+    // "choice" answers whatever the step asks: the verification method (1 e-mail, 0 SMS), "it was me" (0) on a
+    // login review, or the acknowledgement of an unusual-activity notice (0). Signed, like the app's own answers.
+    NSDictionary *params = @{ @"choice": [NSString stringWithFormat:@"%ld", (long)choice], @"_csrftoken": [SHSettings csrfToken] ?: @"",
+                              @"_uuid": [SHSettings deviceId], @"guid": [SHSettings deviceId], @"device_id": [SHSettings androidId] };
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         if (error) { completion(nil, NO, error); return; }
-        NSString *step = SHStr(SHDict(json)[@"step_name"]) ?: @"verify_code";
-        completion(step, NO, nil);
+        if (status >= 400) { completion(nil, NO, SHMakeError(status, [SHHTTP messageFromErrorJSON:d] ?: L(@"That code didn't work. Try again."))); return; }
+        NSString *step = SHStr(d[@"step_name"]) ?: @"";
+        if (!step.length) step = [SHStr(d[@"action"]) isEqualToString:@"close"] || [SHStr(d[@"status"]) isEqualToString:@"ok"] ? @"close" : @"verify_code";
+        if ([step isEqualToString:@"close"]) [self setChallengePath:nil];
+        completion(step, [step isEqualToString:@"select_verify_method"], nil);
     }];
 }
 
@@ -912,12 +935,11 @@ static NSString *g_challengePath = nil;
 {
     NSString *url = [self challengeURL];
     if (!url) { completion(nil, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
-    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
     NSString *c = [code stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-    NSData *body = [[NSString stringWithFormat:@"security_code=%@", [SHUtils urlEncode:c]] dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *body = SHSignedBodyData(@{ @"security_code": c, @"_csrftoken": [SHSettings csrfToken] ?: @"", @"_uuid": [SHSettings deviceId],
+                                       @"guid": [SHSettings deviceId], @"device_id": [SHSettings androidId] });
     return [SHHTTP request:@"POST" url:url headers:h body:body retries:0
                 completion:^(NSInteger status, NSData *bodyData, NSDictionary *headers, NSError *error) {
         NSString *newCsrf = SHExtractCSRF(headers);

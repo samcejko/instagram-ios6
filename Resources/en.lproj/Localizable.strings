@@ -108,7 +108,14 @@
 "Text message" = "Text message";
 "That code didn't work. Try again." = "That code didn't work. Try again.";
 "There is no pending verification." = "There is no pending verification.";
-"Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again." = "Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again.";
+"Instagram wants to check it's you." = "Instagram wants to check it's you.";
+"Your session expired. Please log in again." = "Your session expired. Please log in again.";
+"Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again." = "Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again.";
+"Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again." = "Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again.";
+"Was this you?" = "Was this you?";
+"It was me" = "It was me";
+"Verified. Loading again." = "Verified. Loading again.";
+"Verified. Please log in again." = "Verified. Please log in again.";
 "The password you entered is incorrect." = "The password you entered is incorrect.";
 "Your version of Instagram is out of date." = "Your version of Instagram is out of date.";
 "That username doesn't belong to an account." = "That username doesn't belong to an account.";

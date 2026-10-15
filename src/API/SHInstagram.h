@@ -24,7 +24,9 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (SHHTTPTask *)twoFactorLoginWithIdentifier:(NSString *)identifier code:(NSString *)code
                                   completion:(SHLoginCompletion)completion;
 
-// Checkpoint / challenge flow (used after login returns SHErrorChallenge). A fresh device almost always hits this.
+// Checkpoint / challenge flow: after a login that returns SHErrorChallenge, and whenever a live session is stopped
+// with challenge_required (SHHTTPChallengeRequiredNotification keeps the challenge path here once registered).
++ (void)registerChallengeObserver;
 + (BOOL)hasPendingChallenge;
 + (SHHTTPTask *)challengeFetchWithCompletion:(SHChallengeCompletion)completion;      // GET: learn the current step
 + (SHHTTPTask *)challengeSelectMethod:(NSInteger)choice completion:(SHChallengeCompletion)completion;  // 1=email, 0=SMS

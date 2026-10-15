@@ -2,6 +2,7 @@
 #import "SHLoginViewController.h"
 #import "SHFeedViewController.h"
 #import "SHMainTabController.h"
+#import "SHChallengeFlow.h"
 #import "SHLinkRouter.h"
 #import "SHInstagram.h"
 #import "SHMediaProxy.h"
@@ -16,6 +17,13 @@
 #include <objc/runtime.h>
 #include <signal.h>
 
+#define SH_ALERT_CHECKPOINT 500
+
+@interface SHAppDelegate () <UIAlertViewDelegate>
+@property (nonatomic) BOOL checkpointPromptUp;       // one alert for the burst of failing calls, not one each
+@property (nonatomic) NSTimeInterval checkpointDismissedAt;
+@end
+
 @implementation SHAppDelegate
 
 + (instancetype)shared { return (SHAppDelegate *)[UIApplication sharedApplication].delegate; }
@@ -24,6 +32,9 @@
 {
     signal(SIGPIPE, SIG_IGN);
     [SHSettings registerDefaults];
+    [SHInstagram registerChallengeObserver];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(challengeRequired:)
+                                                 name:SHHTTPChallengeRequiredNotification object:nil];
     // iOS 6 UILabels default to an opaque (white) background, which shows as boxes behind text on the dark theme.
     // Make the default transparent app-wide; labels that need a fill (chat bubbles) set their colour explicitly.
     [[UILabel appearance] setBackgroundColor:[UIColor clearColor]];
@@ -167,6 +178,39 @@
         return YES;
     }
     return YES;
+}
+
+#pragma mark - Security check of a live session
+
+// Instagram stopped the session (every call answers challenge_required): offer the verification once, not for each
+// of the calls that just failed, and not again for a while after the user declined.
+- (void)challengeRequired:(NSNotification *)note
+{
+    if (![SHSettings isLoggedIn]) return;   // a checkpoint during the login is the login screen's business
+    if (_checkpointPromptUp || [SHChallengeFlow isRunning]) return;
+    if ([NSDate timeIntervalSinceReferenceDate] - _checkpointDismissedAt < 120) return;
+    _checkpointPromptUp = YES;
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Verify it's you")
+        message:L(@"Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again.")
+        delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Verify"), nil];
+    alert.tag = SH_ALERT_CHECKPOINT;
+    [alert show];
+}
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
+{
+    if (alertView.tag != SH_ALERT_CHECKPOINT) return;
+    _checkpointPromptUp = NO;
+    if (buttonIndex == alertView.cancelButtonIndex) { _checkpointDismissedAt = [NSDate timeIntervalSinceReferenceDate]; return; }
+    [SHChallengeFlow startInView:self.window.rootViewController.view completion:^(BOOL passed, NSError *error) {
+        if (passed) {
+            [SHUtils alertWithTitle:L(@"Verify it's you") message:L(@"Verified. Loading again.")];
+            [self showFeed];   // a fresh tab shell: every screen loads again with the checkpoint gone
+            return;
+        }
+        self->_checkpointDismissedAt = [NSDate timeIntervalSinceReferenceDate];
+        if (error) [SHUtils alertWithTitle:L(@"Verify it's you") message:error.localizedDescription];
+    }];
 }
 
 - (void)applicationWillEnterForeground:(UIApplication *)application { [[SHMediaProxy shared] ensureRunning]; }

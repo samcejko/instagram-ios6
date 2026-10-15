@@ -1,4 +1,5 @@
 #import "SHLoginViewController.h"
+#import "SHChallengeFlow.h"
 #import "SHInstagram.h"
 #import "SHSettings.h"
 #import "SHAppDelegate.h"
@@ -7,9 +8,8 @@
 #import "SHCommon.h"
 
 #define SH_ALERT_2FA 100
-#define SH_ALERT_CHALLENGE 200
 
-@interface SHLoginViewController () <UITextFieldDelegate, UIAlertViewDelegate, UIActionSheetDelegate>
+@interface SHLoginViewController () <UITextFieldDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UITextField *usernameField;
 @property (nonatomic, strong) UITextField *passwordField;
@@ -185,53 +185,17 @@
 - (void)startChallenge:(NSError *)challengeError
 {
     [self setLoading:YES];
-    [_task cancel];
-    _task = [SHInstagram challengeFetchWithCompletion:^(NSString *stepName, BOOL needsMethodChoice, NSError *error) {
+    [SHChallengeFlow startInView:self.view completion:^(BOOL passed, NSError *error) {
         [self setLoading:NO];
-        if (error) {
-            // Even if fetching the step failed, tell the user what is going on rather than nothing.
-            [SHUtils alertWithTitle:L(@"Verify it's you") message:challengeError.localizedDescription];
+        if (passed) {
+            SHLog(@"Challenge passed, signed in");
+            if ([SHSettings isLoggedIn]) [[SHAppDelegate shared] showFeed];
+            else [SHUtils alertWithTitle:L(@"Verify it's you") message:L(@"Verified. Please log in again.")];
             return;
         }
-        if (needsMethodChoice) [self askVerifyMethod];
-        else [self promptForCode];
+        // Even when the steps could not be walked, say what is going on rather than nothing.
+        if (error) [SHUtils alertWithTitle:L(@"Verify it's you") message:error.localizedDescription ?: challengeError.localizedDescription];
     }];
-}
-
-- (void)askVerifyMethod
-{
-    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:L(@"Where should we send the code?")
-        delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
-    [sheet addButtonWithTitle:L(@"Email")];
-    [sheet addButtonWithTitle:L(@"Text message")];
-    sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
-    [sheet showInView:self.view];
-}
-
-- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex
-{
-    if (buttonIndex == actionSheet.cancelButtonIndex) return;
-    NSInteger choice = buttonIndex == 0 ? 1 : 0;   // 1 = email, 0 = SMS
-    [self setLoading:YES];
-    [_task cancel];
-    _task = [SHInstagram challengeSelectMethod:choice completion:^(NSString *stepName, BOOL needsMethodChoice, NSError *error) {
-        [self setLoading:NO];
-        if (error) { [SHUtils alertWithTitle:L(@"Verify it's you") message:error.localizedDescription]; return; }
-        [self promptForCode];
-    }];
-}
-
-- (void)promptForCode
-{
-    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Verify it's you")
-        message:L(@"Enter the code Instagram sent to your email or phone.")
-        delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Verify"), nil];
-    alert.tag = SH_ALERT_CHALLENGE;
-    alert.alertViewStyle = UIAlertViewStylePlainTextInput;
-    UITextField *tf = [alert textFieldAtIndex:0];
-    tf.keyboardType = UIKeyboardTypeNumberPad;
-    tf.placeholder = L(@"Code");
-    [alert show];
 }
 
 #pragma mark - 2FA UIAlertViewDelegate
@@ -243,15 +207,6 @@
     if (!code.length) return;
     [self setLoading:YES];
     [_task cancel];
-    if (alertView.tag == SH_ALERT_CHALLENGE) {
-        _task = [SHInstagram challengeSubmitCode:code completion:^(SHUser *user, NSError *error) {
-            [self setLoading:NO];
-            if (error) { [SHUtils alertWithTitle:L(@"Verify it's you") message:error.localizedDescription]; [self promptForCode]; return; }
-            SHLog(@"Challenge passed, signed in");
-            [[SHAppDelegate shared] showFeed];
-        }];
-        return;
-    }
     _task = [SHInstagram twoFactorLoginWithIdentifier:_twoFactorId code:code completion:^(SHUser *user, NSError *error) {
         [self setLoading:NO];
         if (error) { [SHUtils alertWithTitle:L(@"Two-Factor Authentication") message:error.localizedDescription]; return; }

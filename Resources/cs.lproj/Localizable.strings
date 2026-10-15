@@ -108,7 +108,14 @@
 "Text message" = "SMS";
 "That code didn't work. Try again." = "Tento kód nefunguje. Zkuste to znovu.";
 "There is no pending verification." = "Není žádné čekající ověření.";
-"Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again." = "Instagram vyžaduje bezpečnostní kontrolu. Otevřete jednou aplikaci Instagram nebo instagram.com, schvalte toto přihlášení a zkuste to znovu.";
+"Instagram wants to check it's you." = "Instagram chce ověřit, že jste to vy.";
+"Your session expired. Please log in again." = "Platnost přihlášení vypršela. Přihlaste se prosím znovu.";
+"Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again." = "Instagram vyžaduje bezpečnostní kontrolu. Ověřte se zde kódem zaslaným na e-mail nebo telefon, nebo to potvrďte v aplikaci Instagram či na instagram.com a zkuste to znovu.";
+"Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again." = "Instagram stále vyžaduje kontrolu, kterou tu nelze dokončit. Potvrďte ji v aplikaci Instagram nebo na instagram.com a zkuste to znovu.";
+"Was this you?" = "Byli jste to vy?";
+"It was me" = "Byl(a) jsem to já";
+"Verified. Loading again." = "Ověřeno. Načítám znovu.";
+"Verified. Please log in again." = "Ověřeno. Přihlaste se prosím znovu.";
 "The password you entered is incorrect." = "Zadané heslo je nesprávné.";
 "Your version of Instagram is out of date." = "Tvoje verze Instagramu je zastaralá.";
 "That username doesn't belong to an account." = "Toto uživatelské jméno nepatří žádnému účtu.";

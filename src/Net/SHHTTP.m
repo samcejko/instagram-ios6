@@ -6,6 +6,19 @@
 
 static const NSInteger SHMaxRedirects = 5;
 
+NSString * const SHHTTPChallengeRequiredNotification = @"SHHTTPChallengeRequiredNotification";
+
+// An error reply that is Instagram's checkpoint ({"message":"challenge_required","challenge":{"api_path":…}}).
+// Every call of a stopped session answers this way, so the body is looked at once here, centrally.
+static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
+{
+    if (status < 400 || !body.length || body.length > 8192) return nil;
+    static const char marker[] = "challenge_required";
+    if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
+    NSDictionary *d = SHDict([SHUtils JSONObjectFromData:body]);
+    return [SHStr(d[@"message"]) isEqualToString:@"challenge_required"] ? d : nil;
+}
+
 @interface SHHTTPTask ()
 @property (atomic, strong) SHHTTPRequest *request;
 @property (atomic) BOOL isCancelled;
@@ -72,8 +85,16 @@ static const NSInteger SHMaxRedirects = 5;
             return;
         }
         NSData *responseBody = request.responseBody;
+        NSDictionary *challenge = error ? nil : SHChallengeInReply(status, responseBody);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (task.isCancelled) return;
+            if (challenge) {
+                NSDictionary *c = SHDict(challenge[@"challenge"]);
+                NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:challenge forKey:@"json"];
+                NSString *path = SHStr(c[@"api_path"]) ?: SHStr(c[@"url"]);
+                if (path.length) info[@"path"] = path;
+                [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPChallengeRequiredNotification object:nil userInfo:info];
+            }
             if (completion) completion(error ? 0 : status, responseBody, responseHeaders, error);
         });
     };
@@ -115,6 +136,9 @@ static const NSInteger SHMaxRedirects = 5;
     if (!message.length) message = SHStr(d[@"error_description"]);
     if (!message.length) message = SHStr(SHDict([SHArr(d[@"errors"]) firstObject])[@"message"]);
     if (!message.length && [d[@"error"] isKindOfClass:[NSString class]]) message = d[@"error"];
+    // Instagram's machine-readable reasons, in the user's words
+    if ([message isEqualToString:@"challenge_required"] || [message isEqualToString:@"checkpoint_required"]) return L(@"Instagram wants to check it's you.");
+    if ([message isEqualToString:@"login_required"]) return L(@"Your session expired. Please log in again.");
     return message.length ? message : nil;
 }
 
@@ -126,7 +150,8 @@ static const NSInteger SHMaxRedirects = 5;
         id json = [SHUtils JSONObjectFromData:body];
         if (status >= 400) {
             NSString *message = [self messageFromErrorJSON:json] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status];
-            completion(json, status, SHMakeError(status, message));
+            BOOL challenge = [SHStr(SHDict(json)[@"message"]) isEqualToString:@"challenge_required"];
+            completion(json, status, SHMakeError(challenge ? SHErrorChallenge : status, message));
             return;
         }
         if (!json && body.length) {
