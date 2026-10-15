@@ -576,17 +576,22 @@ static NSString *SHExtractBloksError(NSString *body)
 
 #pragma mark - Users
 
+// The mobile lookup gives the full user (counts, friendship_status); the web profile stands in when it fails.
 + (SHHTTPTask *)userInfoByUsername:(NSString *)username completion:(SHUserCompletion)completion
 {
-    NSString *url = [NSString stringWithFormat:@"%@/users/web_profile_info/?username=%@",
-                     SHApiBase, [SHUtils urlEncode:username]];
+    NSString *url = [NSString stringWithFormat:@"%@/users/%@/usernameinfo/", SHApiBase, [SHUtils urlEncode:username]];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
-        if (error) { completion(nil, error); return; }
-        NSDictionary *d = SHDict(json);
-        NSDictionary *userData = SHDict(d[@"data"][@"user"]) ?: SHDict(d[@"user"]);
-        SHUser *user = [SHUser fromJSON:userData];
-        if (!user) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"User not found."))); return; }
-        completion(user, nil);
+        SHUser *user = [SHUser fromJSON:SHDict(SHDict(json)[@"user"])];
+        if (user.pk.length && !error && status < 400) { completion(user, nil); return; }
+        NSString *webUrl = [NSString stringWithFormat:@"%@/users/web_profile_info/?username=%@", SHApiBase, [SHUtils urlEncode:username]];
+        [SHHTTP getJSON:webUrl headers:SHAuthHeaders() completion:^(id json2, NSInteger status2, NSError *error2) {
+            if (error2) { completion(nil, error2); return; }
+            NSDictionary *d = SHDict(json2);
+            NSDictionary *userData = SHDict(SHDict(d[@"data"])[@"user"]) ?: SHDict(d[@"user"]);
+            SHUser *webUser = [SHUser fromJSON:userData];
+            if (!webUser.pk.length) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"User not found."))); return; }
+            completion(webUser, nil);
+        }];
     }];
 }
 
@@ -818,7 +823,10 @@ static NSString *SHExtractBloksError(NSString *body)
         url:[NSString stringWithFormat:@"%@/friendships/create/%@/", SHApiBase, pk]
         headers:h body:SHSignedBodyData(params) retries:0
         completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
-            completion(!error, error);
+            id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
+            BOOL ok = !error && status < 400;
+            completion(ok, ok ? nil : (error ?: SHMakeError(status, [SHHTTP messageFromErrorJSON:json]
+                                                             ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status])));
         }];
 }
 
@@ -831,7 +839,10 @@ static NSString *SHExtractBloksError(NSString *body)
         url:[NSString stringWithFormat:@"%@/friendships/destroy/%@/", SHApiBase, pk]
         headers:h body:SHSignedBodyData(params) retries:0
         completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
-            completion(!error, error);
+            id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
+            BOOL ok = !error && status < 400;
+            completion(ok, ok ? nil : (error ?: SHMakeError(status, [SHHTTP messageFromErrorJSON:json]
+                                                             ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status])));
         }];
 }
 

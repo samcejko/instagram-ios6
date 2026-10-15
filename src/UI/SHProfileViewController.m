@@ -204,10 +204,11 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         UIButton *followBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         followBtn.frame = CGRectMake(pad, y, w - pad * 2, 32);
         followBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-        BOOL following = _user.friendshipFollowing;
-        [followBtn setTitle:following ? L(@"Following") : L(@"Follow") forState:UIControlStateNormal];
+        BOOL following = _user.friendshipFollowing || _user.friendshipRequested;   // a pending request reads "Requested"
+        [followBtn setTitle:_user.friendshipFollowing ? L(@"Following") : _user.friendshipRequested ? L(@"Requested") : L(@"Follow")
+                  forState:UIControlStateNormal];
         [followBtn setTitleColor:following ? [[SHTheme shared] textColor] : [UIColor whiteColor] forState:UIControlStateNormal];
-        // glossy iOS 6 buttons: grey when already following, the accent capsule otherwise
+        // glossy iOS 6 buttons: grey when already following (or asked to), the accent capsule otherwise
         if (following) {
             [followBtn setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:NO] forState:UIControlStateNormal];
             [followBtn setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
@@ -269,13 +270,20 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
 - (void)followTapped:(UIButton *)btn
 {
     [_task cancel];
-    if (btn.tag == 1) {
+    if (btn.tag == 1) {   // unfollow, or withdraw a pending request (the same call does both)
         _task = [SHInstagram unfollowUser:_pk completion:^(BOOL ok, NSError *err) {
-            if (ok) { self->_user.friendshipFollowing = NO; if (self->_user.followerCount > 0) self->_user.followerCount--; [self buildHeader]; }
+            if (!ok) { [SHUtils alertWithTitle:L(@"Profile") message:err.localizedDescription]; return; }
+            if (self->_user.friendshipFollowing && self->_user.followerCount > 0) self->_user.followerCount--;
+            self->_user.friendshipFollowing = NO;
+            self->_user.friendshipRequested = NO;
+            [self buildHeader];
         }];
     } else {
         _task = [SHInstagram followUser:_pk completion:^(BOOL ok, NSError *err) {
-            if (ok) { self->_user.friendshipFollowing = YES; self->_user.followerCount++; [self buildHeader]; }
+            if (!ok) { [SHUtils alertWithTitle:L(@"Profile") message:err.localizedDescription]; return; }
+            if (self->_user.isPrivate) self->_user.friendshipRequested = YES;   // private: a request, approved later
+            else { self->_user.friendshipFollowing = YES; self->_user.followerCount++; }
+            [self buildHeader];
         }];
     }
 }

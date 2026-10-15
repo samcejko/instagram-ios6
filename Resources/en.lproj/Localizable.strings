@@ -21,6 +21,7 @@
 "Followers" = "Followers";
 "Following" = "Following";
 "Follow" = "Follow";
+"Requested" = "Requested";
 "User not found." = "User not found.";
 
 /* Stories */

@@ -13,6 +13,7 @@
 @property (nonatomic) BOOL isVerified;
 @property (nonatomic) BOOL friendshipFollowing;
 @property (nonatomic) BOOL friendshipFollowedBy;
+@property (nonatomic) BOOL friendshipRequested;     // a follow request to a private account is pending
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end
 

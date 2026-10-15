@@ -8,20 +8,26 @@
     NSDictionary *d = SHDict(json);
     if (!d) return nil;
     SHUser *u = [[SHUser alloc] init];
-    u.pk = SHStr(d[@"pk"]) ?: SHStr(d[@"pk_id"]) ?: @"";
+    // mobile API fields first, the web profile's (web_profile_info: id, edge_* counts, *_by_viewer) as fallbacks
+    u.pk = SHStr(d[@"pk"]) ?: SHStr(d[@"pk_id"]) ?: SHStr(d[@"id"]) ?: @"";
     u.username = SHStr(d[@"username"]) ?: @"";
     u.fullName = SHStr(d[@"full_name"]) ?: @"";
     u.biography = SHStr(d[@"biography"]) ?: @"";
-    u.profilePicURL = SHStr(d[@"profile_pic_url"]) ?: @"";
-    u.followerCount = SHInt(d[@"follower_count"]);
-    u.followingCount = SHInt(d[@"following_count"]);
-    u.mediaCount = SHInt(d[@"media_count"]);
+    u.profilePicURL = SHStr(d[@"profile_pic_url_hd"]) ?: SHStr(d[@"profile_pic_url"]) ?: @"";
+    u.followerCount = d[@"follower_count"] ? SHInt(d[@"follower_count"]) : SHInt(SHDict(d[@"edge_followed_by"])[@"count"]);
+    u.followingCount = d[@"following_count"] ? SHInt(d[@"following_count"]) : SHInt(SHDict(d[@"edge_follow"])[@"count"]);
+    u.mediaCount = d[@"media_count"] ? SHInt(d[@"media_count"]) : SHInt(SHDict(d[@"edge_owner_to_timeline_media"])[@"count"]);
     u.isPrivate = SHBool(d[@"is_private"]);
     u.isVerified = SHBool(d[@"is_verified"]);
     NSDictionary *fs = SHDict(d[@"friendship_status"]);
     if (fs) {
         u.friendshipFollowing = SHBool(fs[@"following"]);
         u.friendshipFollowedBy = SHBool(fs[@"followed_by"]);
+        u.friendshipRequested = SHBool(fs[@"outgoing_request"]);
+    } else {
+        u.friendshipFollowing = SHBool(d[@"followed_by_viewer"]);
+        u.friendshipFollowedBy = SHBool(d[@"follows_viewer"]);
+        u.friendshipRequested = SHBool(d[@"requested_by_viewer"]);
     }
     return u;
 }
