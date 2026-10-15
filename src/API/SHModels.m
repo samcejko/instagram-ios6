@@ -393,10 +393,37 @@ static NSMutableDictionary *SHSeenStore(void)
         NSDictionary *images = SHDict(SHDict(d[@"animated_media"])[@"images"]);
         m.previewURL = SHStr(SHDict(images[@"fixed_height"])[@"url"]) ?: @"";
         m.placeholderText = @"GIF";
+    } else if ([m.type hasPrefix:@"xma"] || [m.type isEqualToString:@"generic_xma"] || SHArr(d[@"generic_xma"]).count) {
+        // The newer form of a shared post, reel or story ("xma_media_share", "xma_clip", "xma_story_share", …): a list
+        // with a preview picture, the link to the thing and whose it is
+        NSDictionary *x = SHDict([SHArr(d[m.type]) firstObject]) ?: SHDict([SHArr(d[@"generic_xma"]) firstObject]);
+        m.previewURL = SHStr(x[@"preview_url"]) ?: SHStr(SHDict(x[@"preview_url_info"])[@"url"]) ?: @"";
+        m.targetURL = SHStr(x[@"target_url"]);
+        m.shareTitle = SHStr(x[@"header_title_text"]);
+        BOOL story = [m.type rangeOfString:@"story"].location != NSNotFound || [m.type rangeOfString:@"reel_mention"].location != NSNotFound;
+        if (story) m.placeholderText = L(@"Shared a story");
+        else m.placeholderText = m.shareTitle.length ? [NSString stringWithFormat:L(@"Shared a post by %@"), m.shareTitle] : L(@"Shared a post");
+        if (!m.previewURL.length && !m.targetURL.length) m.placeholderText = SHStr(x[@"title_text"]) ?: m.placeholderText;
+    } else if ([m.type isEqualToString:@"video_call_event"]) {
+        // a call in the chat's history: said in the user's language, Instagram's English words only as the last resort
+        NSDictionary *call = SHDict(d[@"video_call_event"]);
+        NSString *action = [SHStr(call[@"action"]) lowercaseString] ?: @"";
+        if ([action rangeOfString:@"miss"].location != NSNotFound) m.placeholderText = L(@"Missed call");
+        else if ([action rangeOfString:@"end"].location != NSNotFound) m.placeholderText = L(@"Call ended");
+        else if ([action rangeOfString:@"start"].location != NSNotFound || [action rangeOfString:@"join"].location != NSNotFound)
+            m.placeholderText = L(@"Call started");
+        else m.placeholderText = SHStr(call[@"description"]) ?: L(@"Call");
     } else if ([m.type isEqualToString:@"action_log"]) {
         m.placeholderText = SHStr(SHDict(d[@"action_log"])[@"description"]) ?: @"";
     } else {
         m.placeholderText = SHStr(d[@"text"]) ?: L(@"Unsupported message");
+        // (debug builds: which kind it was and what it carries, so the next form Instagram invents can be taught)
+        static int debugOn = -1;
+        if (debugOn < 0) {
+            NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+            debugOn = [[NSFileManager defaultManager] fileExistsAtPath:[docs stringByAppendingPathComponent:@"debug"]] ? 1 : 0;
+        }
+        if (debugOn) SHLog(@"DMITEM unknown type=%@ keys=%@", m.type, [[d allKeys] componentsJoinedByString:@","]);
     }
     return m;
 }

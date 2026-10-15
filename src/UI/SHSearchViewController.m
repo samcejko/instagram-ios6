@@ -108,16 +108,22 @@
     cell.imageView.image = [[SHTheme shared] avatarPlaceholderWithSize:40];
     if (u.profilePicURL.length) {
         NSString *url = u.profilePicURL;
+        // (a picture already in memory answers inside this call, before the row is in the table: it is this row's)
+        __block BOOL settingUp = YES;
         [[SHImageLoader shared] loadImage:url maxPixels:80 completion:^(UIImage *image) {
-            // (the row may show somebody else by now)
-            NSIndexPath *now = [tableView indexPathForCell:cell];
-            if (!image || !now || (NSUInteger)now.row >= self->_results.count) return;
-            id shown = self->_results[(NSUInteger)now.row];
-            if (![shown isKindOfClass:[SHUser class]] || ![[shown profilePicURL] isEqualToString:url]) return;
+            if (!image) return;
+            if (!settingUp) {
+                // (the row may show somebody else by now)
+                NSIndexPath *now = [tableView indexPathForCell:cell];
+                if (!now || (NSUInteger)now.row >= self->_results.count) return;
+                id shown = self->_results[(NSUInteger)now.row];
+                if (![shown isKindOfClass:[SHUser class]] || ![[shown profilePicURL] isEqualToString:url]) return;
+            }
             CGFloat scale = image.size.width > 0 ? image.size.width * image.scale / 40.0f : 1;   // shown 40 points wide
             cell.imageView.image = [UIImage imageWithCGImage:image.CGImage scale:scale orientation:UIImageOrientationUp];
             [cell setNeedsLayout];
         }];
+        settingUp = NO;
     }
     return cell;
 }

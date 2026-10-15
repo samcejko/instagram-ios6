@@ -74,11 +74,15 @@ static NSString *SHShortcodeFromPk(NSString *pk)
 
 + (void)flashMessage:(NSString *)text
 {
-    UIWindow *window = [UIApplication sharedApplication].keyWindow;
-    if (!window || !text.length) return;
+    // in the view of the screen on top: that one turns with the iPad (an iOS 6 window never does, so the notice
+    // would lie on its side in landscape)
+    UIViewController *top = [UIApplication sharedApplication].keyWindow.rootViewController;
+    while (top.presentedViewController) top = top.presentedViewController;
+    UIView *host = top.view ?: [UIApplication sharedApplication].keyWindow;
+    if (!host || !text.length) return;
     UIFont *font = [UIFont boldSystemFontOfSize:17];
     CGFloat w = MAX(140, [text sizeWithFont:font].width + 40), h = 64;
-    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(floorf((window.bounds.size.width - w) / 2), floorf((window.bounds.size.height - h) / 2), w, h)];
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(floorf((host.bounds.size.width - w) / 2), floorf((host.bounds.size.height - h) / 2), w, h)];
     box.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
     box.backgroundColor = [UIColor colorWithWhite:0 alpha:0.75];
     box.layer.cornerRadius = 10;
@@ -92,7 +96,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     label.shadowColor = [UIColor blackColor];
     label.shadowOffset = CGSizeMake(0, -1);
     [box addSubview:label];
-    [window addSubview:box];
+    [host addSubview:box];
     // (the fade starts later rather than with a delay: a delayed animation would set the box's alpha to 0 at once,
     // and the debug snapshot, which draws the layers' model values, would never show the notice)
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -324,14 +328,20 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     cell.imageView.image = [[SHTheme shared] avatarPlaceholderWithSize:40];
     NSString *url = r.pictureURL;
     if (url.length) {
+        // (a picture already in memory answers inside this call, before the row is in the table: it is this row's)
+        __block BOOL settingUp = YES;
         [[SHImageLoader shared] loadImage:url maxPixels:80 completion:^(UIImage *image) {
-            NSIndexPath *now = [tableView indexPathForCell:cell];
-            NSArray *rows = [self rows];
-            if (!image || !now || (NSUInteger)now.row >= rows.count || ![[rows[(NSUInteger)now.row] pictureURL] isEqualToString:url]) return;
+            if (!image) return;
+            if (!settingUp) {
+                NSIndexPath *now = [tableView indexPathForCell:cell];
+                NSArray *rows = [self rows];
+                if (!now || (NSUInteger)now.row >= rows.count || ![[rows[(NSUInteger)now.row] pictureURL] isEqualToString:url]) return;
+            }
             CGFloat scale = image.size.width > 0 ? image.size.width * image.scale / 40.0f : 1;   // shown 40 points wide
             cell.imageView.image = [UIImage imageWithCGImage:image.CGImage scale:scale orientation:UIImageOrientationUp];
             [cell setNeedsLayout];
         }];
+        settingUp = NO;
     }
     return cell;
 }

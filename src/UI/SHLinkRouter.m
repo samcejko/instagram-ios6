@@ -81,6 +81,10 @@ static NSMutableArray *g_choices;
         [self openHashtag:parts[2]];
         return YES;
     }
+    if (parts.count >= 2 && [[parts[0] lowercaseString] isEqualToString:@"stories"]) {   // stories/<name>/<id>: whose they are
+        [self openProfile:parts[1]];
+        return YES;
+    }
     if (parts.count >= 1 && [parts[0] length] && ![[parts[0] lowercaseString] isEqualToString:@"explore"]
         && ![[parts[0] lowercaseString] isEqualToString:@"about"] && ![[parts[0] lowercaseString] isEqualToString:@"accounts"]) {
         [self openProfile:parts[0]];

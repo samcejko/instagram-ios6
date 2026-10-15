@@ -757,6 +757,7 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
         if (error) { completion(nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *reels = [NSMutableArray array];
+        NSMutableSet *people = [NSMutableSet set];
         NSUInteger withItems = 0;
         BOOL debug = [[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]];
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
@@ -776,9 +777,18 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
             // accounts it suggests following ("suggested_user": no story, nothing to open). Only reels stay; also
             // none that already ran out.
             if ([SHStr(tray[@"reel_type"]) isEqualToString:@"suggested_user"]) continue;
+            // "highlight_rewind_reel" is a look back at someone's old highlights, a second circle next to their
+            // stories (no latest_reel_media, never "seen"); what reels_media gives for the person is their stories,
+            // so it would only show them twice. One circle per person, the stories one.
+            if ([SHStr(tray[@"reel_type"]) hasPrefix:@"highlight"]) continue;
             if (SHDbl(tray[@"expiring_at"]) > 0 && SHDbl(tray[@"expiring_at"]) < now) continue;
             if (SHDbl(tray[@"latest_reel_media"]) > 0 && now - SHDbl(tray[@"latest_reel_media"]) > 26 * 3600) continue;
-            if (r && r.user) { [reels addObject:r]; if (r.items.count) withItems++; }
+            if (r.user.pk.length && [people containsObject:r.user.pk]) continue;
+            if (r && r.user) {
+                if (r.user.pk.length) [people addObject:r.user.pk];
+                [reels addObject:r];
+                if (r.items.count) withItems++;
+            }
         }
         if (debug) SHLog(@"TRAY status=%ld reels=%lu withItems=%lu", (long)status, (unsigned long)reels.count, (unsigned long)withItems);
         completion(reels, nil);
@@ -1611,7 +1621,17 @@ static SHHTTPTask *SHDirectBroadcast(NSString *item, NSDictionary *fields, NSStr
         if (SHDebugLogging())
             SHLog(@"DIRECT %@ status=%ld ok=%d thread=%@ %@", item, (long)status, ok, thread ?: @"-",
                   SHStr(d[@"message"]) ?: error.localizedDescription ?: @"");
-        NSError *failure = ok ? nil : (error ?: SHMakeError(SHErrorAPI, [SHHTTP messageFromErrorJSON:json] ?: L(@"The message didn't send.")));
+        NSError *failure = nil;
+        if (!ok) {
+            // Instagram's own words when it has any; its HTTP 500 says just "None"
+            NSString *text = [SHHTTP messageFromErrorJSON:json] ?: error.localizedDescription;
+            if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) {
+                BOOL media = [item isEqualToString:@"configure_photo"] || [item isEqualToString:@"share_voice"];
+                text = media ? L(@"Instagram didn't accept it. In a message request they haven't accepted yet, only text can be sent.")
+                             : L(@"The message didn't send.");
+            }
+            failure = SHMakeError(status >= 400 ? status : (error ? error.code : SHErrorAPI), text);
+        }
         completion(ok, thread, failure);
     }];
 }
@@ -1647,7 +1667,9 @@ static SHHTTPTask *SHRupload(NSString *kind, NSData *data, NSDictionary *params,
             SHLog(@"UPLOAD %@ %lu B status=%ld %@ %@", kind, (unsigned long)data.length, (long)status, SHStr(d[@"status"]) ?: @"-",
                   SHStr(d[@"message"]) ?: error.localizedDescription ?: @"");
         if (error || status >= 400 || ![SHStr(d[@"status"]) isEqualToString:@"ok"]) {
-            completion(nil, error ?: SHMakeError(status >= 400 ? status : SHErrorAPI, [SHHTTP messageFromErrorJSON:d] ?: L(@"The upload failed.")));
+            NSString *text = [SHHTTP messageFromErrorJSON:d] ?: error.localizedDescription;
+            if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) text = L(@"The upload failed.");
+            completion(nil, SHMakeError(status >= 400 ? status : (error ? error.code : SHErrorAPI), text));
             return;
         }
         completion(SHStr(d[@"upload_id"]) ?: uploadId, nil);

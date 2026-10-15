@@ -88,7 +88,7 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
     CGFloat tail = [[SHTheme shared] bubbleTailWidth];
     if (SHIsLike(m)) return CGSizeMake(SHLikeSide, SHLikeSide);
     if (m.audioURL.length) return CGSizeMake(SHVoiceW, SHVoiceH);
-    if (m.previewURL.length || m.localImage) return CGSizeMake(SHMediaSide, SHMediaSide + (m.sharedPost ? 20 : 0));
+    if (m.previewURL.length || m.localImage) return CGSizeMake(SHMediaSide, SHMediaSide + ((m.sharedPost || m.shareTitle.length) ? 20 : 0));
     CGFloat maxw = floorf(width * SHBubbleMaxFrac) - SHBubblePadX * 2 - tail;
     CGSize sz = [SHLinkLabel sizeForAttributedText:SHBubbleText(m) width:maxw lines:0];
     // (never below the caps of the bubble artwork: 30 points high, 36 wide)
@@ -228,8 +228,9 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
 
     _textLabel2.hidden = isVoice || isMedia || isLike;
     _media.hidden = !isMedia;
-    _playBadge.hidden = !(isMedia && (m.videoURL.length || m.sharedPost.videoURL.length || m.sharedPost.mediaType == 2));
-    _captionLabel.hidden = !(isMedia && m.sharedPost);
+    _playBadge.hidden = !(isMedia && (m.videoURL.length || m.sharedPost.videoURL.length || m.sharedPost.mediaType == 2
+                                      || [m.type isEqualToString:@"xma_clip"]));
+    _captionLabel.hidden = !(isMedia && (m.sharedPost || m.shareTitle.length));
     _voiceButton.hidden = _voiceTrack.hidden = _voiceLabel.hidden = !isVoice;
     _voiceFill.hidden = YES;
     _heartView.hidden = !isLike;
@@ -262,10 +263,11 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
             [_media setImageURL:m.previewURL placeholder:nil];
         }
         _playBadge.frame = CGRectMake(SHMediaSide / 2 - 22, SHMediaSide / 2 - 22, 44, 44);
-        if (m.sharedPost) {
+        if (m.sharedPost || m.shareTitle.length) {
+            NSString *owner = m.sharedPost.user.username.length ? m.sharedPost.user.username : m.shareTitle;
             _captionLabel.frame = CGRectMake(8, SHMediaSide, SHMediaSide - 16, 20);
             _captionLabel.textColor = [UIColor whiteColor];
-            _captionLabel.text = m.sharedPost.user.username.length ? [@"@" stringByAppendingString:m.sharedPost.user.username] : L(@"Shared a post");
+            _captionLabel.text = owner.length ? [@"@" stringByAppendingString:owner] : L(@"Shared a post");
         }
     } else {
         [_media setImageURL:nil placeholder:nil];
@@ -374,10 +376,14 @@ static const NSTimeInterval SHVoiceLimit = 60;
     if (_onLimit) _onLimit();
 }
 
+// (AVFoundation tells the recorder's delegate about a stop later, from the run loop, through an unretained
+// reference: by then this object may be gone - the voice message crashed the app that way - so the delegate goes
+// before every stop)
 - (NSData *)finish
 {
     _duration = MAX(_duration, _recorder.currentTime);
     _stoppedHere = YES;
+    _recorder.delegate = nil;
     [_recorder stop];
     [_timer invalidate];
     _timer = nil;
@@ -391,6 +397,7 @@ static const NSTimeInterval SHVoiceLimit = 60;
 - (void)cancel
 {
     _stoppedHere = YES;
+    _recorder.delegate = nil;
     [_recorder stop];
     [_recorder deleteRecording];
     [_timer invalidate];
@@ -399,7 +406,12 @@ static const NSTimeInterval SHVoiceLimit = 60;
     [self restoreSession];
 }
 
-- (void)dealloc { [_timer invalidate]; }
+- (void)dealloc
+{
+    [_timer invalidate];
+    _recorder.delegate = nil;
+    [_recorder stop];
+}
 
 @end
 
@@ -1141,6 +1153,8 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
         [self.navigationController pushViewController:[[SHPostDetailViewController alloc] initWithPost:m.sharedPost] animated:YES];
         return;
     }
+    // a share in the newer form carries just its link: the post, reel or profile opens from that
+    if (m.targetURL.length && [SHLinkRouter openLink:m.targetURL]) return;
     if (m.previewURL.length) {
         // a photo or video sent directly: show it full size through the post screen
         SHPost *p = [[SHPost alloc] init];

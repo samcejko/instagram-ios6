@@ -167,10 +167,20 @@ static const CGFloat SHStoryAvatar = 34;
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
+    _closing = YES;
     [_timer invalidate];
-    [_player stop];
+    [self stopPlayerQuietly];
     [_fetchTask cancel];
     [self flushSeen];
+}
+
+// A stopped player reports "playback finished" at once, which would move on to the next story (and count it as
+// seen) while the viewer is closing: the observers go first.
+- (void)stopPlayerQuietly
+{
+    if (!_player) return;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:nil object:_player];
+    [_player stop];
 }
 
 - (SHStoryReel *)currentReel
@@ -366,7 +376,7 @@ static const CGFloat SHStoryAvatar = 34;
 // The story is on screen: it counts as seen (the ring, where the reel starts next time, and Instagram's view list).
 - (void)itemShown:(SHStoryItem *)item ofReel:(SHStoryReel *)reel
 {
-    if (!item) return;
+    if (!item || _closing) return;
     [self showMentionsForItem:item];
     if (_pendingReel != reel) [self flushSeen];
     BOOL isNew = [item.takenAt timeIntervalSince1970] > reel.seenUpTo;
@@ -491,7 +501,7 @@ static const CGFloat SHStoryAvatar = 34;
     }
 }
 
-- (void)playbackFinished:(NSNotification *)note { [self advanceItem]; }
+- (void)playbackFinished:(NSNotification *)note { if (!_closing) [self advanceItem]; }
 
 - (void)startTimerWithDuration:(NSTimeInterval)duration
 {
@@ -510,6 +520,7 @@ static const CGFloat SHStoryAvatar = 34;
 
 - (void)advanceItem
 {
+    if (_closing) return;
     SHStoryReel *reel = [self currentReel];
     if (reel && _itemIndex + 1 < reel.items.count) {
         _itemIndex++;
@@ -552,7 +563,7 @@ static const CGFloat SHStoryAvatar = 34;
     if (_closing) return;
     _closing = YES;
     [_timer invalidate];
-    [_player stop];
+    [self stopPlayerQuietly];
     [self flushSeen];
     void (^onClose)(void) = self.onClose;
     [self dismissViewControllerAnimated:YES completion:^{

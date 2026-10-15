@@ -197,3 +197,10 @@
 "The upload failed." = "Nahrání se nezdařilo.";
 "The microphone could not be started." = "Mikrofon se nepodařilo spustit.";
 "Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone." = "Gramify nemá přístup k mikrofonu. Povolte ho v Nastavení > Soukromí > Mikrofon.";
+"Instagram didn't accept it. In a message request they haven't accepted yet, only text can be sent." = "Instagram to nepřijal. V žádosti o zprávu, kterou druhá strana ještě nepřijala, jde poslat jen text.";
+
+/* Calls in a chat's history */
+"Call" = "Hovor";
+"Call started" = "Hovor začal";
+"Call ended" = "Hovor skončil";
+"Missed call" = "Zmeškaný hovor";

@@ -122,6 +122,8 @@
 @property (nonatomic, copy) NSString *audioURL;         // voice messages: the audio file to play
 @property (nonatomic) NSTimeInterval audioDuration;
 @property (nonatomic, strong) SHPost *sharedPost;       // media_share / clip: the post, to open it on tap
+@property (nonatomic, copy) NSString *targetURL;        // the newer "xma" shares: the link a tap opens (instagram.com/p/…)
+@property (nonatomic, copy) NSString *shareTitle;       // …and whose post, reel or story it is
 @property (nonatomic, copy) NSString *videoURL;         // a video sent directly
 @property (nonatomic, strong) UIImage *localImage;      // a photo just sent from here, shown until the thread reloads
 @property (nonatomic) BOOL sending;                     // on its way (drawn faded)

@@ -173,6 +173,24 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
         SHLog(@"type -> text field %@ of %@", field ? @"found" : @"missing", NSStringFromClass([top class]));
         return YES;
     }
+    if ([target isEqualToString:@"alert"]) {
+        // the alert on screen answered with button n (default: its cancel button); iOS 6 alerts live in a window of
+        // their own that press cannot reach
+        NSInteger n = params[@"n"] ? [params[@"n"] integerValue] : -1;
+        UIAlertView *alert = nil;
+        for (UIWindow *w in [UIApplication sharedApplication].windows) {
+            NSInteger first = 0;
+            UIView *found = SHDebugFindView(w, [UIAlertView class], first, NO);
+            if (found) { alert = (UIAlertView *)found; break; }
+        }
+        if (alert) {
+            NSInteger index = n >= 0 ? n : alert.cancelButtonIndex;
+            if ([alert.delegate respondsToSelector:@selector(alertView:clickedButtonAtIndex:)]) [alert.delegate alertView:alert clickedButtonAtIndex:index];
+            [alert dismissWithClickedButtonIndex:index animated:YES];
+        }
+        SHLog(@"alert -> %@", alert ? alert.title : @"none on screen");
+        return YES;
+    }
     if ([target isEqualToString:@"dmtestphoto"]) {   // a plain test picture waiting to be sent in the open chat
         UIViewController *top = [self topController];
         SEL attach = NSSelectorFromString(@"debugAttachTestPhoto");
