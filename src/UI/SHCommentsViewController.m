@@ -56,20 +56,28 @@
     sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [_inputBar addSubview:sep];
 
-    _textField = [[UITextField alloc] initWithFrame:CGRectMake(12, 6, bounds.size.width - 80, 32)];
-    _textField.borderStyle = UITextBorderStyleRoundedRect;
+    // the same inset field and glossy accent button as the Direct input bar
+    _textField = [[UITextField alloc] initWithFrame:CGRectMake(8, 6, bounds.size.width - 86, 32)];
+    _textField.borderStyle = UITextBorderStyleNone;
+    _textField.background = [[SHTheme shared] textFieldBackgroundImage];
+    _textField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 32)];
+    _textField.leftViewMode = UITextFieldViewModeAlways;
     _textField.placeholder = L(@"Add a comment...");
-    _textField.font = [UIFont systemFontOfSize:14];
+    _textField.font = [UIFont systemFontOfSize:15];
+    _textField.textColor = [[SHTheme shared] inputTextColor];
     _textField.delegate = self;
     _textField.returnKeyType = UIReturnKeySend;
     _textField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [_inputBar addSubview:_textField];
 
     UIButton *send = [UIButton buttonWithType:UIButtonTypeCustom];
-    send.frame = CGRectMake(bounds.size.width - 64, 6, 56, 32);
+    send.frame = CGRectMake(bounds.size.width - 72, 6, 64, 32);
     [send setTitle:L(@"Post") forState:UIControlStateNormal];
-    [send setTitleColor:[[SHTheme shared] linkColor] forState:UIControlStateNormal];
+    [send setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     send.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    [send setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:NO disabled:NO] forState:UIControlStateNormal];
+    [send setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:YES disabled:NO] forState:UIControlStateHighlighted];
+    [[SHTheme shared] embossButton:send];
     send.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [send addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];
     [_inputBar addSubview:send];

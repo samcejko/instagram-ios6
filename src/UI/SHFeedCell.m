@@ -1,4 +1,5 @@
 #import "SHFeedCell.h"
+#import "SHTabIcons.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
 #import "SHTheme.h"
@@ -55,15 +56,14 @@ static const CGFloat SHIconSize = 26;
         [_photoView addGestureRecognizer:doubleTap];
         [self.contentView addSubview:_photoView];
 
+        // the action glyphs are drawn in code with the iOS 6 emboss (no emoji, which would render in colour)
         _likeButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        [_likeButton setTitle:@"♥" forState:UIControlStateNormal];
-        _likeButton.titleLabel.font = [UIFont systemFontOfSize:24];
         [_likeButton addTarget:self action:@selector(likeTapped) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_likeButton];
 
         _commentButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        [_commentButton setTitle:@"\U0001F4AC" forState:UIControlStateNormal];
-        _commentButton.titleLabel.font = [UIFont systemFontOfSize:22];
+        [_commentButton setImage:[SHTabIcons commentBubbleWithSize:24 color:[[SHTheme shared] textColor] dark:[[SHTheme shared] isDark]]
+                        forState:UIControlStateNormal];
         [_commentButton addTarget:self action:@selector(commentTapped) forControlEvents:UIControlEventTouchUpInside];
         [self.contentView addSubview:_commentButton];
 
@@ -94,7 +94,9 @@ static const CGFloat SHIconSize = 26;
     _post = post;
     _usernameLabel.text = post.user.username;
     _likesLabel.text = [NSString stringWithFormat:L(@"%@ likes"), [SHUtils formatCount:post.likeCount]];
-    [_likeButton setTitleColor:post.hasLiked ? [UIColor redColor] : [[SHTheme shared] textColor] forState:UIControlStateNormal];
+    UIColor *heartColor = post.hasLiked ? [UIColor colorWithRed:0.93 green:0.2 blue:0.27 alpha:1] : [[SHTheme shared] textColor];
+    [_likeButton setImage:[SHTabIcons heartWithSize:24 filled:post.hasLiked color:heartColor dark:[[SHTheme shared] isDark]]
+                 forState:UIControlStateNormal];
 
     if (post.captionText.length) {
         NSString *display = [SHUtils displayText:post.captionText];

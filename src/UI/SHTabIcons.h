@@ -8,4 +8,11 @@
 + (UIImage *)activity;    // a heart
 + (UIImage *)direct;      // a paper plane
 + (UIImage *)profile;     // a head and shoulders
+
+// Action glyphs under a post (like, comment, save), drawn in a colour with the iOS 6 emboss: a hairline of
+// shadow beside the shape (light below it on a light surface, dark above it on a dark one), so the glyph looks
+// pressed into the surface rather than printed on it.
++ (UIImage *)heartWithSize:(CGFloat)size filled:(BOOL)filled color:(UIColor *)color dark:(BOOL)dark;
++ (UIImage *)commentBubbleWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;
++ (UIImage *)bookmarkWithSize:(CGFloat)size filled:(BOOL)filled color:(UIColor *)color dark:(BOOL)dark;
 @end

@@ -1,4 +1,5 @@
 #import "SHPostDetailViewController.h"
+#import "SHTabIcons.h"
 #import "SHCommentsViewController.h"
 #import "SHProfileViewController.h"
 #import "SHUserListViewController.h"
@@ -101,24 +102,22 @@
 
     CGFloat y = imgH + 8;
 
+    // the action glyphs are drawn in code with the iOS 6 emboss (no emoji, which would render in colour)
     _likeButton = [UIButton buttonWithType:UIButtonTypeCustom];
     _likeButton.frame = CGRectMake(10, y, 36, 32);
-    [_likeButton setTitle:@"♥" forState:UIControlStateNormal];
-    _likeButton.titleLabel.font = [UIFont systemFontOfSize:26];
-    [_likeButton setTitleColor:_post.hasLiked ? [UIColor redColor] : [[SHTheme shared] textColor] forState:UIControlStateNormal];
     [_likeButton addTarget:self action:@selector(likeTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self updateLikeUI];
     [_scrollView addSubview:_likeButton];
 
     UIButton *commentButton = [UIButton buttonWithType:UIButtonTypeCustom];
     commentButton.frame = CGRectMake(50, y, 40, 32);
-    [commentButton setTitle:@"\U0001F4AC" forState:UIControlStateNormal];
-    commentButton.titleLabel.font = [UIFont systemFontOfSize:22];
+    [commentButton setImage:[SHTabIcons commentBubbleWithSize:26 color:[[SHTheme shared] textColor] dark:[[SHTheme shared] isDark]]
+                   forState:UIControlStateNormal];
     [commentButton addTarget:self action:@selector(commentsTapped) forControlEvents:UIControlEventTouchUpInside];
     [_scrollView addSubview:commentButton];
 
     _saveButton = [UIButton buttonWithType:UIButtonTypeCustom];
     _saveButton.frame = CGRectMake(w - 46, y, 36, 32);
-    _saveButton.titleLabel.font = [UIFont systemFontOfSize:24];
     [_saveButton addTarget:self action:@selector(saveTapped) forControlEvents:UIControlEventTouchUpInside];
     [self updateSaveUI];
     [_scrollView addSubview:_saveButton];
@@ -200,14 +199,16 @@
 
 - (void)updateLikeUI
 {
-    [_likeButton setTitleColor:_post.hasLiked ? [UIColor redColor] : [[SHTheme shared] textColor] forState:UIControlStateNormal];
+    UIColor *heartColor = _post.hasLiked ? [UIColor colorWithRed:0.93 green:0.2 blue:0.27 alpha:1] : [[SHTheme shared] textColor];
+    [_likeButton setImage:[SHTabIcons heartWithSize:26 filled:_post.hasLiked color:heartColor dark:[[SHTheme shared] isDark]]
+                 forState:UIControlStateNormal];
     _likesLabel.text = [NSString stringWithFormat:L(@"%@ likes"), [SHUtils formatCount:_post.likeCount]];
 }
 
 - (void)updateSaveUI
 {
-    [_saveButton setTitle:_post.saved ? @"\U0001F516" : @"\U0001F517" forState:UIControlStateNormal];
-    _saveButton.alpha = _post.saved ? 1.0 : 0.55;
+    [_saveButton setImage:[SHTabIcons bookmarkWithSize:26 filled:_post.saved color:[[SHTheme shared] textColor] dark:[[SHTheme shared] isDark]]
+                 forState:UIControlStateNormal];
 }
 
 - (void)showLikers
