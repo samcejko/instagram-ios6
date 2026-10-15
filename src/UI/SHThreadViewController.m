@@ -781,7 +781,8 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
     for (SHDirectMessage *m in page) if (m.pk.length) [pagePks addObject:m.pk];
     NSMutableDictionary *shown = [NSMutableDictionary dictionary];
     for (SHDirectMessage *m in _messages) if (!SHIsLocalMessage(m)) shown[m.pk] = m;
-    NSDate *pageStart = [[page firstObject] timestamp];
+    SHDirectMessage *oldestOfPage = [page firstObject];
+    NSDate *pageStart = oldestOfPage.timestamp;
 
     NSMutableArray *merged = [NSMutableArray array];
     for (SHDirectMessage *m in _messages) {
