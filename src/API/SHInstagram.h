@@ -38,6 +38,12 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 // (SHA-1) + AES-GCM path runs on-device without falling back to plaintext.
 + (SHHTTPTask *)encryptionSelfTestWithCompletion:(void (^)(BOOL ok, NSString *detail))completion;
 
+// Password-free login-format probe: sends ONE /accounts/login/ request with a NON-EXISTENT username and the
+// throwaway string as the password (no real account, no real credential). The server's reply shows how far the
+// request got: "invalid_user" / a bad-password reply means Instagram accepted our request format and reached the
+// credential check (so only real credentials remain); a format/signature error means there is still a request bug.
++ (SHHTTPTask *)loginFormatProbeWithCompletion:(void (^)(NSString *detail))completion;
+
 + (SHHTTPTask *)timelineFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
 
 + (SHHTTPTask *)userInfoByUsername:(NSString *)username completion:(SHUserCompletion)completion;

@@ -738,6 +738,39 @@ static NSString *g_challengePath = nil;
     }];
 }
 
++ (SHHTTPTask *)loginFormatProbeWithCompletion:(void (^)(NSString *detail))completion
+{
+    return [self fetchEncryptionKeyWithCompletion:^(NSString *pubKey, NSInteger keyId, NSError *error) {
+        if (error || !pubKey.length) { completion([NSString stringWithFormat:@"key fetch failed: %@", error.localizedDescription ?: @"?"]); return; }
+        NSString *encPassword = SHEncryptPassword(@"selftest-not-a-credential", pubKey, keyId);
+        if (!encPassword.length) { completion(@"enc_password nil (crypto failed)"); return; }
+        NSDictionary *params = @{
+            @"jazoest": SHJazoest([SHSettings phoneId]),
+            @"country_codes": @"[{\"country_code\":\"1\",\"source\":[\"default\"]}]",
+            @"phone_id": [SHSettings phoneId],
+            @"enc_password": encPassword,
+            @"username": @"gramify_fmt_probe_000",   // deliberately not a real account
+            @"adid": [[NSUUID UUID] UUIDString],
+            @"guid": [SHSettings deviceId],
+            @"device_id": [SHSettings androidId],
+            @"google_tokens": @"[]",
+            @"login_attempt_count": @"0",
+        };
+        NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+        h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+        NSString *csrf = [SHSettings csrfToken];
+        if (csrf.length) h[@"X-CSRFToken"] = csrf;
+        [SHHTTP request:@"POST" url:[SHApiBase stringByAppendingString:@"/accounts/login/"]
+            headers:h body:SHSignedBodyData(params) retries:0
+            completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *err) {
+                NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
+                completion([NSString stringWithFormat:@"HTTP %ld status=%@ error_type=%@ msg=\"%@\"",
+                    (long)status, SHStr(d[@"status"]) ?: @"?", SHStr(d[@"error_type"]) ?: @"-",
+                    SHStr(d[@"message"]) ?: @"-"]);
+            }];
+    }];
+}
+
 #pragma mark - Current user, lists and media info
 
 + (SHHTTPTask *)currentUserWithCompletion:(SHUserCompletion)completion

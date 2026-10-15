@@ -106,6 +106,12 @@
         }];
         return YES;
     }
+    if ([target isEqualToString:@"loginprobe"]) {
+        [SHInstagram loginFormatProbeWithCompletion:^(NSString *detail) {
+            SHLog(@"LOGINPROBE — %@", detail ?: @"");
+        }];
+        return YES;
+    }
     if ([target isEqualToString:@"showtabs"]) {
         [self showFeed];   // the main tab shell, even without a session, to inspect the layout
         return YES;
