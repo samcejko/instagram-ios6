@@ -63,7 +63,7 @@
 "Direct" = "Zprávy";
 
 /* Profile / grid */
-"\U0001F512 This account is private" = "\U0001F512 Tento účet je soukromý";
+"This account is private" = "Tento účet je soukromý";
 "Follow this account to see their photos and videos." = "Sledujte tento účet, abyste viděli jeho fotky a videa.";
 "Couldn't load your profile." = "Nepodařilo se načíst váš profil.";
 "Saved" = "Uložené";
@@ -98,6 +98,7 @@
 "There is no pending verification." = "Není žádné čekající ověření.";
 "Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again." = "Instagram vyžaduje bezpečnostní kontrolu. Otevřete jednou aplikaci Instagram nebo instagram.com, schvalte toto přihlášení a zkuste to znovu.";
 "The password you entered is incorrect." = "Zadané heslo je nesprávné.";
+"Your version of Instagram is out of date." = "Tvoje verze Instagramu je zastaralá.";
 "That username doesn't belong to an account." = "Toto uživatelské jméno nepatří žádnému účtu.";
 
 /* Links / external */

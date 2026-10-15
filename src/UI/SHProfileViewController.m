@@ -44,7 +44,8 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.title = _username.length ? _username : (_isCurrentUser ? L(@"Profile") : L(@"Profile"));
+    // Put the username in the nav bar, not self.title, so the Profile tab keeps its "Profil" item.
+    self.navigationItem.title = _username.length ? _username : L(@"Profile");
     self.view.backgroundColor = [[SHTheme shared] backgroundColor];
 
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
@@ -92,8 +93,8 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         }
         self->_user = user;
         if (!self->_pk.length) self->_pk = user.pk;
-        if (!self->_username.length) { self->_username = user.username; self.title = user.username; }
-        else self.title = user.username ?: self->_username;
+        if (!self->_username.length) self->_username = user.username;
+        self.navigationItem.title = user.username ?: self->_username;
         [self buildHeader];
         [self loadPosts:NO];
     };
@@ -176,7 +177,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
     }
     if (_user.isPrivate) {
         UILabel *lock = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 16)];
-        lock.text = L(@"\U0001F512 This account is private");
+        lock.text = [@"\U0001F512 " stringByAppendingString:L(@"This account is private")];
         lock.font = [UIFont systemFontOfSize:12];
         lock.textColor = [[SHTheme shared] secondaryTextColor];
         [_headerView addSubview:lock];

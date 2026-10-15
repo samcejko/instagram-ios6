@@ -63,7 +63,7 @@
 "Direct" = "Direct";
 
 /* Profile / grid */
-"\U0001F512 This account is private" = "\U0001F512 This account is private";
+"This account is private" = "This account is private";
 "Follow this account to see their photos and videos." = "Follow this account to see their photos and videos.";
 "Couldn't load your profile." = "Couldn't load your profile.";
 "Saved" = "Saved";
@@ -98,6 +98,7 @@
 "There is no pending verification." = "There is no pending verification.";
 "Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again." = "Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again.";
 "The password you entered is incorrect." = "The password you entered is incorrect.";
+"Your version of Instagram is out of date." = "Your version of Instagram is out of date.";
 "That username doesn't belong to an account." = "That username doesn't belong to an account.";
 
 /* Links / external */

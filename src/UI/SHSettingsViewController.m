@@ -16,6 +16,7 @@
 {
     [super viewDidLoad];
     self.title = L(@"Settings");
+    self.view.backgroundColor = [[SHTheme shared] backgroundColor];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:L(@"Done")
         style:UIBarButtonItemStyleDone target:self action:@selector(dismissSelf)];
 
@@ -23,6 +24,8 @@
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
+    _tableView.backgroundColor = [[SHTheme shared] backgroundColor];
+    [[SHTheme shared] applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 }
 
@@ -52,6 +55,7 @@
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"S"];
     cell.accessoryView = nil;
     cell.accessoryType = UITableViewCellAccessoryNone;
+    [[SHTheme shared] styleCell:cell];
     cell.textLabel.textColor = [[SHTheme shared] textColor];
     cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 

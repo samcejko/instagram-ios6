@@ -41,6 +41,7 @@
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+    [[SHTheme shared] applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 
     _inputBar = [[UIView alloc] initWithFrame:CGRectMake(0, bounds.size.height - barH, bounds.size.width, barH)];

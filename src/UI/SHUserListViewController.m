@@ -111,6 +111,7 @@ static NSString * const SHUserCellId = @"UserCell";
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.rowHeight = 58;
+    [[SHTheme shared] applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 
     if (_loader) [self loadMore:NO];

@@ -82,6 +82,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.rowHeight = 60;
+    [[SHTheme shared] applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 30, 0)];

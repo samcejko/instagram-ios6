@@ -532,10 +532,30 @@ static NSString *SHExtractBloksError(NSString *body)
 
 + (SHHTTPTask *)timelineFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion
 {
-    NSMutableString *url = [NSMutableString stringWithFormat:@"%@/feed/timeline/?is_pull_to_refresh=0", SHApiBase];
-    if (maxId.length) [url appendFormat:@"&max_id=%@", [SHUtils urlEncode:maxId]];
+    // The timeline is a POST (a GET returns HTTP 405); plain form body, not signed.
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    h[@"X-Ig-Nav-Chain"] = @"com.bloks.www.caa.login.login_homepage:com.bloks.www.caa.login.login_homepage:1:button:0";
+    NSMutableDictionary *fields = [@{
+        @"has_camera_permission": @"1",
+        @"feed_view_info": @"[]",
+        @"phone_id": [SHSettings phoneId],
+        @"reason": maxId.length ? @"pagination" : @"cold_start_fetch",
+        @"battery_level": @"100",
+        @"timezone_offset": @"0",
+        @"device_id": [SHSettings deviceId],
+        @"request_id": [[NSUUID UUID] UUIDString],
+        @"_uuid": [SHSettings deviceId],
+        @"is_charging": @"1",
+        @"will_sound_on": @"0",
+        @"is_pull_to_refresh": @"0",
+    } mutableCopy];
+    if (maxId.length) fields[@"max_id"] = maxId;
+    NSString *csrf = [SHSettings csrfToken];
+    if (csrf.length) fields[@"_csrftoken"] = csrf;
 
-    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+    return [SHHTTP postForm:[SHApiBase stringByAppendingString:@"/feed/timeline/"] headers:h fields:fields
+                 completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *posts = [NSMutableArray array];

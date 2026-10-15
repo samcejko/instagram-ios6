@@ -56,6 +56,8 @@ static NSString * const SHFeedCellId = @"FeedCell";
     _tableView.delegate = self;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
     _tableView.tableHeaderView = _storyBar;
+    [[SHTheme shared] applyToTableView:_tableView];
+    _tableView.backgroundColor = [[SHTheme shared] backgroundColor];
     [self.view addSubview:_tableView];
 
     [self loadFeed:NO];
