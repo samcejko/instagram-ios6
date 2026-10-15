@@ -37,6 +37,7 @@
     explore.secondaryLoader = ^SHHTTPTask *(NSString *maxId, SHFeedCompletion completion) {
         return [SHInstagram reelsWithMaxId:maxId completion:completion];
     };
+    explore.secondaryCachedLoader = ^(SHFeedCompletion completion) { [SHInstagram cachedReelsWithCompletion:completion]; };
 
     SHActivityViewController *activity = [[SHActivityViewController alloc] init];
     SHInboxViewController *inbox = [[SHInboxViewController alloc] init];

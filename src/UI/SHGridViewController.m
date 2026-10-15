@@ -73,6 +73,7 @@ static NSString * const SHGridCellId = @"GridRow";
 {
     if (_secondaryFullScreen) {
         SHReelsViewController *reels = [[SHReelsViewController alloc] initWithLoader:_secondaryLoader];
+        reels.cachedLoader = _secondaryCachedLoader;
         reels.modalPresentationStyle = UIModalPresentationFullScreen;
         [self presentViewController:reels animated:YES completion:nil];
         return;

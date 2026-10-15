@@ -53,6 +53,7 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 // network freshens it. nil when nothing was kept; no cursor is given (the fresh page brings one).
 + (void)cachedTimelineWithCompletion:(SHFeedCompletion)completion;
 + (void)cachedExploreWithCompletion:(SHFeedCompletion)completion;
++ (void)cachedReelsWithCompletion:(SHFeedCompletion)completion;
 + (void)cachedNewsWithCompletion:(SHNewsCompletion)completion;
 + (void)cachedDirectInboxWithCompletion:(SHThreadsCompletion)completion;
 + (void)clearResponseCache;

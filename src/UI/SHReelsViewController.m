@@ -284,7 +284,35 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     [self.view addSubview:_messageLabel];
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appBecameActive) name:UIApplicationDidBecomeActiveNotification object:nil];
+    if (_cachedLoader) {
+        __weak SHReelsViewController *weak = self;
+        _cachedLoader(^(NSArray *posts, NSString *next, NSError *error) {
+            SHReelsViewController *me = weak;
+            if (!me || me.posts.count || !posts.count) return;   // (the network was quicker, or nothing was kept)
+            [me addPosts:posts];
+        });
+    }
     [self load:NO];
+}
+
+// Adds videos not shown yet (the kept page and a fresh one overlap); the first ones start playing.
+- (void)addPosts:(NSArray *)posts
+{
+    NSUInteger before = _posts.count;
+    NSMutableSet *known = [NSMutableSet set];
+    for (SHPost *p in _posts) if (p.pk.length) [known addObject:p.pk];
+    for (SHPost *p in posts) {
+        if (!p.videoURL.length || !p.pk.length || [known containsObject:p.pk]) continue;
+        [_posts addObject:p];
+        [known addObject:p.pk];
+    }
+    if (_posts.count == before) return;
+    _messageLabel.hidden = YES;
+    [_spinner stopAnimating];
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+    [self refreshWindow];
+    if (before == 0 && _visible) [self activate:0];
 }
 
 - (void)dealloc
@@ -353,16 +381,15 @@ static void *SHReelReadyContext = &SHReelReadyContext;
         if (!me) return;
         me.loading = NO;
         [me.spinner stopAnimating];
-        if (error && !me.posts.count) { me.messageLabel.text = error.localizedDescription; me.messageLabel.hidden = NO; return; }
-        NSUInteger before = me.posts.count;
-        for (SHPost *p in posts) if (p.videoURL.length) [me.posts addObject:p];
+        if (error) {
+            if (!me.posts.count) { me.messageLabel.text = error.localizedDescription; me.messageLabel.hidden = NO; }
+            return;
+        }
         me.nextMaxId = nextMaxId;
+        NSUInteger before = me.posts.count;
+        [me addPosts:posts];
         if (!me.posts.count) { me.messageLabel.text = L(@"Nothing here yet."); me.messageLabel.hidden = NO; return; }
-        [me.view setNeedsLayout];
-        [me.view layoutIfNeeded];
-        [me refreshWindow];
-        if (before == 0 && me.visible) [me activate:0];
-        // a page that came back without videos: ask for the next one straight away
+        // a page that brought nothing new: ask for the next one straight away
         if (me.posts.count == before && nextMaxId.length) [me load:YES];
     });
 }

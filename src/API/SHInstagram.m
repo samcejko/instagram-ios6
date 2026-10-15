@@ -357,6 +357,24 @@ static NSArray *SHParseExplore(NSDictionary *d)
     return posts;
 }
 
+// The videos of a clips page: in "items" or, in the newer layout, in "items_with_ads" between the ads (left out).
+static NSArray *SHParseReels(NSDictionary *d)
+{
+    NSMutableArray *all = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (NSString *key in @[ @"items", @"items_with_ads" ]) {
+        for (id entry in SHArr(d[key])) {
+            NSDictionary *e = SHDict(entry);
+            NSDictionary *media = SHDict(e[@"media"]);
+            if (e[@"ad"] || e[@"ad_id"] || media[@"ad_id"] || media[@"ad_action"] || e[@"dr_ad_type"]) continue;
+            SHCollectMedia(e, all, seen);
+        }
+    }
+    NSMutableArray *videos = [NSMutableArray array];
+    for (SHPost *p in all) if (p.videoURL.length || p.mediaType == 2) [videos addObject:p];
+    return videos;
+}
+
 static NSArray *SHParseNews(NSDictionary *d)
 {
     NSMutableArray *stories = [NSMutableArray array];
@@ -660,6 +678,11 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
 + (void)cachedExploreWithCompletion:(SHFeedCompletion)completion
 {
     SHResponseCacheLoad(@"explore", ^(NSDictionary *json) { completion(json ? SHParseExplore(json) : nil, nil, nil); });
+}
+
++ (void)cachedReelsWithCompletion:(SHFeedCompletion)completion
+{
+    SHResponseCacheLoad(@"reels", ^(NSDictionary *json) { completion(json ? SHParseReels(json) : nil, nil, nil); });
 }
 
 + (void)cachedNewsWithCompletion:(SHNewsCompletion)completion
@@ -1410,21 +1433,8 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
     task = [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
-        NSMutableArray *posts = [NSMutableArray array];
-        if (!error && status < 400) {
-            // the reels come in "items" or, in the newer layout, in "items_with_ads" between the ads (left out)
-            NSMutableArray *all = [NSMutableArray array];
-            NSMutableSet *seen = [NSMutableSet set];
-            for (NSString *key in @[ @"items", @"items_with_ads" ]) {
-                for (id entry in SHArr(d[key])) {
-                    NSDictionary *e = SHDict(entry);
-                    NSDictionary *media = SHDict(e[@"media"]);
-                    if (e[@"ad"] || e[@"ad_id"] || media[@"ad_id"] || media[@"ad_action"] || e[@"dr_ad_type"]) continue;
-                    SHCollectMedia(e, all, seen);
-                }
-            }
-            for (SHPost *p in all) if (p.videoURL.length || p.mediaType == 2) [posts addObject:p];
-        }
+        NSArray *posts = (!error && status < 400) ? SHParseReels(d) : @[];
+        if (!cursor.length && posts.count) SHResponseCacheStore(@"reels", d);   // the next opening starts with these
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
             SHLog(@"REELS %@ status=%ld items=%lu with_ads=%lu firstKeys=%@ videos=%lu msg=%@", endpoint, (long)status,
                   (unsigned long)SHArr(d[@"items"]).count, (unsigned long)SHArr(d[@"items_with_ads"]).count,

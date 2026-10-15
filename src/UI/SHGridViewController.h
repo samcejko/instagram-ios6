@@ -13,5 +13,6 @@ typedef SHHTTPTask *(^SHGridLoader)(NSString *maxId, SHFeedCompletion completion
 @property (nonatomic, copy) NSString *secondaryTitle;
 @property (nonatomic, copy) SHGridLoader secondaryLoader;
 @property (nonatomic) BOOL secondaryFullScreen;
+@property (nonatomic, copy) void (^secondaryCachedLoader)(SHFeedCompletion completion);   // shown at once there
 - (void)refresh;
 @end
