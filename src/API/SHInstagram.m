@@ -382,14 +382,28 @@ static NSString *SHExtractBloksError(NSString *body)
                 if (newCsrf) [SHSettings setCsrfToken:newCsrf];
                 SHSaveTokensFromHeaders(headers);   // the token (and ds_user_id) arrive here on success
 
-                // Diagnostic (debug builds only): dump the server reply so a real login can be inspected without
-                // ever logging the password or the session token's value.
+                // Diagnostic (debug builds only): dump the full server reply to a file and log the response header
+                // names + content markers, so the real CAA flow can be reverse-engineered without ever logging the
+                // password or the token value.
                 if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
-                    BOOL authPresent = NO;
-                    for (NSString *k in headers) if ([[k lowercaseString] isEqualToString:@"ig-set-authorization"] && [headers[k] length] > 14) authPresent = YES;
                     NSString *dbg = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
-                    SHLog(@"CAALOGIN HTTP %ld authHeader=%@ loggedIn=%@ bodyLen=%lu", (long)status, authPresent ? @"yes" : @"no", [SHSettings isLoggedIn] ? @"yes" : @"no", (unsigned long)dbg.length);
-                    SHLog(@"CAALOGIN body: %@", dbg.length > 1400 ? [dbg substringToIndex:1400] : dbg);
+                    [dbg writeToFile:[[SHUtils documentsPath] stringByAppendingPathComponent:@"caalogin.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                    NSMutableArray *hdrNames = [NSMutableArray array];
+                    for (NSString *k in headers) [hdrNames addObject:[k lowercaseString]];
+                    NSString *lc = [dbg lowercaseString];
+                    SHLog(@"CAALOGIN HTTP %ld len=%lu headers=[%@]", (long)status, (unsigned long)dbg.length, [hdrNames componentsJoinedByString:@","]);
+                    SHLog(@"CAALOGIN markers: 2fa=%d code=%d incorrect=%d checkpoint=%d challenge=%d bearer=%d sessionid=%d ds_user=%d success_action=%d 2fa_action=%d fallback_true=%d",
+                        (int)([lc rangeOfString:@"two_factor"].location != NSNotFound || [lc rangeOfString:@"two step"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"security code"].location != NSNotFound || [lc rangeOfString:@"verification code"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"incorrect"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"checkpoint"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"challenge"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"bearer"].location != NSNotFound || [lc rangeOfString:@"igt:"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"sessionid"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"ds_user_id"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"override_login_success_action"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"override_login_2fa_action"].location != NSNotFound),
+                        (int)([lc rangeOfString:@"fallback_triggered\":true"].location != NSNotFound));
                 }
 
                 if ([SHSettings isLoggedIn]) {
