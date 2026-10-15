@@ -4,8 +4,8 @@
 #import "SHTheme.h"
 #import "SHCommon.h"
 
-static const CGFloat SHStorySize = 56;
-static const CGFloat SHStoryPad = 8;
+static const CGFloat SHStorySize = 56;   // the picture; the glossy ring goes around it
+static const CGFloat SHStoryPad = 10;
 
 @interface SHStoryBarView ()
 @property (nonatomic, strong) UIScrollView *scrollView;
@@ -17,17 +17,27 @@ static const CGFloat SHStoryPad = 8;
 - (instancetype)initWithFrame:(CGRect)frame
 {
     if ((self = [super initWithFrame:frame])) {
-        self.backgroundColor = [[SHTheme shared] backgroundColor];
+        SHTheme *theme = [SHTheme shared];
+        // a shelf on the linen: the circles sit on it, an etched groove under it
+        UIView *shelf = [theme texturedBackgroundView];
+        shelf.frame = self.bounds;
+        [self addSubview:shelf];
+
         _scrollView = [[UIScrollView alloc] initWithFrame:self.bounds];
         _scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         _scrollView.showsHorizontalScrollIndicator = NO;
         _scrollView.alwaysBounceHorizontal = YES;
+        _scrollView.backgroundColor = [UIColor clearColor];
         [self addSubview:_scrollView];
 
-        UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, frame.size.height - 0.5, frame.size.width, 0.5)];
-        sep.backgroundColor = [[SHTheme shared] separatorColor];
-        sep.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-        [self addSubview:sep];
+        UIView *dark = [[UIView alloc] initWithFrame:CGRectMake(0, frame.size.height - 2, frame.size.width, 1)];
+        dark.backgroundColor = [UIColor colorWithWhite:0 alpha:theme.isDark ? 0.8 : 0.2];
+        dark.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+        [self addSubview:dark];
+        UIView *light = [[UIView alloc] initWithFrame:CGRectMake(0, frame.size.height - 1, frame.size.width, 1)];
+        light.backgroundColor = [UIColor colorWithWhite:1 alpha:theme.isDark ? 0.07 : 0.8];
+        light.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+        [self addSubview:light];
     }
     return self;
 }
@@ -35,40 +45,39 @@ static const CGFloat SHStoryPad = 8;
 - (void)setReels:(NSArray *)reels
 {
     _reels = reels;
+    SHTheme *theme = [SHTheme shared];
     for (UIView *v in [_scrollView.subviews copy]) [v removeFromSuperview];
+    CGFloat ringSize = SHStorySize + 10;
     CGFloat x = SHStoryPad;
     for (NSUInteger i = 0; i < reels.count; i++) {
         SHStoryReel *reel = reels[i];
-        UIView *container = [[UIView alloc] initWithFrame:CGRectMake(x, 4, SHStorySize + 8, self.bounds.size.height - 8)];
+        UIView *container = [[UIView alloc] initWithFrame:CGRectMake(x, 5, ringSize, self.bounds.size.height - 8)];
         container.tag = (NSInteger)i;
 
-        UIView *ring = [[UIView alloc] initWithFrame:CGRectMake(0, 0, SHStorySize + 8, SHStorySize + 8)];
-        ring.layer.cornerRadius = (SHStorySize + 8) / 2;
-        ring.layer.borderWidth = reel.seen ? 1 : 2;
-        ring.layer.borderColor = reel.seen ? [[SHTheme shared] separatorColor].CGColor : [UIColor colorWithRed:0.83 green:0.18 blue:0.35 alpha:1].CGColor;
+        UIImageView *ring = [[UIImageView alloc] initWithImage:[theme storyRingImageWithSize:ringSize seen:reel.seen]];
+        ring.frame = CGRectMake(0, 0, ringSize, ringSize);
         [container addSubview:ring];
 
-        SHImageView *avatar = [[SHImageView alloc] initWithFrame:CGRectMake(4, 4, SHStorySize, SHStorySize)];
-        avatar.layer.cornerRadius = SHStorySize / 2;
-        avatar.clipsToBounds = YES;
+        SHImageView *avatar = [[SHImageView alloc] initWithFrame:CGRectMake(5, 5, SHStorySize, SHStorySize)];
+        [theme styleAvatar:avatar radius:SHStorySize / 2];
         avatar.maxPixels = 160;
-        avatar.backgroundColor = [[SHTheme shared] separatorColor];
-        [avatar setImageURL:reel.user.profilePicURL placeholder:nil];
+        [avatar setImageURL:reel.user.profilePicURL placeholder:[theme avatarPlaceholderWithSize:SHStorySize]];
         [container addSubview:avatar];
 
-        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(-4, SHStorySize + 10, SHStorySize + 16, 14)];
+        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(-6, ringSize + 2, ringSize + 12, 14)];
         name.text = reel.user.username;
-        name.font = [UIFont systemFontOfSize:10];
-        name.textColor = [[SHTheme shared] textColor];
+        name.font = [UIFont boldSystemFontOfSize:10];
+        name.textColor = reel.seen ? [theme secondaryTextColor] : [theme textColor];
         name.backgroundColor = [UIColor clearColor];
         name.textAlignment = NSTextAlignmentCenter;
         name.lineBreakMode = NSLineBreakByTruncatingTail;
+        [theme embossLabel:name];
         [container addSubview:name];
 
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(reelTapped:)];
         [container addGestureRecognizer:tap];
         [_scrollView addSubview:container];
-        x += SHStorySize + SHStoryPad + 8;
+        x += ringSize + SHStoryPad;
     }
     _scrollView.contentSize = CGSizeMake(x, self.bounds.size.height);
 }

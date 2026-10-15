@@ -23,11 +23,15 @@
 @property (nonatomic, copy) NSString *nextMaxId;
 @property (nonatomic, strong) SHHTTPTask *task;
 @property (nonatomic, strong) SHHTTPTask *postsTask;
+@property (nonatomic, strong) SHHTTPTask *friendshipTask;
 @property (nonatomic) BOOL loadingPosts;
+@property (nonatomic) BOOL changingFollow;
 @property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @end
 
 static NSString * const SHProfileGridId = @"ProfileGridRow";
+static const CGFloat SHProfileAvatar = 84;
 
 @implementation SHProfileViewController
 
@@ -44,48 +48,53 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+    SHTheme *theme = [SHTheme shared];
     // Put the username in the nav bar, not self.title, so the Profile tab keeps its "Profil" item.
     self.navigationItem.title = _username.length ? _username : L(@"Profile");
-    self.view.backgroundColor = [[SHTheme shared] backgroundColor];
+    self.view.backgroundColor = [theme linenColor];
 
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _tableView.dataSource = self;
     _tableView.delegate = self;
-    _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-    [[SHTheme shared] applyToTableView:_tableView];
+    [theme applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 
-    _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 240, self.view.bounds.size.width - 40, 60)];
+    _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 260, self.view.bounds.size.width - 40, 60)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     _statusLabel.numberOfLines = 0;
     _statusLabel.textAlignment = NSTextAlignmentCenter;
-    _statusLabel.font = [UIFont systemFontOfSize:14];
-    _statusLabel.textColor = [[SHTheme shared] secondaryTextColor];
+    _statusLabel.font = [UIFont boldSystemFontOfSize:15];
+    _statusLabel.textColor = [theme secondaryTextColor];
+    _statusLabel.backgroundColor = [UIColor clearColor];
+    [theme embossLabel:_statusLabel];
     _statusLabel.hidden = YES;
     [self.view addSubview:_statusLabel];
 
+    _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:[theme spinnerStyle]];
+    _spinner.center = CGPointMake(self.view.bounds.size.width / 2, 90);
+    _spinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    _spinner.hidesWhenStopped = YES;
+    [self.view addSubview:_spinner];
+
     if (_isCurrentUser) {
-        UIBarButtonItem *gear = [[UIBarButtonItem alloc] initWithTitle:@"⚙" style:UIBarButtonItemStylePlain target:self action:@selector(settingsTapped)];
+        UIBarButtonItem *gear = [[UIBarButtonItem alloc] initWithImage:[theme gearBarIcon] style:UIBarButtonItemStyleBordered
+                                                                target:self action:@selector(settingsTapped)];
         gear.accessibilityLabel = L(@"Settings");
         self.navigationItem.rightBarButtonItem = gear;
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(sessionChanged) name:SHSettingsDidChangeNotification object:nil];
     }
 
     [self loadProfile];
 }
 
-- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; [_task cancel]; [_postsTask cancel]; }
-
-- (void)sessionChanged
-{
-    if (![SHSettings isLoggedIn]) return;   // logout is handled by the app delegate switching to the login screen
-}
+- (void)dealloc { [_task cancel]; [_postsTask cancel]; [_friendshipTask cancel]; }
 
 - (void)loadProfile
 {
     [_task cancel];
+    if (!_user) [_spinner startAnimating];
     void (^gotUser)(SHUser *, NSError *) = ^(SHUser *user, NSError *error) {
+        [self->_spinner stopAnimating];
         if (error) {
             self->_statusLabel.text = error.localizedDescription;
             self->_statusLabel.hidden = NO;
@@ -97,6 +106,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         self.navigationItem.title = user.username ?: self->_username;
         [self buildHeader];
         [self loadPosts:NO];
+        [self loadFriendship];
     };
     if (_isCurrentUser && !_pk.length && !_username.length) {
         _task = [SHInstagram currentUserWithCompletion:gotUser];
@@ -109,119 +119,187 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
     }
 }
 
+// Where this account stands with the viewer (following, asked to follow): the profile itself does not always say.
+- (void)loadFriendship
+{
+    if (_isCurrentUser || !_pk.length || [_pk isEqualToString:[SHSettings userId]]) return;
+    [_friendshipTask cancel];
+    _friendshipTask = [SHInstagram friendshipWithUser:_pk completion:^(BOOL following, BOOL requested, NSError *error) {
+        if (error || !self->_user) return;
+        if (following == self->_user.friendshipFollowing && requested == self->_user.friendshipRequested) return;
+        self->_user.friendshipFollowing = following;
+        self->_user.friendshipRequested = requested;
+        [self buildHeader];
+    }];
+}
+
+// One of the three counts in the glossy box: the number above, what it counts under it.
 - (UIButton *)statButton:(NSString *)number title:(NSString *)title frame:(CGRect)frame action:(SEL)action
 {
+    SHTheme *theme = [SHTheme shared];
     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
     b.frame = frame;
-    if (action) [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    UILabel *num = [[UILabel alloc] initWithFrame:CGRectMake(0, 4, frame.size.width, 20)];
+    if (action) {
+        [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+        [b setBackgroundImage:[SHUtils imageWithColor:[UIColor colorWithWhite:theme.isDark ? 1 : 0 alpha:0.08] size:CGSizeMake(2, 2)]
+                     forState:UIControlStateHighlighted];
+    }
+    UILabel *num = [[UILabel alloc] initWithFrame:CGRectMake(0, 7, frame.size.width, 22)];
     num.text = number;
-    num.font = [UIFont boldSystemFontOfSize:16];
-    num.textColor = [[SHTheme shared] textColor];
+    num.font = [UIFont boldSystemFontOfSize:18];
+    num.textColor = [theme textColor];
     num.textAlignment = NSTextAlignmentCenter;
     num.backgroundColor = [UIColor clearColor];
+    [theme embossLabel:num];
     [b addSubview:num];
-    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, 24, frame.size.width, 16)];
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, 30, frame.size.width, 16)];
     sub.text = title;
-    sub.font = [UIFont systemFontOfSize:11];
-    sub.textColor = [[SHTheme shared] secondaryTextColor];
+    sub.font = [UIFont boldSystemFontOfSize:11];
+    sub.textColor = [theme secondaryTextColor];
     sub.textAlignment = NSTextAlignmentCenter;
     sub.backgroundColor = [UIColor clearColor];
+    [theme embossLabel:sub];
     [b addSubview:sub];
     return b;
 }
 
+// An etched vertical line between two counts of the box.
+- (UIView *)etchedDividerAtX:(CGFloat)x height:(CGFloat)h
+{
+    BOOL dark = [[SHTheme shared] isDark];
+    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(x, 6, 2, h - 12)];
+    UIView *a = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 1, h - 12)];
+    a.backgroundColor = [UIColor colorWithWhite:0 alpha:dark ? 0.7 : 0.18];
+    UIView *b = [[UIView alloc] initWithFrame:CGRectMake(1, 0, 1, h - 12)];
+    b.backgroundColor = [UIColor colorWithWhite:1 alpha:dark ? 0.08 : 0.85];
+    [v addSubview:a];
+    [v addSubview:b];
+    return v;
+}
+
 - (void)buildHeader
 {
+    SHTheme *theme = [SHTheme shared];
     CGFloat w = self.view.bounds.size.width;
-    CGFloat pad = 16;
-    _headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 180)];
+    CGFloat pad = 14;
+    _headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 200)];
+    _headerView.backgroundColor = [UIColor clearColor];
 
-    SHImageView *avatar = [[SHImageView alloc] initWithFrame:CGRectMake(pad, pad, 72, 72)];
-    avatar.layer.cornerRadius = 36;
-    avatar.clipsToBounds = YES;
-    avatar.backgroundColor = [[SHTheme shared] separatorColor];
-    [avatar setImageURL:_user.profilePicURL placeholder:nil];
-    [_headerView addSubview:avatar];
+    // the picture in a white frame with a shadow under it, the way the old app showed it
+    UIView *frameView = [[UIView alloc] initWithFrame:CGRectMake(pad, pad, SHProfileAvatar, SHProfileAvatar)];
+    frameView.backgroundColor = [UIColor whiteColor];
+    frameView.layer.cornerRadius = 8;
+    frameView.layer.shadowColor = [UIColor blackColor].CGColor;
+    frameView.layer.shadowOpacity = 0.6;
+    frameView.layer.shadowRadius = 2;
+    frameView.layer.shadowOffset = CGSizeMake(0, 1);
+    frameView.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:frameView.bounds cornerRadius:8].CGPath;
+    SHImageView *avatar = [[SHImageView alloc] initWithFrame:CGRectInset(frameView.bounds, 3, 3)];
+    [theme styleAvatar:avatar radius:6];
+    avatar.maxPixels = 200;
+    [avatar setImageURL:_user.profilePicURL placeholder:[theme avatarPlaceholderWithSize:SHProfileAvatar - 6]];
+    [frameView addSubview:avatar];
+    [_headerView addSubview:frameView];
 
-    CGFloat statsX = pad + 72 + 12;
-    CGFloat statsW = (w - statsX - pad) / 3;
-    [_headerView addSubview:[self statButton:[SHUtils formatCount:_user.mediaCount] title:L(@"Posts")
-                                       frame:CGRectMake(statsX, pad + 6, statsW, 44) action:nil]];
-    [_headerView addSubview:[self statButton:[SHUtils formatCount:_user.followerCount] title:L(@"Followers")
-                                       frame:CGRectMake(statsX + statsW, pad + 6, statsW, 44) action:@selector(showFollowers)]];
-    [_headerView addSubview:[self statButton:[SHUtils formatCount:_user.followingCount] title:L(@"Following")
-                                       frame:CGRectMake(statsX + statsW * 2, pad + 6, statsW, 44) action:@selector(showFollowing)]];
+    // the counts in one glossy box, split by etched lines
+    CGFloat boxX = pad + SHProfileAvatar + 12, boxW = w - boxX - pad, boxH = 52;
+    UIImageView *box = [[UIImageView alloc] initWithImage:[theme statBoxImage]];
+    box.frame = CGRectMake(boxX, pad + 2, boxW, boxH);
+    box.userInteractionEnabled = YES;
+    CGFloat cellW = floorf(boxW / 3);
+    [box addSubview:[self statButton:[SHUtils formatCount:_user.mediaCount] title:L(@"Posts") frame:CGRectMake(0, 0, cellW, boxH) action:nil]];
+    [box addSubview:[self statButton:[SHUtils formatCount:_user.followerCount] title:L(@"Followers")
+                               frame:CGRectMake(cellW, 0, cellW, boxH) action:@selector(showFollowers)]];
+    [box addSubview:[self statButton:[SHUtils formatCount:_user.followingCount] title:L(@"Following")
+                               frame:CGRectMake(cellW * 2, 0, boxW - cellW * 2, boxH) action:@selector(showFollowing)]];
+    [box addSubview:[self etchedDividerAtX:cellW - 1 height:boxH]];
+    [box addSubview:[self etchedDividerAtX:cellW * 2 - 1 height:boxH]];
+    [_headerView addSubview:box];
 
-    CGFloat y = pad + 80;
+    // under the box: follow (or Saved for oneself)
+    CGFloat buttonY = pad + 2 + boxH + 8;
+    UIButton *action = [UIButton buttonWithType:UIButtonTypeCustom];
+    action.frame = CGRectMake(boxX, buttonY, boxW, 30);
+    action.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    if (_isCurrentUser) {
+        [action setTitle:L(@"Saved") forState:UIControlStateNormal];
+        [action setTitleColor:[theme textColor] forState:UIControlStateNormal];
+        [action setBackgroundImage:[theme buttonImageHighlighted:NO] forState:UIControlStateNormal];
+        [action setBackgroundImage:[theme buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
+        [action addTarget:self action:@selector(showSaved) forControlEvents:UIControlEventTouchUpInside];
+    } else {
+        BOOL following = _user.friendshipFollowing || _user.friendshipRequested;   // a pending request reads "Requested"
+        [action setTitle:_user.friendshipFollowing ? L(@"Following") : _user.friendshipRequested ? L(@"Requested") : L(@"Follow")
+                forState:UIControlStateNormal];
+        [action setTitleColor:following ? [theme textColor] : [UIColor whiteColor] forState:UIControlStateNormal];
+        // glossy iOS 6 buttons: grey when already following (or asked to), the blue one otherwise
+        if (following) {
+            [action setBackgroundImage:[theme buttonImageHighlighted:NO] forState:UIControlStateNormal];
+            [action setBackgroundImage:[theme buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
+        } else {
+            [action setBackgroundImage:[theme accentButtonImageHighlighted:NO disabled:NO] forState:UIControlStateNormal];
+            [action setBackgroundImage:[theme accentButtonImageHighlighted:YES disabled:NO] forState:UIControlStateHighlighted];
+        }
+        action.tag = following ? 1 : 0;
+        action.enabled = !_changingFollow;
+        [action addTarget:self action:@selector(followTapped:) forControlEvents:UIControlEventTouchUpInside];
+    }
+    [theme embossButton:action];
+    [_headerView addSubview:action];
+
+    CGFloat y = MAX(pad + SHProfileAvatar, buttonY + 30) + 12;
     NSString *displayName = [SHUtils displayText:_user.fullName.length ? _user.fullName : _user.username];
-    if (_user.isVerified) displayName = [displayName stringByAppendingString:@" ✓"];
     if (displayName.length) {
-        UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 20)];
+        UILabel *name = [[UILabel alloc] init];
         name.text = displayName;
-        name.font = [UIFont boldSystemFontOfSize:14];
-        name.textColor = [[SHTheme shared] textColor];
+        name.font = [UIFont boldSystemFontOfSize:15];
+        name.textColor = [theme textColor];
         name.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:name];
+        CGFloat nameW = MIN(w - pad * 2 - 22, [displayName sizeWithFont:name.font].width);
+        name.frame = CGRectMake(pad, y, nameW, 20);
         [_headerView addSubview:name];
-        y += 20;
+        if (_user.isVerified) {
+            UIImageView *badge = [[UIImageView alloc] initWithImage:[theme verifiedBadgeWithSize:15]];
+            badge.frame = CGRectMake(pad + nameW + 5, y + 3, 15, 15);
+            [_headerView addSubview:badge];
+        }
+        y += 22;
     }
     if (_user.biography.length) {
         UILabel *bio = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 0)];
         bio.text = [SHUtils displayText:_user.biography];
         bio.font = [UIFont systemFontOfSize:13];
-        bio.textColor = [[SHTheme shared] textColor];
+        bio.textColor = [theme textColor];
         bio.backgroundColor = [UIColor clearColor];
         bio.numberOfLines = 0;
+        [theme embossLabel:bio];
         CGSize sz = [bio sizeThatFits:CGSizeMake(w - pad * 2, 200)];
         bio.frame = CGRectMake(pad, y, w - pad * 2, sz.height);
         [_headerView addSubview:bio];
         y += sz.height + 4;
     }
     if (_user.isPrivate) {
-        UILabel *lock = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 16)];
-        lock.text = [@"\U0001F512 " stringByAppendingString:L(@"This account is private")];
-        lock.font = [UIFont systemFontOfSize:12];
-        lock.textColor = [[SHTheme shared] secondaryTextColor];
-        lock.backgroundColor = [UIColor clearColor];
+        UIImageView *lock = [[UIImageView alloc] initWithImage:[theme lockGlyph]];
+        lock.frame = CGRectMake(pad, y + 1, 12, 14);
         [_headerView addSubview:lock];
-        y += 18;
+        UILabel *text = [[UILabel alloc] initWithFrame:CGRectMake(pad + 17, y, w - pad * 2 - 17, 16)];
+        text.text = L(@"This account is private");
+        text.font = [UIFont boldSystemFontOfSize:12];
+        text.textColor = [theme secondaryTextColor];
+        text.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:text];
+        [_headerView addSubview:text];
+        y += 20;
     }
     y += 10;
 
-    if (_isCurrentUser) {
-        UIButton *saved = [UIButton buttonWithType:UIButtonTypeCustom];
-        saved.frame = CGRectMake(pad, y, w - pad * 2, 32);
-        saved.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-        [saved setTitle:L(@"Saved") forState:UIControlStateNormal];
-        [saved setTitleColor:[[SHTheme shared] textColor] forState:UIControlStateNormal];
-        [saved setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:NO] forState:UIControlStateNormal];
-        [saved setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
-        [[SHTheme shared] embossButton:saved];
-        [saved addTarget:self action:@selector(showSaved) forControlEvents:UIControlEventTouchUpInside];
-        [_headerView addSubview:saved];
-        y += 42;
-    } else {
-        UIButton *followBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        followBtn.frame = CGRectMake(pad, y, w - pad * 2, 32);
-        followBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-        BOOL following = _user.friendshipFollowing || _user.friendshipRequested;   // a pending request reads "Requested"
-        [followBtn setTitle:_user.friendshipFollowing ? L(@"Following") : _user.friendshipRequested ? L(@"Requested") : L(@"Follow")
-                  forState:UIControlStateNormal];
-        [followBtn setTitleColor:following ? [[SHTheme shared] textColor] : [UIColor whiteColor] forState:UIControlStateNormal];
-        // glossy iOS 6 buttons: grey when already following (or asked to), the accent capsule otherwise
-        if (following) {
-            [followBtn setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:NO] forState:UIControlStateNormal];
-            [followBtn setBackgroundImage:[[SHTheme shared] buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
-        } else {
-            [followBtn setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:NO disabled:NO] forState:UIControlStateNormal];
-            [followBtn setBackgroundImage:[[SHTheme shared] accentButtonImageHighlighted:YES disabled:NO] forState:UIControlStateHighlighted];
-        }
-        [[SHTheme shared] embossButton:followBtn];
-        [followBtn addTarget:self action:@selector(followTapped:) forControlEvents:UIControlEventTouchUpInside];
-        followBtn.tag = following ? 1 : 0;
-        [_headerView addSubview:followBtn];
-        y += 42;
-    }
+    // an etched groove between the header and the grid
+    UIView *groove = [self etchedDividerAtX:0 height:0];
+    groove.frame = CGRectMake(0, y - 2, w, 2);
+    for (UIView *line in groove.subviews) line.frame = CGRectMake(0, line == groove.subviews.firstObject ? 0 : 1, w, 1);
+    groove.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [_headerView addSubview:groove];
 
     _headerView.frame = CGRectMake(0, 0, w, y);
     _tableView.tableHeaderView = _headerView;
@@ -267,25 +345,27 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
     [self.navigationController pushViewController:vc animated:YES];
 }
 
+// Follow, unfollow, or take back a request: what Instagram reports back is what the button shows then.
 - (void)followTapped:(UIButton *)btn
 {
-    [_task cancel];
-    if (btn.tag == 1) {   // unfollow, or withdraw a pending request (the same call does both)
-        _task = [SHInstagram unfollowUser:_pk completion:^(BOOL ok, NSError *err) {
-            if (!ok) { [SHUtils alertWithTitle:L(@"Profile") message:err.localizedDescription]; return; }
-            if (self->_user.friendshipFollowing && self->_user.followerCount > 0) self->_user.followerCount--;
-            self->_user.friendshipFollowing = NO;
-            self->_user.friendshipRequested = NO;
+    if (_changingFollow || !_pk.length) return;
+    _changingFollow = YES;
+    btn.enabled = NO;
+    BOOL wasFollowing = _user.friendshipFollowing;
+    [SHInstagram setFollowing:(btn.tag == 0) user:_pk completion:^(BOOL following, BOOL requested, NSError *error) {
+        self->_changingFollow = NO;
+        if (error) {
+            [SHUtils alertWithTitle:L(@"Profile") message:error.localizedDescription];
             [self buildHeader];
-        }];
-    } else {
-        _task = [SHInstagram followUser:_pk completion:^(BOOL ok, NSError *err) {
-            if (!ok) { [SHUtils alertWithTitle:L(@"Profile") message:err.localizedDescription]; return; }
-            if (self->_user.isPrivate) self->_user.friendshipRequested = YES;   // private: a request, approved later
-            else { self->_user.friendshipFollowing = YES; self->_user.followerCount++; }
-            [self buildHeader];
-        }];
-    }
+            return;
+        }
+        if (following && !wasFollowing) self->_user.followerCount++;
+        if (!following && wasFollowing && self->_user.followerCount > 0) self->_user.followerCount--;
+        self->_user.friendshipFollowing = following;
+        self->_user.friendshipRequested = requested;
+        [self buildHeader];
+        if (following && !wasFollowing && self->_posts.count == 0) [self loadPosts:NO];
+    }];
 }
 
 - (void)loadPosts:(BOOL)more
@@ -299,10 +379,14 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         if (!more) [self->_posts removeAllObjects];
         [self->_posts addObjectsFromArray:posts];
         self->_nextMaxId = nextMaxId;
-        if (self->_posts.count == 0 && self->_user.isPrivate && !self->_user.friendshipFollowing && !self->_isCurrentUser) {
+        BOOL locked = self->_posts.count == 0 && self->_user.isPrivate && !self->_user.friendshipFollowing && !self->_isCurrentUser;
+        if (locked) {
             self->_statusLabel.text = L(@"Follow this account to see their photos and videos.");
-            self->_statusLabel.hidden = NO;
+            CGRect f = self->_statusLabel.frame;
+            f.origin.y = self->_headerView.frame.size.height + 30;
+            self->_statusLabel.frame = f;
         }
+        self->_statusLabel.hidden = !locked;
         [self->_tableView reloadData];
     }];
 }
@@ -333,7 +417,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    if ((NSUInteger)indexPath.row >= (NSUInteger)[self rows] - 2 && _nextMaxId.length && !_loadingPosts) [self loadPosts:YES];
+    if (indexPath.row + 2 >= [self rows] && _nextMaxId.length && !_loadingPosts) [self loadPosts:YES];
 }
 
 - (void)gridRow:(SHGridRowCell *)row didTapPost:(SHPost *)post

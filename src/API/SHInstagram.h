@@ -49,6 +49,14 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 
 + (SHHTTPTask *)timelineFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
 
+// What the first page of these lists was the last time (kept on disk): shown at once on the next start while the
+// network freshens it. nil when nothing was kept; no cursor is given (the fresh page brings one).
++ (void)cachedTimelineWithCompletion:(SHFeedCompletion)completion;
++ (void)cachedExploreWithCompletion:(SHFeedCompletion)completion;
++ (void)cachedNewsWithCompletion:(SHNewsCompletion)completion;
++ (void)cachedDirectInboxWithCompletion:(SHThreadsCompletion)completion;
++ (void)clearResponseCache;
+
 + (SHHTTPTask *)userInfoByUsername:(NSString *)username completion:(SHUserCompletion)completion;
 + (SHHTTPTask *)userInfoByPk:(NSString *)pk completion:(SHUserCompletion)completion;
 + (SHHTTPTask *)currentUserWithCompletion:(SHUserCompletion)completion;
@@ -81,6 +89,9 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 
 + (SHHTTPTask *)storiesTrayWithCompletion:(SHStoriesCompletion)completion;
 + (SHHTTPTask *)storiesForUserIds:(NSArray *)userIds completion:(SHStoriesCompletion)completion;
+// Fetches the stories of the tray's circles that came without them (one request) and answers only the circles
+// that have a story to show.
++ (SHHTTPTask *)fillStoryReels:(NSArray *)reels completion:(void (^)(NSArray *viewable))completion;
 
 + (SHHTTPTask *)likePost:(NSString *)mediaPk completion:(SHActionCompletion)completion;
 + (SHHTTPTask *)unlikePost:(NSString *)mediaPk completion:(SHActionCompletion)completion;
@@ -92,6 +103,9 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 
 + (SHHTTPTask *)followUser:(NSString *)pk completion:(SHActionCompletion)completion;
 + (SHHTTPTask *)unfollowUser:(NSString *)pk completion:(SHActionCompletion)completion;
+// The same with the relationship Instagram reports back (a private account turns a follow into a request).
++ (SHHTTPTask *)setFollowing:(BOOL)follow user:(NSString *)pk completion:(void (^)(BOOL following, BOOL requested, NSError *error))completion;
++ (SHHTTPTask *)friendshipWithUser:(NSString *)pk completion:(void (^)(BOOL following, BOOL requested, NSError *error))completion;
 
 + (SHHTTPTask *)logoutWithCompletion:(SHActionCompletion)completion;
 

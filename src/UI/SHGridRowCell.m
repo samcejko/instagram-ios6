@@ -30,14 +30,14 @@
 {
     if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
-        self.backgroundColor = [[SHTheme shared] backgroundColor];
-        self.contentView.backgroundColor = [[SHTheme shared] backgroundColor];
+        self.backgroundColor = [UIColor clearColor];          // the linen shows in the gaps
+        self.contentView.backgroundColor = [UIColor clearColor];
         _thumbs = [NSMutableArray array];
         for (NSUInteger i = 0; i < SH_GRID_COLS; i++) {
             SHGridThumb *t = [[SHGridThumb alloc] initWithFrame:CGRectZero];
             t.contentMode = UIViewContentModeScaleAspectFill;
             t.clipsToBounds = YES;
-            t.backgroundColor = [[SHTheme shared] separatorColor];
+            t.backgroundColor = [[SHTheme shared] isDark] ? [UIColor colorWithWhite:0.14 alpha:1] : [UIColor colorWithWhite:0.82 alpha:1];
             t.userInteractionEnabled = YES;
             t.maxPixels = 400;
             UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(thumbTapped:)];
@@ -79,23 +79,18 @@
     }
 }
 
+// A drawn corner mark (white with a soft shadow, never an emoji): stacked squares for a carousel, a movie camera
+// for a video.
 - (void)markThumb:(SHGridThumb *)t forPost:(SHPost *)p
 {
     [t.badge removeFromSuperview];
     t.badge = nil;
-    NSString *glyph = nil;
-    if (p.carouselMedia.count > 1) glyph = @"▣";        // stacked squares-ish
-    else if (p.mediaType == 2 || p.videoURL.length) glyph = @"▶";   // play
+    UIImage *glyph = nil;
+    if (p.carouselMedia.count > 1) glyph = [[SHTheme shared] carouselGlyph];
+    else if (p.mediaType == 2 || p.videoURL.length) glyph = [[SHTheme shared] videoGlyph];
     if (!glyph) return;
-    UILabel *mark = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 20, 16)];
-    mark.text = glyph;
-    mark.font = [UIFont boldSystemFontOfSize:12];
-    mark.textColor = [UIColor whiteColor];
-    mark.backgroundColor = [UIColor clearColor];
-    mark.shadowColor = [UIColor colorWithWhite:0 alpha:0.6];
-    mark.shadowOffset = CGSizeMake(0, 0.5);
-    mark.textAlignment = NSTextAlignmentRight;
-    mark.frame = CGRectMake(t.bounds.size.width - 24, 2, 20, 16);
+    UIImageView *mark = [[UIImageView alloc] initWithImage:glyph];
+    mark.frame = CGRectMake(t.bounds.size.width - glyph.size.width - 5, 5, glyph.size.width, glyph.size.height);
     mark.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [t addSubview:mark];
     t.badge = mark;

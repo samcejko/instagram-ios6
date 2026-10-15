@@ -256,7 +256,8 @@
     if ([m.type isEqualToString:@"text"]) {
         m.text = SHStr(d[@"text"]) ?: @"";
     } else if ([m.type isEqualToString:@"like"]) {
-        m.text = SHStr(d[@"like"]) ?: @"❤";   // a heart
+        // a heart sent on its own: the bubble draws one; lists say it in words (no emoji in the interface)
+        m.placeholderText = L(@"Sent a heart");
     } else if ([m.type isEqualToString:@"link"]) {
         m.text = SHStr(SHDict(d[@"link"])[@"text"]) ?: @"";
     } else if ([m.type isEqualToString:@"media"]) {

@@ -24,7 +24,8 @@
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.view.backgroundColor = [[SHTheme shared] backgroundColor];
+    SHTheme *theme = [SHTheme shared];
+    self.view.backgroundColor = [theme linenColor];
 
     _scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     _scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -32,40 +33,55 @@
 
     CGFloat w = MIN(self.view.bounds.size.width - 60, 320);
     CGFloat x = (self.view.bounds.size.width - w) / 2;
-    CGFloat y = SHIsPad() ? 120 : 80;
+    CGFloat y = SHIsPad() ? 110 : 60;
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(x, y, w, 40)];
+    // the name in script lettering, pressed into the linen
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(x - 20, y, w + 40, 70)];
     title.text = @"Gramify";
-    title.font = [UIFont boldSystemFontOfSize:28];
-    title.textColor = [[SHTheme shared] textColor];
+    title.font = [theme logoFontOfSize:56];
+    title.textColor = [theme textColor];
     title.backgroundColor = [UIColor clearColor];
     title.textAlignment = NSTextAlignmentCenter;
     title.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    [theme embossLabel:title];
     [_scrollView addSubview:title];
-    y += 50;
+    y += 76;
 
     UILabel *subtitle = [[UILabel alloc] initWithFrame:CGRectMake(x, y, w, 22)];
     subtitle.text = L(@"Sign in with your Instagram account");
-    subtitle.font = [UIFont systemFontOfSize:14];
-    subtitle.textColor = [[SHTheme shared] secondaryTextColor];
+    subtitle.font = [UIFont boldSystemFontOfSize:14];
+    subtitle.textColor = [theme secondaryTextColor];
     subtitle.backgroundColor = [UIColor clearColor];
     subtitle.textAlignment = NSTextAlignmentCenter;
     subtitle.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    [theme embossLabel:subtitle];
     [_scrollView addSubview:subtitle];
-    y += 40;
+    y += 38;
 
-    _usernameField = [self fieldWithFrame:CGRectMake(x, y, w, 38) placeholder:L(@"Username")];
+    // both fields in one rounded group, an etched line between them (a grouped table of iOS 6)
+    UIImageView *group = [[UIImageView alloc] initWithImage:[theme cardBackgroundImage]];
+    group.frame = CGRectMake(x, y, w, 88);
+    group.userInteractionEnabled = YES;
+    group.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    [_scrollView addSubview:group];
+    UIView *etchDark = [[UIView alloc] initWithFrame:CGRectMake(1, 43, w - 2, 1)];
+    etchDark.backgroundColor = [UIColor colorWithWhite:0 alpha:theme.isDark ? 0.6 : 0.15];
+    [group addSubview:etchDark];
+    UIView *etchLight = [[UIView alloc] initWithFrame:CGRectMake(1, 44, w - 2, 1)];
+    etchLight.backgroundColor = [UIColor colorWithWhite:1 alpha:theme.isDark ? 0.07 : 0.9];
+    [group addSubview:etchLight];
+
+    _usernameField = [self fieldWithFrame:CGRectMake(12, 2, w - 24, 40) placeholder:L(@"Username")];
     _usernameField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     _usernameField.autocorrectionType = UITextAutocorrectionTypeNo;
     _usernameField.returnKeyType = UIReturnKeyNext;
-    [_scrollView addSubview:_usernameField];
-    y += 48;
+    [group addSubview:_usernameField];
 
-    _passwordField = [self fieldWithFrame:CGRectMake(x, y, w, 38) placeholder:L(@"Password")];
+    _passwordField = [self fieldWithFrame:CGRectMake(12, 46, w - 24, 40) placeholder:L(@"Password")];
     _passwordField.secureTextEntry = YES;
     _passwordField.returnKeyType = UIReturnKeyGo;
-    [_scrollView addSubview:_passwordField];
-    y += 58;
+    [group addSubview:_passwordField];
+    y += 88 + 18;
 
     _loginButton = [UIButton buttonWithType:UIButtonTypeCustom];
     _loginButton.frame = CGRectMake(x, y, w, 42);
@@ -82,7 +98,7 @@
     [_scrollView addSubview:_loginButton];
     y += 52;
 
-    _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:[theme spinnerStyle]];
     _spinner.center = CGPointMake(x + w / 2, y + 10);
     _spinner.hidesWhenStopped = YES;
     _spinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
@@ -97,12 +113,16 @@
 
 - (UITextField *)fieldWithFrame:(CGRect)frame placeholder:(NSString *)placeholder
 {
+    SHTheme *theme = [SHTheme shared];
     UITextField *f = [[UITextField alloc] initWithFrame:frame];
     f.placeholder = placeholder;
-    f.borderStyle = UITextBorderStyleRoundedRect;
-    f.font = [UIFont systemFontOfSize:15];
+    f.borderStyle = UITextBorderStyleNone;   // (the rounded group around both is the field's frame)
+    f.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+    f.font = [UIFont systemFontOfSize:16];
+    f.textColor = [theme inputTextColor];
+    f.keyboardAppearance = theme.isDark ? UIKeyboardAppearanceAlert : UIKeyboardAppearanceDefault;
+    f.clearButtonMode = UITextFieldViewModeWhileEditing;
     f.delegate = self;
-    f.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     return f;
 }
 

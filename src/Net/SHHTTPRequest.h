@@ -32,6 +32,8 @@ typedef void (^SHHTTPCompleteBlock)(NSError *error);
 @property (nonatomic, readonly) NSData *responseBody;             // only when onData is nil
 @property (nonatomic, readonly) BOOL decodedContentEncoding;      // YES when gzip/deflate was removed by this client
 @property (nonatomic, readonly) NSString *tlsInfo;                // "TLSv1.2 TLS-ECDHE-..." once connected
+@property (nonatomic, readonly) NSString *timingSummary;          // where the time went: "slot 0 conn 312 new ttfb 410 body 35" (ms)
+@property (nonatomic, readonly) long long wireBytes;              // body bytes as they came (before gzip was undone)
 @property (nonatomic, readonly) BOOL isCancelled;
 @property (nonatomic, readonly) BOOL isFinished;
 

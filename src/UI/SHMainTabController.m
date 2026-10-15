@@ -33,6 +33,7 @@
     }];
     explore.emptyMessage = L(@"Nothing to explore right now.");
     explore.secondaryTitle = L(@"Reels");
+    explore.secondaryFullScreen = YES;   // one video per screen, swiped, like the app
     explore.secondaryLoader = ^SHHTTPTask *(NSString *maxId, SHFeedCompletion completion) {
         return [SHInstagram reelsWithMaxId:maxId completion:completion];
     };

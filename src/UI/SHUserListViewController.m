@@ -11,6 +11,7 @@ static NSString * const SHUserCellId = @"UserCell";
 @interface SHUserRowCell : UITableViewCell
 @property (nonatomic, strong) SHImageView *avatar;
 @property (nonatomic, strong) UILabel *nameLabel;
+@property (nonatomic, strong) UIImageView *badge;   // verified
 @property (nonatomic, strong) UILabel *fullLabel;
 @end
 
@@ -19,22 +20,29 @@ static NSString * const SHUserCellId = @"UserCell";
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
 {
     if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
-        _avatar = [[SHImageView alloc] initWithFrame:CGRectMake(12, 9, 40, 40)];
-        _avatar.layer.cornerRadius = 20;
-        _avatar.clipsToBounds = YES;
+        SHTheme *theme = [SHTheme shared];
+        _avatar = [[SHImageView alloc] initWithFrame:CGRectMake(12, 8, 42, 42)];
+        [theme styleAvatar:_avatar radius:5];
         _avatar.maxPixels = 128;
-        _avatar.backgroundColor = [[SHTheme shared] separatorColor];
         [self.contentView addSubview:_avatar];
         _nameLabel = [[UILabel alloc] init];
-        _nameLabel.font = [UIFont boldSystemFontOfSize:14];
-        _nameLabel.textColor = [[SHTheme shared] textColor];
+        _nameLabel.font = [UIFont boldSystemFontOfSize:15];
+        _nameLabel.textColor = [theme textColor];
+        _nameLabel.highlightedTextColor = [UIColor whiteColor];
         _nameLabel.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:_nameLabel];
         [self.contentView addSubview:_nameLabel];
+        _badge = [[UIImageView alloc] initWithImage:[theme verifiedBadgeWithSize:14]];
+        _badge.hidden = YES;
+        [self.contentView addSubview:_badge];
         _fullLabel = [[UILabel alloc] init];
-        _fullLabel.font = [UIFont systemFontOfSize:12];
-        _fullLabel.textColor = [[SHTheme shared] secondaryTextColor];
+        _fullLabel.font = [UIFont systemFontOfSize:13];
+        _fullLabel.textColor = [theme secondaryTextColor];
+        _fullLabel.highlightedTextColor = [UIColor whiteColor];
         _fullLabel.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:_fullLabel];
         [self.contentView addSubview:_fullLabel];
+        self.accessoryView = [[UIImageView alloc] initWithImage:[theme disclosureChevronImage]];
     }
     return self;
 }
@@ -42,14 +50,13 @@ static NSString * const SHUserCellId = @"UserCell";
 - (void)layoutSubviews
 {
     [super layoutSubviews];
-    CGFloat x = 62, w = self.contentView.bounds.size.width - x - 12;
+    CGFloat x = 66, w = self.contentView.bounds.size.width - x - 12;
     BOOL hasFull = _fullLabel.text.length > 0;
-    if (hasFull) {
-        _nameLabel.frame = CGRectMake(x, 11, w, 20);
-        _fullLabel.frame = CGRectMake(x, 31, w, 16);
-    } else {
-        _nameLabel.frame = CGRectMake(x, 19, w, 20);
-    }
+    CGFloat nameY = hasFull ? 10 : 18;
+    CGFloat nameW = MIN(w - (_badge.hidden ? 0 : 20), [_nameLabel.text sizeWithFont:_nameLabel.font].width);
+    _nameLabel.frame = CGRectMake(x, nameY, nameW, 21);
+    _badge.frame = CGRectMake(x + nameW + 5, nameY + 4, 14, 14);
+    if (hasFull) _fullLabel.frame = CGRectMake(x, 31, w, 17);
     _fullLabel.hidden = !hasFull;
 }
 
@@ -159,17 +166,18 @@ static NSString * const SHUserCellId = @"UserCell";
     SHUserRowCell *cell = [tableView dequeueReusableCellWithIdentifier:SHUserCellId];
     if (!cell) cell = [[SHUserRowCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:SHUserCellId];
     SHUser *u = _users[(NSUInteger)indexPath.row];
-    [cell.avatar setImageURL:u.profilePicURL placeholder:nil];
-    cell.nameLabel.text = u.isVerified ? [u.username stringByAppendingString:@" ✓"] : u.username;
-    cell.fullLabel.text = u.fullName;
     [[SHTheme shared] styleCell:cell];
+    [cell.avatar setImageURL:u.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:42]];
+    cell.nameLabel.text = u.username;
+    cell.badge.hidden = !u.isVerified;
+    cell.fullLabel.text = [SHUtils displayText:u.fullName];
     [cell setNeedsLayout];
     return cell;
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    if ((NSUInteger)indexPath.row >= _users.count - 5 && !_done && !_loading) [self loadMore:YES];
+    if ((NSUInteger)indexPath.row + 5 >= _users.count && !_done && !_loading) [self loadMore:YES];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath

@@ -45,6 +45,7 @@ static dispatch_semaphore_t SHConnectionSlots(void)
 @property (nonatomic) BOOL isFinished;
 @property (nonatomic) BOOL decodedContentEncoding;
 @property (nonatomic, copy) NSString *tlsInfo;
+@property (nonatomic, copy) NSString *timingSummary;
 @property (nonatomic, strong) NSMutableData *accumulated;
 
 // body decoding state
@@ -68,7 +69,12 @@ static dispatch_semaphore_t SHConnectionSlots(void)
     BOOL _zrawTried;          // the body was taken again as raw deflate (see deliverBodyBytes)
     NSUInteger _zproduced;    // decoded bytes so far
     uint8_t *_zout;
+    // timing: started, got a connection slot, had a connection, saw the response headers
+    CFAbsoluteTime _t0, _tSlot, _tConn, _tHead;
+    BOOL _reusedConnection;
 }
+
+- (long long)wireBytes { return self.bodyReceived; }
 
 - (instancetype)initWithMethod:(NSString *)method URL:(NSURL *)url
 {
@@ -226,6 +232,13 @@ static dispatch_semaphore_t SHConnectionSlots(void)
 {
     if (self.isFinished) return;
     self.isFinished = YES;
+    if (_t0 > 0) {
+        CFAbsoluteTime end = CFAbsoluteTimeGetCurrent();
+        CFAbsoluteTime slot = _tSlot > 0 ? _tSlot : _t0, conn = _tConn > 0 ? _tConn : slot, head = _tHead > 0 ? _tHead : end;
+        self.timingSummary = [NSString stringWithFormat:@"slot %.0f conn %.0f %@ ttfb %.0f body %.0f",
+                              (slot - _t0) * 1000, (conn - slot) * 1000, _reusedConnection ? @"reused" : @"new",
+                              (head - conn) * 1000, (end - head) * 1000];
+    }
     [self.socket close];
     self.socket = nil;
     [self releaseSlot];
@@ -546,6 +559,7 @@ static dispatch_semaphore_t SHConnectionSlots(void)
                 headersDone = YES;
             }
             if (!headersDone) continue;
+            if (_tHead <= 0) _tHead = CFAbsoluteTimeGetCurrent();
             if (reused) [socket setReadTimeoutMs:(uint32_t)(self.readTimeout * 1000)];
             NSInteger status = self.statusCode;
             SHHTTPHeadersBlock hb = self.onHeaders;
@@ -578,6 +592,7 @@ out:
 
 - (void)run
 {
+    _t0 = CFAbsoluteTimeGetCurrent();
     // Limit the number of simultaneous connections (TLS handshakes are CPU heavy on this hardware).
     // The main document of a page never waits: it must not sit behind stuck subresource loads.
     if (!self.highPriority) {
@@ -590,6 +605,7 @@ out:
         }
         self.hasSlot = YES;
     }
+    _tSlot = CFAbsoluteTimeGetCurrent();
     if (self.isCancelled) {
         [self finishWithError:SHMakeError(SHErrorCancelled, L(@"Cancelled"))];
         return;
@@ -607,6 +623,8 @@ out:
             return;
         }
     }
+    _tConn = CFAbsoluteTimeGetCurrent();
+    _reusedConnection = reused;
     self.socket = socket;
     if (self.isCancelled) {
         [self finishWithError:SHMakeError(SHErrorCancelled, L(@"Cancelled"))];
@@ -628,6 +646,9 @@ out:
                 [self finishWithError:err];
                 return;
             }
+            _tConn = CFAbsoluteTimeGetCurrent();
+            _reusedConnection = NO;
+            _tHead = 0;
             self.socket = socket;
             if (self.isCancelled) {
                 [self finishWithError:SHMakeError(SHErrorCancelled, L(@"Cancelled"))];

@@ -97,11 +97,12 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
     close.frame = CGRectMake(self.view.bounds.size.width - 52, top + 2, 44, 44);
     close.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    [close setTitle:@"✕" forState:UIControlStateNormal];
-    close.titleLabel.font = [UIFont boldSystemFontOfSize:22];
-    [close setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    close.titleLabel.shadowColor = [UIColor colorWithWhite:0 alpha:0.7];
-    close.titleLabel.shadowOffset = CGSizeMake(0, 1);
+    [close setImage:[[SHTheme shared] closeIconWhite] forState:UIControlStateNormal];   // drawn, not a character
+    close.accessibilityLabel = L(@"Done");
+    close.layer.shadowColor = [UIColor blackColor].CGColor;
+    close.layer.shadowOpacity = 0.7;
+    close.layer.shadowRadius = 1.5;
+    close.layer.shadowOffset = CGSizeMake(0, 1);
     [close addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:close];
 

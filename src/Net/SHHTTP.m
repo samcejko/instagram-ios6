@@ -8,14 +8,28 @@ static const NSInteger SHMaxRedirects = 5;
 
 NSString * const SHHTTPChallengeRequiredNotification = @"SHHTTPChallengeRequiredNotification";
 
+// A completion that also gets the body already parsed as JSON (parsed on the network thread, not the main one).
+typedef void (^SHHTTPParsedCompletion)(NSInteger status, NSData *body, id json, NSDictionary *headers, NSError *error);
+
+// Debug builds log every request with where its time went (the "debug" file in Documents, read once).
+static BOOL SHNetLogging(void)
+{
+    static BOOL on;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        on = [[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]];
+    });
+    return on;
+}
+
 // An error reply that is Instagram's checkpoint ({"message":"challenge_required","challenge":{"api_path":…}}).
 // Every call of a stopped session answers this way, so the body is looked at once here, centrally.
-static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
+static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body, id parsed)
 {
     if (status < 400 || !body.length || body.length > 8192) return nil;
     static const char marker[] = "challenge_required";
     if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
-    NSDictionary *d = SHDict([SHUtils JSONObjectFromData:body]);
+    NSDictionary *d = SHDict(parsed ?: [SHUtils JSONObjectFromData:body]);
     return [SHStr(d[@"message"]) isEqualToString:@"challenge_required"] ? d : nil;
 }
 
@@ -41,7 +55,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
 @implementation SHHTTP
 
 + (void)run:(SHHTTPTask *)task method:(NSString *)method url:(NSURL *)url headers:(NSDictionary *)headers body:(NSData *)body
-       hops:(NSInteger)hops retries:(NSInteger)retries completion:(SHHTTPCompletion)completion
+       hops:(NSInteger)hops retries:(NSInteger)retries parseJSON:(BOOL)parseJSON completion:(SHHTTPParsedCompletion)completion
 {
     SHHTTPRequest *r = [[SHHTTPRequest alloc] initWithMethod:method URL:url];
     r.headers = headers;
@@ -50,6 +64,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
     r.readTimeout = 30;
     r.verifyTLS = [SHSettings verifyTLS];
     __weak SHHTTPRequest *weakRequest = r;
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
     r.onComplete = ^(NSError *error) {
         SHHTTPRequest *request = weakRequest;
         if (task.isCancelled) return;
@@ -73,19 +88,30 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
                     nextHeaders = trimmed;
                 }
                 [self run:task method:toGet ? @"GET" : method url:next headers:nextHeaders body:toGet ? nil : body
-                     hops:hops + 1 retries:retries completion:completion];
+                     hops:hops + 1 retries:retries parseJSON:parseJSON completion:completion];
                 return;
             }
         }
         if (error && retries > 0 && error.code != SHErrorCancelled && error.code != SHErrorCertificate) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                 if (task.isCancelled) return;
-                [self run:task method:method url:url headers:headers body:body hops:hops retries:retries - 1 completion:completion];
+                [self run:task method:method url:url headers:headers body:body hops:hops retries:retries - 1 parseJSON:parseJSON completion:completion];
             });
             return;
         }
         NSData *responseBody = request.responseBody;
-        NSDictionary *challenge = error ? nil : SHChallengeInReply(status, responseBody);
+        // JSON is parsed here, on the network thread: an explore page is hundreds of kB, a visible stall on the main one
+        CFAbsoluteTime parseStart = CFAbsoluteTimeGetCurrent();
+        id json = (parseJSON && !error && responseBody.length) ? [SHUtils JSONObjectFromData:responseBody] : nil;
+        CFAbsoluteTime parseEnd = CFAbsoluteTimeGetCurrent();
+        NSDictionary *challenge = error ? nil : SHChallengeInReply(status, responseBody, json);
+        if (SHNetLogging() && ![url.host hasPrefix:@"127."]) {
+            NSString *path = url.path ?: @"";
+            if (path.length > 48) path = [[path substringToIndex:48] stringByAppendingString:@"..."];
+            SHLog(@"NET %5.0f ms %@ %@%@ %ld | %@ | %lld B -> %lu B parse %.0f ms%@", (parseEnd - started) * 1000, method, url.host, path,
+                  (long)status, request.timingSummary ?: @"-", request.wireBytes, (unsigned long)responseBody.length,
+                  (parseEnd - parseStart) * 1000, error ? [@" ERROR " stringByAppendingString:error.localizedDescription] : @"");
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (task.isCancelled) return;
             if (challenge) {
@@ -95,7 +121,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
                 if (path.length) info[@"path"] = path;
                 [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPChallengeRequiredNotification object:nil userInfo:info];
             }
-            if (completion) completion(error ? 0 : status, responseBody, responseHeaders, error);
+            if (completion) completion(error ? 0 : status, responseBody, json, responseHeaders, error);
         });
     };
     task.request = r;
@@ -103,20 +129,30 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
     [r start];
 }
 
-+ (SHHTTPTask *)request:(NSString *)method url:(NSString *)url headers:(NSDictionary *)headers body:(NSData *)body
-                retries:(NSInteger)retries completion:(SHHTTPCompletion)completion
++ (SHHTTPTask *)start:(NSString *)method url:(NSString *)url headers:(NSDictionary *)headers body:(NSData *)body
+              retries:(NSInteger)retries parseJSON:(BOOL)parseJSON completion:(SHHTTPParsedCompletion)completion
 {
     SHHTTPTask *task = [[SHHTTPTask alloc] init];
     NSURL *u = url.length ? [NSURL URLWithString:url] : nil;
     if (!u.host.length) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (task.isCancelled) return;
-            if (completion) completion(0, nil, nil, SHMakeError(SHErrorNetwork, [NSString stringWithFormat:@"Bad address: %@", url ?: @""]));
+            if (completion) completion(0, nil, nil, nil, SHMakeError(SHErrorNetwork, [NSString stringWithFormat:@"Bad address: %@", url ?: @""]));
         });
         return task;
     }
-    [self run:task method:method.length ? [method uppercaseString] : @"GET" url:u headers:headers body:body hops:0 retries:retries completion:completion];
+    [self run:task method:method.length ? [method uppercaseString] : @"GET" url:u headers:headers body:body hops:0 retries:retries
+    parseJSON:parseJSON completion:completion];
     return task;
+}
+
++ (SHHTTPTask *)request:(NSString *)method url:(NSString *)url headers:(NSDictionary *)headers body:(NSData *)body
+                retries:(NSInteger)retries completion:(SHHTTPCompletion)completion
+{
+    return [self start:method url:url headers:headers body:body retries:retries parseJSON:NO
+            completion:^(NSInteger status, NSData *responseBody, id json, NSDictionary *responseHeaders, NSError *error) {
+        if (completion) completion(status, responseBody, responseHeaders, error);
+    }];
 }
 
 + (SHHTTPTask *)get:(NSString *)url headers:(NSDictionary *)headers completion:(SHHTTPCompletion)completion
@@ -142,12 +178,11 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
     return message.length ? message : nil;
 }
 
-+ (SHHTTPCompletion)jsonHandler:(SHJSONCompletion)completion
++ (SHHTTPParsedCompletion)jsonHandler:(SHJSONCompletion)completion
 {
-    return ^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+    return ^(NSInteger status, NSData *body, id json, NSDictionary *headers, NSError *error) {
         if (!completion) return;
         if (error) { completion(nil, 0, error); return; }
-        id json = [SHUtils JSONObjectFromData:body];
         if (status >= 400) {
             NSString *message = [self messageFromErrorJSON:json] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status];
             BOOL challenge = [SHStr(SHDict(json)[@"message"]) isEqualToString:@"challenge_required"];
@@ -166,7 +201,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
 {
     NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:headers ?: @{}];
     if (!h[@"Accept"]) h[@"Accept"] = @"application/json";
-    return [self request:@"GET" url:url headers:h body:nil retries:1 completion:[self jsonHandler:completion]];
+    return [self start:@"GET" url:url headers:h body:nil retries:1 parseJSON:YES completion:[self jsonHandler:completion]];
 }
 
 + (SHHTTPTask *)postJSON:(NSString *)url headers:(NSDictionary *)headers object:(id)object retries:(NSInteger)retries
@@ -176,7 +211,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
     if (!h[@"Accept"]) h[@"Accept"] = @"application/json";
     if (!h[@"Content-Type"]) h[@"Content-Type"] = @"application/json";
     NSData *body = [SHUtils JSONDataFromObject:object] ?: [NSData data];
-    return [self request:@"POST" url:url headers:h body:body retries:retries completion:[self jsonHandler:completion]];
+    return [self start:@"POST" url:url headers:h body:body retries:retries parseJSON:YES completion:[self jsonHandler:completion]];
 }
 
 + (SHHTTPTask *)postForm:(NSString *)url headers:(NSDictionary *)headers fields:(NSDictionary *)fields completion:(SHJSONCompletion)completion
@@ -189,7 +224,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body)
     NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:headers ?: @{}];
     if (!h[@"Content-Type"]) h[@"Content-Type"] = @"application/x-www-form-urlencoded";
     if (!h[@"Accept"]) h[@"Accept"] = @"application/json";
-    return [self request:@"POST" url:url headers:h body:body retries:0 completion:[self jsonHandler:completion]];
+    return [self start:@"POST" url:url headers:h body:body retries:0 parseJSON:YES completion:[self jsonHandler:completion]];
 }
 
 + (SHHTTPTask *)postForm:(NSString *)url fields:(NSDictionary *)fields completion:(SHJSONCompletion)completion

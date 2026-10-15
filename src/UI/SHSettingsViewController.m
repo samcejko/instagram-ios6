@@ -55,7 +55,7 @@
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"S"];
     cell.accessoryView = nil;
     cell.accessoryType = UITableViewCellAccessoryNone;
-    [[SHTheme shared] styleCell:cell];
+    [[SHTheme shared] styleGroupedCell:cell];
     cell.textLabel.textColor = [[SHTheme shared] textColor];
     cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 

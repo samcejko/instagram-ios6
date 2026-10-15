@@ -140,7 +140,15 @@
     return cell;
 }
 
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath { return 60; }
+// As tall as the comment needs (a long one is not cut off after two lines).
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    SHComment *c = _comments[(NSUInteger)indexPath.row];
+    NSString *text = [NSString stringWithFormat:@"%@ %@", c.user.username ?: @"", [SHUtils displayText:c.text] ?: @""];
+    CGSize sz = [text sizeWithFont:[UIFont boldSystemFontOfSize:13] constrainedToSize:CGSizeMake(tableView.bounds.size.width - 32, 2000)
+                     lineBreakMode:NSLineBreakByWordWrapping];
+    return MAX(52, ceilf(sz.height) + 34);
+}
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath
 {

@@ -858,6 +858,414 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
     }];
 }
 
+#pragma mark - iOS 6 surfaces
+
+// The woven linen of iOS 6: every row and every column of the tile is a thread a shade lighter or darker than the
+// base, with slubs scattered over it. Each thread runs across the whole tile, so it repeats without a seam.
+- (UIColor *)linenColor
+{
+    UIImage *tile = [self cachedImage:@"linen" builder:^UIImage *{
+        const int side = 128;
+        return SHDrawImage(CGSizeMake(side, side), ^(CGContextRef ctx) {
+            [(self.dark ? RGB(30, 31, 34) : RGB(216, 219, 225)) setFill];
+            CGContextFillRect(ctx, CGRectMake(0, 0, side, side));
+            uint32_t seed = 0x2545F491u;
+            for (int i = 0; i < side; i++) {
+                for (int pass = 0; pass < 2; pass++) {
+                    seed = seed * 1664525u + 1013904223u;
+                    BOOL light = (seed >> 10) & 1;
+                    CGFloat alpha = ((seed >> 12) % 100) / (self.dark ? 1500.0 : 1200.0);
+                    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:light ? 1 : 0 alpha:alpha].CGColor);
+                    CGContextFillRect(ctx, pass == 0 ? CGRectMake(0, i, side, 1) : CGRectMake(i, 0, 1, side));
+                }
+            }
+            for (int i = 0; i < 1600; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                CGFloat x = (seed >> 8) % side;
+                seed = seed * 1664525u + 1013904223u;
+                CGFloat y = (seed >> 8) % side;
+                seed = seed * 1664525u + 1013904223u;
+                BOOL light = (seed >> 9) & 1;
+                CGFloat alpha = 0.03 + ((seed >> 12) % 100) / 2200.0;
+                CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:light ? 1 : 0 alpha:alpha].CGColor);
+                CGContextFillRect(ctx, CGRectMake(x, y, ((seed >> 20) & 1) ? 2 : 1, 1));
+            }
+        });
+    }];
+    return [UIColor colorWithPatternImage:tile];
+}
+
+- (UIView *)texturedBackgroundView
+{
+    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 320, 480)];
+    v.backgroundColor = [self linenColor];
+    v.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    return v;
+}
+
+// A row: a soft vertical gradient between a light top line and a dark bottom line, so that two rows meet in an
+// etched groove (the lines of a plain list on iOS 6 are part of the rows, not hairlines drawn between them).
+static UIImage *SHRowImage(UIColor *top, UIColor *bottom, UIColor *highlight, UIColor *shadow)
+{
+    UIImage *image = SHDrawImage(CGSizeMake(4, 44), ^(CGContextRef ctx) {
+        SHDrawVerticalGradient(ctx, CGRectMake(0, 0, 4, 44), top, bottom);
+        [highlight setFill];
+        UIRectFill(CGRectMake(0, 0, 4, 1));
+        [shadow setFill];
+        UIRectFill(CGRectMake(0, 43, 4, 1));
+    });
+    return [image resizableImageWithCapInsets:UIEdgeInsetsMake(2, 1, 2, 1) resizingMode:UIImageResizingModeStretch];
+}
+
+- (UIImage *)cellBackgroundImage
+{
+    return [self cachedImage:@"row" builder:^UIImage *{
+        if (self.dark) return SHRowImage(RGB(45, 46, 50), RGB(35, 36, 39), [UIColor colorWithWhite:1 alpha:0.075], [UIColor colorWithWhite:0 alpha:0.8]);
+        return SHRowImage(RGB(255, 255, 255), RGB(239, 240, 243), [UIColor whiteColor], RGB(196, 198, 205));
+    }];
+}
+
+- (UIImage *)cellSelectedBackgroundImage
+{
+    return [self cachedImage:@"row-selected" builder:^UIImage *{
+        return SHRowImage(RGB(5, 140, 245), RGB(1, 93, 230), [UIColor colorWithWhite:1 alpha:0.3], RGB(0, 58, 158));
+    }];
+}
+
+- (UIImage *)headerBarImage
+{
+    return [self cachedImage:@"header-bar" builder:^UIImage *{
+        if (self.dark) return SHBarImage(RGB(63, 64, 69), RGB(36, 37, 41), RGB(10, 10, 12), 48);
+        return SHBarImage(RGB(250, 250, 252), RGB(221, 223, 229), RGB(176, 178, 186), 48);
+    }];
+}
+
+- (CGFloat)bubbleTailWidth { return 6; }
+
+// The glossy bubbles of iOS 6 Messages: a gradient body, a highlight over the upper half, a darker rim, and the
+// tail swept out of the bottom corner on the speaker's side. Stretchable around a small middle.
+- (UIImage *)bubbleImageOutgoing:(BOOL)outgoing
+{
+    return [self cachedImage:outgoing ? @"bubble-out" : @"bubble-in" builder:^UIImage *{
+        CGFloat r = 14, tail = [self bubbleTailWidth], w = r * 2 + tail + 8, h = r * 2 + 6;
+        CGFloat x0 = 0.5, x1 = w - tail - 0.5, y0 = 0.5, y1 = h - 0.5;
+        UIBezierPath *path = [UIBezierPath bezierPath];
+        [path moveToPoint:CGPointMake(x0 + r, y0)];
+        [path addLineToPoint:CGPointMake(x1 - r, y0)];
+        [path addArcWithCenter:CGPointMake(x1 - r, y0 + r) radius:r startAngle:-M_PI_2 endAngle:0 clockwise:YES];
+        [path addLineToPoint:CGPointMake(x1, y1 - 10)];
+        [path addQuadCurveToPoint:CGPointMake(w - 0.5, y1) controlPoint:CGPointMake(x1, y1 - 1)];   // the tail
+        [path addLineToPoint:CGPointMake(x0 + r, y1)];
+        [path addArcWithCenter:CGPointMake(x0 + r, y1 - r) radius:r startAngle:M_PI_2 endAngle:M_PI clockwise:YES];
+        [path addLineToPoint:CGPointMake(x0, y0 + r)];
+        [path addArcWithCenter:CGPointMake(x0 + r, y0 + r) radius:r startAngle:M_PI endAngle:M_PI * 1.5 clockwise:YES];
+        [path closePath];
+        if (!outgoing) [path applyTransform:CGAffineTransformMake(-1, 0, 0, 1, w, 0)];
+
+        UIColor *top, *bottom, *rim;
+        CGFloat gloss;
+        if (outgoing) { top = RGB(96, 178, 255); bottom = RGB(20, 108, 228); rim = RGB(12, 74, 166); gloss = 0.36; }
+        else if (self.dark) { top = RGB(86, 87, 94); bottom = RGB(55, 56, 62); rim = RGB(20, 20, 24); gloss = 0.17; }
+        else { top = RGB(243, 243, 246); bottom = RGB(217, 218, 225); rim = RGB(168, 170, 178); gloss = 0.7; }
+
+        UIImage *image = SHDrawImage(CGSizeMake(w, h), ^(CGContextRef ctx) {
+            CGContextSaveGState(ctx);
+            [path addClip];
+            SHDrawVerticalGradient(ctx, CGRectMake(0, 0, w, h), top, bottom);
+            CGFloat colors[] = { 1, 1, 1, gloss, 1, 1, 1, 0 };
+            CGFloat locations[] = { 0, 1 };
+            CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+            CGGradientRef shine = CGGradientCreateWithColorComponents(space, colors, locations, 2);
+            CGContextDrawLinearGradient(ctx, shine, CGPointMake(0, 1), CGPointMake(0, h * 0.55), 0);
+            CGGradientRelease(shine);
+            CGColorSpaceRelease(space);
+            CGContextRestoreGState(ctx);
+            [rim setStroke];
+            path.lineWidth = 1;
+            [path stroke];
+        });
+        CGFloat near = r + 1, far = r + tail + 1;
+        UIEdgeInsets caps = outgoing ? UIEdgeInsetsMake(r + 1, near, r + 1, far) : UIEdgeInsetsMake(r + 1, far, r + 1, near);
+        return [image resizableImageWithCapInsets:caps resizingMode:UIImageResizingModeStretch];
+    }];
+}
+
+- (UIImage *)statBoxImage
+{
+    return [self cachedImage:@"stat-box" builder:^UIImage *{
+        if (self.dark) return SHRoundedGradientImage(RGB(56, 57, 62), RGB(36, 37, 41), RGB(14, 14, 16), 7, YES);
+        return SHRoundedGradientImage(RGB(253, 253, 254), RGB(226, 228, 234), RGB(168, 171, 180), 7, YES);
+    }];
+}
+
+- (UIImage *)storyRingImageWithSize:(CGFloat)size seen:(BOOL)seen
+{
+    NSString *key = [NSString stringWithFormat:@"ring-%.0f-%d", size, (int)seen];
+    return [self cachedImage:key builder:^UIImage *{
+        return SHDrawImage(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            CGRect all = CGRectMake(0, 0, size, size);
+            CGFloat width = seen ? 2 : 3;
+            UIBezierPath *ring = [UIBezierPath bezierPathWithOvalInRect:all];
+            [ring appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectInset(all, width, width)]];
+            ring.usesEvenOddFillRule = YES;
+            CGContextSaveGState(ctx);
+            [ring addClip];
+            if (seen) {
+                SHDrawVerticalGradient(ctx, all, self.dark ? RGB(112, 112, 120) : RGB(190, 192, 200), self.dark ? RGB(68, 68, 74) : RGB(150, 152, 160));
+            } else {
+                CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+                NSArray *colors = @[ (id)RGB(254, 214, 110).CGColor, (id)RGB(250, 122, 32).CGColor, (id)RGB(216, 40, 118).CGColor, (id)RGB(148, 48, 192).CGColor ];
+                CGFloat locations[4] = { 0, 0.3, 0.65, 1 };
+                CGGradientRef g = CGGradientCreateWithColors(space, (__bridge CFArrayRef)colors, locations);
+                CGContextDrawLinearGradient(ctx, g, CGPointMake(0, size), CGPointMake(size, 0), 0);
+                CGGradientRelease(g);
+                CGColorSpaceRelease(space);
+            }
+            CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1 alpha:0.3].CGColor);   // the gloss of the upper half
+            CGContextFillRect(ctx, CGRectMake(0, 0, size, size * 0.45));
+            CGContextRestoreGState(ctx);
+        });
+    }];
+}
+
+- (void)styleAvatar:(UIView *)view radius:(CGFloat)radius
+{
+    view.layer.cornerRadius = radius;
+    view.layer.masksToBounds = YES;
+    view.layer.borderWidth = 1;
+    view.layer.borderColor = (self.dark ? [UIColor colorWithWhite:0 alpha:0.8] : [UIColor colorWithWhite:0 alpha:0.22]).CGColor;
+    view.backgroundColor = self.dark ? RGB(58, 59, 64) : RGB(205, 207, 214);
+}
+
+- (UIFont *)logoFontOfSize:(CGFloat)size
+{
+    return [UIFont fontWithName:@"SnellRoundhand-Bold" size:size] ?: [UIFont boldSystemFontOfSize:floorf(size * 0.8f)];
+}
+
+- (UIView *)logoTitleView
+{
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 160, 40)];
+    label.text = @"Gramify";
+    label.font = [self logoFontOfSize:26];
+    label.textColor = [UIColor whiteColor];
+    label.backgroundColor = [UIColor clearColor];
+    label.textAlignment = NSTextAlignmentCenter;
+    label.shadowColor = [UIColor colorWithWhite:0 alpha:0.6];
+    label.shadowOffset = CGSizeMake(0, -1);
+    return label;
+}
+
+#pragma mark - Glyphs
+
+// Draws a glyph with a soft dark shadow under it, like the icons of iOS 6 over pictures and on bars.
+static UIImage *SHShadowedGlyph(CGSize size, void (^draw)(CGContextRef ctx))
+{
+    return SHDrawImage(CGSizeMake(size.width + 2, size.height + 3), ^(CGContextRef ctx) {
+        CGContextSetShadowWithColor(ctx, CGSizeMake(0, -1), 1.5, [UIColor colorWithWhite:0 alpha:0.7].CGColor);
+        CGContextTranslateCTM(ctx, 1, 1);
+        draw(ctx);
+    });
+}
+
+- (UIImage *)playGlyphWithSize:(CGFloat)size
+{
+    return [self cachedImage:[NSString stringWithFormat:@"g-play-%.0f", size] builder:^UIImage *{
+        return SHShadowedGlyph(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            UIBezierPath *p = [UIBezierPath bezierPath];
+            [p moveToPoint:CGPointMake(size * 0.24, size * 0.12)];
+            [p addLineToPoint:CGPointMake(size * 0.9, size * 0.5)];
+            [p addLineToPoint:CGPointMake(size * 0.24, size * 0.88)];
+            [p closePath];
+            p.lineJoinStyle = kCGLineJoinRound;
+            p.lineWidth = MAX(1, size / 12);
+            [[UIColor whiteColor] setFill];
+            [[UIColor whiteColor] setStroke];
+            [p fill];
+            [p stroke];
+        });
+    }];
+}
+
+- (UIImage *)pauseGlyphWithSize:(CGFloat)size
+{
+    return [self cachedImage:[NSString stringWithFormat:@"g-pause-%.0f", size] builder:^UIImage *{
+        return SHShadowedGlyph(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            [[UIColor whiteColor] setFill];
+            CGFloat bar = size * 0.26;
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(size * 0.18, size * 0.12, bar, size * 0.76) cornerRadius:size * 0.06] fill];
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(size * 0.56, size * 0.12, bar, size * 0.76) cornerRadius:size * 0.06] fill];
+        });
+    }];
+}
+
+- (UIImage *)playButtonImageWithSize:(CGFloat)size
+{
+    return [self cachedImage:[NSString stringWithFormat:@"play-button-%.0f", size] builder:^UIImage *{
+        UIImage *disc = [self roundButtonImageWithSize:size];
+        UIImage *glyph = [self playGlyphWithSize:floorf(size * 0.42f)];
+        return SHDrawImage(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            [disc drawAtPoint:CGPointZero];
+            [glyph drawAtPoint:CGPointMake(floorf((size - glyph.size.width) / 2 + size * 0.04f), floorf((size - glyph.size.height) / 2))];
+        });
+    }];
+}
+
+- (UIImage *)voiceButtonImagePlaying:(BOOL)playing
+{
+    return [self cachedImage:playing ? @"voice-pause" : @"voice-play" builder:^UIImage *{
+        CGFloat size = 32;
+        UIImage *disc = [self roundButtonImageWithSize:size];
+        UIImage *glyph = playing ? [self pauseGlyphWithSize:13] : [self playGlyphWithSize:13];
+        return SHDrawImage(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            [disc drawAtPoint:CGPointZero];
+            [glyph drawAtPoint:CGPointMake(floorf((size - glyph.size.width) / 2 + (playing ? 0 : 1)), floorf((size - glyph.size.height) / 2))];
+        });
+    }];
+}
+
+- (UIImage *)voiceTrackImageFilled:(BOOL)filled
+{
+    return [self cachedImage:filled ? @"track-on" : @"track-off" builder:^UIImage *{
+        UIImage *image = SHDrawImage(CGSizeMake(10, 6), ^(CGContextRef ctx) {
+            UIBezierPath *groove = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0.5, 0.5, 9, 4) cornerRadius:2];
+            if (filled) {
+                CGContextSaveGState(ctx);
+                [groove addClip];
+                SHDrawVerticalGradient(ctx, CGRectMake(0, 0, 10, 5), [UIColor whiteColor], RGB(200, 210, 225));
+                CGContextRestoreGState(ctx);
+            } else {
+                [[UIColor colorWithWhite:0 alpha:0.4] setFill];
+                [groove fill];
+                [[UIColor colorWithWhite:1 alpha:0.18] setFill];   // the light edge under the groove
+                UIRectFill(CGRectMake(2, 5, 6, 1));
+            }
+        });
+        return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, 3, 0, 3) resizingMode:UIImageResizingModeStretch];
+    }];
+}
+
+- (UIImage *)lockGlyph
+{
+    return [self cachedImage:@"g-lock" builder:^UIImage *{
+        UIColor *color = [self secondaryTextColor];
+        return SHDrawImage(CGSizeMake(12, 14), ^(CGContextRef ctx) {
+            UIBezierPath *shackle = [UIBezierPath bezierPathWithArcCenter:CGPointMake(6, 5.5) radius:3.2 startAngle:M_PI endAngle:0 clockwise:YES];
+            [shackle addLineToPoint:CGPointMake(9.2, 7)];
+            [shackle moveToPoint:CGPointMake(2.8, 5.5)];
+            [shackle addLineToPoint:CGPointMake(2.8, 7)];
+            shackle.lineWidth = 1.6;
+            [color setStroke];
+            [shackle stroke];
+            [color setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(1, 7, 10, 7) cornerRadius:1.5] fill];
+        });
+    }];
+}
+
+- (UIImage *)verifiedBadgeWithSize:(CGFloat)size
+{
+    return [self cachedImage:[NSString stringWithFormat:@"verified-%.0f", size] builder:^UIImage *{
+        return SHDrawImage(CGSizeMake(size, size), ^(CGContextRef ctx) {
+            CGRect all = CGRectMake(0.5, 0.5, size - 1, size - 1);
+            UIBezierPath *disc = [UIBezierPath bezierPathWithOvalInRect:all];
+            CGContextSaveGState(ctx);
+            [disc addClip];
+            SHDrawVerticalGradient(ctx, all, RGB(92, 176, 255), RGB(16, 110, 228));
+            CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1 alpha:0.25].CGColor);
+            CGContextFillRect(ctx, CGRectMake(0, 0, size, size * 0.45));
+            CGContextRestoreGState(ctx);
+            [RGB(10, 76, 170) setStroke];
+            disc.lineWidth = 1;
+            [disc stroke];
+            UIBezierPath *check = [UIBezierPath bezierPath];
+            [check moveToPoint:CGPointMake(size * 0.27, size * 0.52)];
+            [check addLineToPoint:CGPointMake(size * 0.44, size * 0.68)];
+            [check addLineToPoint:CGPointMake(size * 0.74, size * 0.34)];
+            check.lineWidth = MAX(1.5, size / 7);
+            check.lineCapStyle = kCGLineCapRound;
+            check.lineJoinStyle = kCGLineJoinRound;
+            [[UIColor whiteColor] setStroke];
+            [check stroke];
+        });
+    }];
+}
+
+- (UIImage *)clockGlyph
+{
+    return [self cachedImage:@"g-clock" builder:^UIImage *{
+        UIColor *color = [self secondaryTextColor];
+        return SHDrawImage(CGSizeMake(12, 12), ^(CGContextRef ctx) {
+            UIBezierPath *face = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(1, 1, 10, 10)];
+            face.lineWidth = 1.3;
+            [color setStroke];
+            [face stroke];
+            UIBezierPath *hands = [UIBezierPath bezierPath];
+            [hands moveToPoint:CGPointMake(6, 3.2)];
+            [hands addLineToPoint:CGPointMake(6, 6)];
+            [hands addLineToPoint:CGPointMake(8.2, 7.3)];
+            hands.lineWidth = 1.2;
+            hands.lineCapStyle = kCGLineCapRound;
+            [hands stroke];
+        });
+    }];
+}
+
+- (UIImage *)carouselGlyph
+{
+    return [self cachedImage:@"g-carousel" builder:^UIImage *{
+        return SHShadowedGlyph(CGSizeMake(16, 16), ^(CGContextRef ctx) {
+            [[UIColor whiteColor] setStroke];
+            [[UIColor whiteColor] setFill];
+            UIBezierPath *back = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(5, 1, 10, 10) cornerRadius:2];
+            back.lineWidth = 1.5;
+            [back stroke];
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(1, 5, 10, 10) cornerRadius:2] fill];
+        });
+    }];
+}
+
+- (UIImage *)videoGlyph
+{
+    return [self cachedImage:@"g-video" builder:^UIImage *{
+        return SHShadowedGlyph(CGSizeMake(18, 14), ^(CGContextRef ctx) {
+            [[UIColor whiteColor] setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 2, 12, 10) cornerRadius:2] fill];   // a movie camera
+            UIBezierPath *lens = [UIBezierPath bezierPath];
+            [lens moveToPoint:CGPointMake(12.5, 7)];
+            [lens addLineToPoint:CGPointMake(18, 3)];
+            [lens addLineToPoint:CGPointMake(18, 11)];
+            [lens closePath];
+            [lens fill];
+        });
+    }];
+}
+
+- (UIImage *)gearBarIcon
+{
+    return [self cachedImage:@"gear-bar" builder:^UIImage *{
+        return [self gearPathImageSize:20 color:[UIColor whiteColor]];
+    }];
+}
+
+- (UIImage *)unreadDotImage
+{
+    return [self cachedImage:@"unread-dot" builder:^UIImage *{
+        return SHDrawImage(CGSizeMake(12, 12), ^(CGContextRef ctx) {
+            CGRect all = CGRectMake(0.5, 0.5, 11, 11);
+            UIBezierPath *dot = [UIBezierPath bezierPathWithOvalInRect:all];
+            CGContextSaveGState(ctx);
+            [dot addClip];
+            SHDrawVerticalGradient(ctx, all, RGB(110, 186, 255), RGB(8, 100, 222));
+            CGContextRestoreGState(ctx);
+            [RGB(6, 70, 160) setStroke];
+            dot.lineWidth = 1;
+            [dot stroke];
+            [[UIColor colorWithWhite:1 alpha:0.55] setFill];
+            [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(3, 1.8, 6, 3.6)] fill];
+        });
+    }];
+}
+
 #pragma mark - Fonts
 
 - (UIFont *)titleFont { return [UIFont boldSystemFontOfSize:SHIsPad() ? 16 : 15]; }
@@ -906,17 +1314,15 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
 
 - (void)applyToTableView:(UITableView *)tableView
 {
-    // An empty plain UITableView draws white on iOS 6 no matter the backgroundColor, so give it a solid
-    // backgroundView in the theme colour; it fills the table even with no rows (fixes the white flash on
-    // empty screens like Activity or an empty feed).
-    UIView *bg = [[UIView alloc] initWithFrame:tableView.bounds];
-    bg.backgroundColor = [self backgroundColor];
-    bg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    tableView.backgroundView = bg;
+    // The linen of iOS 6 behind every list. (An empty plain UITableView draws white on iOS 6 no matter the
+    // backgroundColor; the backgroundView fills it even with no rows, so no screen ever flashes white.)
+    tableView.backgroundView = [self texturedBackgroundView];
     tableView.backgroundColor = [self backgroundColor];
     // A zero-row plain table with no header/footer paints white on iOS 6; an empty footer makes it honour the
     // background and also hides the trailing separator lines.
     if (!tableView.tableFooterView) tableView.tableFooterView = [[UIView alloc] initWithFrame:CGRectZero];
+    // Plain lists take their etched lines from the rows themselves (styleCell:); grouped ones keep UIKit's.
+    if (tableView.style == UITableViewStylePlain) tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     tableView.separatorColor = [self separatorColor];
     tableView.indicatorStyle = self.dark ? UIScrollViewIndicatorStyleWhite : UIScrollViewIndicatorStyleDefault;
     SHModernSetTableViewDark(tableView, [self isDark]);
@@ -924,18 +1330,29 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
 
 - (void)styleCell:(UITableViewCell *)cell
 {
+    if (![cell.backgroundView isKindOfClass:[UIImageView class]] || ((UIImageView *)cell.backgroundView).image != [self cellBackgroundImage]) {
+        cell.backgroundView = [[UIImageView alloc] initWithImage:[self cellBackgroundImage]];
+        cell.selectedBackgroundView = [[UIImageView alloc] initWithImage:[self cellSelectedBackgroundImage]];
+    }
+    cell.backgroundColor = [UIColor clearColor];
+    cell.contentView.backgroundColor = [UIColor clearColor];
+    cell.textLabel.textColor = [self primaryTextColor];
+    cell.textLabel.highlightedTextColor = [UIColor whiteColor];
+    cell.textLabel.backgroundColor = [UIColor clearColor];
+    [self embossLabel:cell.textLabel];
+    cell.detailTextLabel.textColor = self.dark ? [self secondaryTextColor] : RGB(56, 84, 135);
+    cell.detailTextLabel.highlightedTextColor = [UIColor whiteColor];
+    cell.detailTextLabel.backgroundColor = [UIColor clearColor];
+}
+
+- (void)styleGroupedCell:(UITableViewCell *)cell
+{
     cell.backgroundColor = [self cardColor];
     cell.textLabel.textColor = [self primaryTextColor];
     cell.textLabel.backgroundColor = [UIColor clearColor];
     cell.detailTextLabel.textColor = self.dark ? [self secondaryTextColor] : RGB(56, 84, 135);
     cell.detailTextLabel.backgroundColor = [UIColor clearColor];
-    if (self.dark) {
-        UIView *selected = [[UIView alloc] init];
-        selected.backgroundColor = RGB(50, 50, 55);
-        cell.selectedBackgroundView = selected;
-    } else {
-        cell.selectedBackgroundView = nil;
-    }
+    cell.selectedBackgroundView = nil;   // (UIKit's own blue selection of a grouped row)
 }
 
 - (void)applyToSearchBar:(UISearchBar *)bar

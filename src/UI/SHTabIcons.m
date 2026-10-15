@@ -38,15 +38,13 @@ static UIImage *SHIconDraw(void (^draw)(CGContextRef ctx, CGFloat s))
 + (UIImage *)explore
 {
     return SHIconDraw(^(CGContextRef ctx, CGFloat s) {
-        CGContextStrokeEllipseInRect(ctx, CGRectMake(4, 4, s - 8, s - 8));
-        CGFloat c = s / 2;
-        // the compass needle (two triangles)
-        CGContextMoveToPoint(ctx, c, c);
-        CGContextAddLineToPoint(ctx, s * 0.66, s * 0.34);
-        CGContextAddLineToPoint(ctx, c, c);
-        CGContextAddLineToPoint(ctx, s * 0.34, s * 0.66);
-        CGContextClosePath(ctx);
-        CGContextFillPath(ctx);
+        // a magnifying glass: a thick lens and a handle
+        CGContextSetLineWidth(ctx, 3.5);
+        CGContextStrokeEllipseInRect(ctx, CGRectMake(4, 4, s * 0.52, s * 0.52));
+        CGContextSetLineWidth(ctx, 4.5);
+        CGContextMoveToPoint(ctx, s * 0.6, s * 0.6);
+        CGContextAddLineToPoint(ctx, s - 3.5, s - 3.5);
+        CGContextStrokePath(ctx);
     });
 }
 

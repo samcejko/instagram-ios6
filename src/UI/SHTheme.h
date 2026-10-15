@@ -57,6 +57,34 @@
 - (void)embossButton:(UIButton *)button;
 - (UIColor *)embossTextColor;               // the text of the pages' labels
 
+// iOS 6 surfaces: what every screen stands on (nothing flat)
+- (UIColor *)linenColor;                    // the woven linen of iOS 6 (dark: Notification Center's), a pattern colour
+- (UIView *)texturedBackgroundView;         // a view painted with it, for lists and pages
+- (UIImage *)cellBackgroundImage;           // a list row: soft gradient, a light line on top, a dark one under it
+- (UIImage *)cellSelectedBackgroundImage;   // the blue selection of iOS 6
+- (UIImage *)headerBarImage;                // the glossy strip above a post
+- (UIImage *)bubbleImageOutgoing:(BOOL)outgoing;   // glossy chat bubbles with their tail (stretchable)
+- (CGFloat)bubbleTailWidth;
+- (UIImage *)statBoxImage;                  // the box behind the counts of a profile
+- (UIImage *)storyRingImageWithSize:(CGFloat)size seen:(BOOL)seen;
+- (void)styleAvatar:(UIView *)view radius:(CGFloat)radius;   // a rounded square (or circle) with a hairline frame
+- (UIFont *)logoFontOfSize:(CGFloat)size;   // the script lettering of the app's name
+- (UIView *)logoTitleView;                  // the name in that lettering, for a navigation bar
+
+// Glyphs: drawn, so that no emoji ever appears in the interface
+- (UIImage *)playGlyphWithSize:(CGFloat)size;          // white, with a soft shadow
+- (UIImage *)pauseGlyphWithSize:(CGFloat)size;
+- (UIImage *)playButtonImageWithSize:(CGFloat)size;    // the glossy black disc with a play sign (a video)
+- (UIImage *)voiceButtonImagePlaying:(BOOL)playing;    // the round button of a voice message
+- (UIImage *)voiceTrackImageFilled:(BOOL)filled;       // its groove, and the part already played
+- (UIImage *)lockGlyph;
+- (UIImage *)verifiedBadgeWithSize:(CGFloat)size;
+- (UIImage *)clockGlyph;
+- (UIImage *)carouselGlyph;                 // corner marks of the grid
+- (UIImage *)videoGlyph;
+- (UIImage *)gearBarIcon;                   // for a bordered bar button
+- (UIImage *)unreadDotImage;                // the glossy blue dot of iOS 6 Mail
+
 // Icons (template-like alpha drawings): tab bar
 - (UIImage *)tabIconHome;
 - (UIImage *)tabIconSubscriptions;
@@ -99,8 +127,9 @@
 - (void)applyToNavigationBar:(UINavigationBar *)bar;
 - (void)applyToToolbar:(UIToolbar *)bar;
 - (void)applyToTabBar:(UITabBar *)bar;
-- (void)applyToTableView:(UITableView *)tableView;
-- (void)styleCell:(UITableViewCell *)cell;
+- (void)applyToTableView:(UITableView *)tableView;     // linen behind; plain tables get their lines from the rows
+- (void)styleCell:(UITableViewCell *)cell;              // a row of a plain list: the etched gradient, blue selection
+- (void)styleGroupedCell:(UITableViewCell *)cell;       // a row of a grouped table (UIKit draws the rounded group)
 - (void)applyToSearchBar:(UISearchBar *)bar;
 - (UIActivityIndicatorViewStyle)spinnerStyle;
 

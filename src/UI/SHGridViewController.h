@@ -8,8 +8,10 @@ typedef SHHTTPTask *(^SHGridLoader)(NSString *maxId, SHFeedCompletion completion
 @interface SHGridViewController : UIViewController
 - (instancetype)initWithTitle:(NSString *)title loader:(SHGridLoader)loader;
 @property (nonatomic, copy) NSString *emptyMessage;   // shown when a successful load returns nothing
-// An optional second grid reachable from a bar button (Explore → Reels).
+// An optional second list reachable from a bar button (Explore → Reels): a grid, or with secondaryFullScreen the
+// full-screen player of short videos.
 @property (nonatomic, copy) NSString *secondaryTitle;
 @property (nonatomic, copy) SHGridLoader secondaryLoader;
+@property (nonatomic) BOOL secondaryFullScreen;
 - (void)refresh;
 @end

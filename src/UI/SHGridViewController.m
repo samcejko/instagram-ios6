@@ -1,4 +1,5 @@
 #import "SHGridViewController.h"
+#import "SHReelsViewController.h"
 #import "SHGridRowCell.h"
 #import "SHPostDetailViewController.h"
 #import "SHModels.h"
@@ -34,7 +35,7 @@ static NSString * const SHGridCellId = @"GridRow";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    self.view.backgroundColor = [[SHTheme shared] backgroundColor];
+    self.view.backgroundColor = [[SHTheme shared] linenColor];
 
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -48,9 +49,10 @@ static NSString * const SHGridCellId = @"GridRow";
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _statusLabel.numberOfLines = 0;
     _statusLabel.textAlignment = NSTextAlignmentCenter;
-    _statusLabel.font = [UIFont systemFontOfSize:14];
+    _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [[SHTheme shared] secondaryTextColor];
     _statusLabel.backgroundColor = [UIColor clearColor];
+    [[SHTheme shared] embossLabel:_statusLabel];
     _statusLabel.hidden = YES;
     [self.view addSubview:_statusLabel];
 
@@ -69,6 +71,12 @@ static NSString * const SHGridCellId = @"GridRow";
 
 - (void)showSecondary
 {
+    if (_secondaryFullScreen) {
+        SHReelsViewController *reels = [[SHReelsViewController alloc] initWithLoader:_secondaryLoader];
+        reels.modalPresentationStyle = UIModalPresentationFullScreen;
+        [self presentViewController:reels animated:YES completion:nil];
+        return;
+    }
     SHGridViewController *vc = [[SHGridViewController alloc] initWithTitle:_secondaryTitle loader:_secondaryLoader];
     vc.emptyMessage = L(@"Nothing here yet.");
     [self.navigationController pushViewController:vc animated:YES];

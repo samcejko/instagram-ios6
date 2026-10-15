@@ -33,7 +33,7 @@
         cell.detailTextLabel.numberOfLines = 2;
     }
     cell.accessoryType = indexPath.row == self.selectedIndex ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-    [[SHTheme shared] styleCell:cell];
+    [[SHTheme shared] styleGroupedCell:cell];
     return cell;
 }
 

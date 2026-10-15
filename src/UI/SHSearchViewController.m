@@ -75,19 +75,26 @@
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"U"];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        cell.imageView.layer.cornerRadius = 20;
-        cell.imageView.clipsToBounds = YES;
+        [[SHTheme shared] styleAvatar:cell.imageView radius:5];
     }
+    [[SHTheme shared] styleCell:cell];
     SHUser *u = _results[(NSUInteger)indexPath.row];
     cell.textLabel.text = u.username;
     cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
-    cell.detailTextLabel.text = u.fullName;
+    cell.detailTextLabel.text = [SHUtils displayText:u.fullName];
     cell.detailTextLabel.font = [UIFont systemFontOfSize:13];
     cell.detailTextLabel.textColor = [[SHTheme shared] secondaryTextColor];
-    cell.imageView.image = [SHUtils imageWithColor:[[SHTheme shared] separatorColor] size:CGSizeMake(40, 40)];
+    cell.imageView.image = [[SHTheme shared] avatarPlaceholderWithSize:40];
     if (u.profilePicURL.length) {
-        [[SHImageLoader shared] loadImage:u.profilePicURL maxPixels:80 completion:^(UIImage *image) {
-            if (image) cell.imageView.image = image;
+        NSString *url = u.profilePicURL;
+        [[SHImageLoader shared] loadImage:url maxPixels:80 completion:^(UIImage *image) {
+            // (the row may show somebody else by now)
+            NSIndexPath *now = [tableView indexPathForCell:cell];
+            if (!image || !now || (NSUInteger)now.row >= self->_results.count) return;
+            if (![[self->_results[(NSUInteger)now.row] profilePicURL] isEqualToString:url]) return;
+            CGFloat scale = image.size.width > 0 ? image.size.width * image.scale / 40.0f : 1;   // shown 40 points wide
+            cell.imageView.image = [UIImage imageWithCGImage:image.CGImage scale:scale orientation:UIImageOrientationUp];
+            [cell setNeedsLayout];
         }];
     }
     return cell;
