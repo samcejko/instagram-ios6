@@ -67,11 +67,18 @@
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end
 
+// One person's stories. "Seen" means every one of them has been looked at (the ring turns grey); how far the viewer
+// got is kept as the time the newest seen story was posted, by Instagram and on this device.
 @interface SHStoryReel : NSObject
 @property (nonatomic, strong) SHUser *user;
 @property (nonatomic, strong) NSArray *items;
 @property (nonatomic) BOOL seen;
+@property (nonatomic) NSTimeInterval latestReelMedia;   // when the newest story was posted (unix time)
+@property (nonatomic) NSTimeInterval seenUpTo;          // when the newest story already seen was posted
 + (instancetype)fromJSON:(NSDictionary *)json;
+- (void)noteSeenItem:(SHStoryItem *)item;   // a story was looked at (also remembered on this device)
+- (void)applyRememberedSeen;                // what this device remembers (a tray from the server can lag behind)
+- (NSUInteger)firstUnseenIndex;             // where to start: the first story not seen yet (0 when all are)
 @end
 
 // One item in the Activity ("news") tab: someone liked/commented/followed, with a short line of text.

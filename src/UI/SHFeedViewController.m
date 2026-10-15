@@ -185,9 +185,29 @@ static const CGFloat SHStoryBarHeight = 96;
     _storyTask = [SHInstagram storiesTrayWithCompletion:^(NSArray *reels, NSError *error) {
         if (error) { SHLog(@"Stories error: %@", error.localizedDescription); return; }
         self->_storyTask = [SHInstagram fillStoryReels:reels completion:^(NSArray *viewable) {
-            [self->_storyBar setReels:viewable];
+            [self->_storyBar setReels:[self trayOrdered:viewable]];
         }];
     }];
+}
+
+// The app's order: people with something new first, the ones seen through at the end (each group as the tray
+// gave it); the account's own story stays first. A tray fresh from Instagram can lag behind what was just watched
+// here, so what this device remembers counts too.
+- (NSArray *)trayOrdered:(NSArray *)reels
+{
+    NSString *me = [SHSettings userId] ?: @"";
+    NSMutableArray *ordered = [NSMutableArray array];
+    NSMutableArray *fresh = [NSMutableArray array];
+    NSMutableArray *seen = [NSMutableArray array];
+    for (SHStoryReel *r in reels) {
+        [r applyRememberedSeen];
+        if (me.length && [r.user.pk isEqualToString:me]) [ordered addObject:r];
+        else if (r.seen) [seen addObject:r];
+        else [fresh addObject:r];
+    }
+    [ordered addObjectsFromArray:fresh];
+    [ordered addObjectsFromArray:seen];
+    return ordered;
 }
 
 #pragma mark - UITableView
@@ -298,6 +318,18 @@ static const CGFloat SHStoryBarHeight = 96;
 {
     SHStoryViewController *vc = [[SHStoryViewController alloc] initWithReels:_storyBar.reels startIndex:index];
     vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    __weak SHFeedViewController *weakSelf = self;
+    // the picture at the top of the viewer opens the person's profile here, in the feed's navigation
+    vc.onOpenProfile = ^(SHUser *user) {
+        SHFeedViewController *strong = weakSelf;
+        SHProfileViewController *profile = [[SHProfileViewController alloc] initWithUsername:user.username pk:user.pk];
+        [strong.navigationController pushViewController:profile animated:YES];
+    };
+    // the circles just watched through go grey and move to the end
+    vc.onClose = ^{
+        SHFeedViewController *strong = weakSelf;
+        [strong.storyBar setReels:[strong trayOrdered:strong.storyBar.reels]];
+    };
     [self presentViewController:vc animated:YES completion:nil];
 }
 

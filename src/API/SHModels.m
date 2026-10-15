@@ -189,8 +189,65 @@
         if (s) [items addObject:s];
     }
     r.items = items;
-    r.seen = SHDbl(d[@"seen"]) > 0;
+    // "seen" is the time the newest story already seen was posted; the reel is seen once that reaches its newest
+    r.latestReelMedia = SHDbl(d[@"latest_reel_media"]);
+    for (SHStoryItem *s in items) r.latestReelMedia = MAX(r.latestReelMedia, [s.takenAt timeIntervalSince1970]);
+    r.seenUpTo = SHDbl(d[@"seen"]);
+    [r updateSeen];
     return r;
+}
+
+- (void)updateSeen
+{
+    self.seen = self.latestReelMedia > 0 && self.seenUpTo >= self.latestReelMedia;
+}
+
+// user pk -> the post time of the newest story of theirs seen on this device; stories live a day, so entries older
+// than two days are dropped whenever the list is read
+static NSString * const SHSeenStoriesKey = @"SHSeenStories";
+
+static NSMutableDictionary *SHSeenStore(void)
+{
+    static NSMutableDictionary *store;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        store = [NSMutableDictionary dictionary];
+        NSDictionary *kept = [[NSUserDefaults standardUserDefaults] dictionaryForKey:SHSeenStoriesKey];
+        NSTimeInterval oldest = [[NSDate date] timeIntervalSince1970] - 2 * 86400;
+        for (NSString *pk in kept) {
+            NSNumber *t = kept[pk];
+            if ([t isKindOfClass:[NSNumber class]] && t.doubleValue > oldest) store[pk] = t;
+        }
+    });
+    return store;
+}
+
+- (void)noteSeenItem:(SHStoryItem *)item
+{
+    NSTimeInterval t = [item.takenAt timeIntervalSince1970];
+    if (t <= self.seenUpTo) return;
+    self.seenUpTo = t;
+    [self updateSeen];
+    if (!self.user.pk.length) return;
+    NSMutableDictionary *store = SHSeenStore();
+    store[self.user.pk] = @(t);
+    [[NSUserDefaults standardUserDefaults] setObject:store forKey:SHSeenStoriesKey];
+}
+
+- (void)applyRememberedSeen
+{
+    NSTimeInterval t = [SHSeenStore()[self.user.pk ?: @""] doubleValue];
+    if (t <= self.seenUpTo) return;
+    self.seenUpTo = t;
+    [self updateSeen];
+}
+
+- (NSUInteger)firstUnseenIndex
+{
+    for (NSUInteger i = 0; i < self.items.count; i++) {
+        if ([[self.items[i] takenAt] timeIntervalSince1970] > self.seenUpTo) return i;
+    }
+    return 0;   // all seen: from the start again
 }
 
 @end

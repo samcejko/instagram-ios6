@@ -836,6 +836,35 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
     }];
 }
 
+// Tells Instagram which stories were looked at, as the app does (POST api/v2/media/seen/): the person sees the view,
+// and the ring is grey on every device. One request for the stories seen of one person.
++ (SHHTTPTask *)markStoryItems:(NSArray *)items ofReel:(SHStoryReel *)reel completion:(SHActionCompletion)completion
+{
+    NSString *owner = reel.user.pk;
+    NSMutableDictionary *seen = [NSMutableDictionary dictionary];
+    long long now = (long long)[[NSDate date] timeIntervalSince1970];
+    for (SHStoryItem *item in items) {
+        if (!item.pk.length || !owner.length) continue;
+        long long taken = (long long)[item.takenAt timeIntervalSince1970];
+        seen[[NSString stringWithFormat:@"%@_%@_%@", item.pk, owner, owner]] = @[ [NSString stringWithFormat:@"%lld_%lld", taken, MAX(taken, now)] ];
+    }
+    if (!seen.count) { if (completion) completion(NO, nil); return nil; }
+    NSDictionary *params = @{ @"_uuid": [SHSettings deviceId], @"_uid": [SHSettings userId] ?: @"", @"_csrftoken": [SHSettings csrfToken] ?: @"",
+                              @"container_module": @"feed_timeline", @"reels": seen, @"reel_media_skipped": @{},
+                              @"live_vods": @{}, @"live_vods_skipped": @{}, @"nuxes": @{}, @"nuxes_skipped": @{} };
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *v2 = [SHApiBase stringByReplacingOccurrencesOfString:@"/api/v1" withString:@"/api/v2"];
+    return [SHHTTP request:@"POST" url:[v2 stringByAppendingString:@"/media/seen/?reel=1&live_vod=0"] headers:h body:SHSignedBodyData(params)
+                   retries:0 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        BOOL ok = !error && status < 400;
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
+            SHLog(@"SEEN %@ items=%lu status=%ld %@", reel.user.username ?: @"?", (unsigned long)seen.count, (long)status,
+                  error.localizedDescription ?: @"");
+        if (completion) completion(ok, error);
+    }];
+}
+
 // The circles of the tray carry their stories only for the first few. This asks for the rest in ONE request (as
 // the app does when the tray shows up), puts what comes back into the tray's own reel objects, and answers the
 // circles that have something to show. Instagram lists people in the tray whose stories it then does not give out

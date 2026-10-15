@@ -9,6 +9,8 @@
 #import <MediaPlayer/MediaPlayer.h>
 
 static const NSTimeInterval SHStoryDuration = 5.0;
+static const CGFloat SHStoryTop = 30;        // the progress bars
+static const CGFloat SHStoryAvatar = 34;
 
 @interface SHStoryViewController ()
 @property (nonatomic, strong) NSArray *reels;
@@ -17,15 +19,25 @@ static const NSTimeInterval SHStoryDuration = 5.0;
 @property (nonatomic) NSUInteger itemIndex;
 @property (nonatomic, strong) SHImageView *imageView;
 @property (nonatomic, strong) MPMoviePlayerController *player;
+@property (nonatomic, strong) SHImageView *avatarView;
 @property (nonatomic, strong) UILabel *usernameLabel;
 @property (nonatomic, strong) UILabel *timeLabel;
+@property (nonatomic, strong) UIButton *profileButton;
 @property (nonatomic, strong) UIView *progressContainer;
+@property (nonatomic, strong) NSMutableArray *segmentTracks;   // one bar per story of the reel
+@property (nonatomic, strong) NSMutableArray *segmentFills;
+@property (nonatomic, weak) SHStoryReel *segmentsReel;
+@property (nonatomic) CGFloat segmentsWidth;
 @property (nonatomic, strong) NSTimer *timer;
-@property (nonatomic, strong) UIView *progressFill;
+@property (nonatomic) CFAbsoluteTime itemStart;
+@property (nonatomic) NSTimeInterval itemDuration;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) id imageToken;
 @property (nonatomic) NSUInteger showSerial;
 @property (nonatomic, strong) SHHTTPTask *fetchTask;   // the items of a tray reel that came without them
+@property (nonatomic, strong) NSMutableArray *pendingSeen;   // stories of the current reel seen, not told to Instagram yet
+@property (nonatomic, weak) SHStoryReel *pendingReel;
+@property (nonatomic) BOOL closing;
 @end
 
 @implementation SHStoryViewController
@@ -36,56 +48,69 @@ static const NSTimeInterval SHStoryDuration = 5.0;
         _reels = reels;
         _reelIndex = index;
         _startIndex = index;
-        _itemIndex = 0;
+        SHStoryReel *reel = index < reels.count ? reels[index] : nil;
+        _itemIndex = [reel firstUnseenIndex];   // where the viewer left off last time
+        _pendingSeen = [NSMutableArray array];
+        _segmentTracks = [NSMutableArray array];
+        _segmentFills = [NSMutableArray array];
     }
     return self;
+}
+
+- (UILabel *)shadowLabel:(UIFont *)font color:(UIColor *)color
+{
+    UILabel *l = [[UILabel alloc] init];
+    l.font = font;
+    l.textColor = color;
+    l.backgroundColor = [UIColor clearColor];
+    l.shadowColor = [UIColor colorWithWhite:0 alpha:0.7];
+    l.shadowOffset = CGSizeMake(0, 1);
+    [self.view addSubview:l];
+    return l;
 }
 
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor blackColor];
+    CGFloat w = self.view.bounds.size.width;
 
     _imageView = [[SHImageView alloc] initWithFrame:self.view.bounds];
     _imageView.contentMode = UIViewContentModeScaleAspectFit;
     _imageView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:_imageView];
 
-    CGFloat top = 30;
-    _progressContainer = [[UIView alloc] initWithFrame:CGRectMake(8, top, self.view.bounds.size.width - 16, 2)];
+    // a dark fade behind the bars and the name, so they read on a bright picture
+    UIImageView *shade = [[UIImageView alloc] initWithImage:[[SHTheme shared] controlsGradientImageTop:YES]];
+    shade.frame = CGRectMake(0, 0, w, 120);
+    shade.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.view addSubview:shade];
+
+    _progressContainer = [[UIView alloc] initWithFrame:CGRectMake(8, SHStoryTop, w - 16, 3)];
     _progressContainer.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    _progressContainer.backgroundColor = [UIColor colorWithWhite:1 alpha:0.3];
-    _progressContainer.layer.cornerRadius = 1;
+    _progressContainer.backgroundColor = [UIColor clearColor];
     [self.view addSubview:_progressContainer];
 
-    _progressFill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 2)];
-    _progressFill.backgroundColor = [UIColor whiteColor];
-    _progressFill.layer.cornerRadius = 1;
-    [_progressContainer addSubview:_progressFill];
-
-    _usernameLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, top + 8, self.view.bounds.size.width - 60, 20)];
-    _usernameLabel.font = [UIFont boldSystemFontOfSize:14];
-    _usernameLabel.textColor = [UIColor whiteColor];
-    _usernameLabel.backgroundColor = [UIColor clearColor];
-    _usernameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [self.view addSubview:_usernameLabel];
-
-    _timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, top + 28, self.view.bounds.size.width - 60, 16)];
-    _timeLabel.font = [UIFont systemFontOfSize:11];
-    _timeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.7];
-    _timeLabel.backgroundColor = [UIColor clearColor];
-    _timeLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [self.view addSubview:_timeLabel];
+    _avatarView = [[SHImageView alloc] initWithFrame:CGRectMake(12, SHStoryTop + 12, SHStoryAvatar, SHStoryAvatar)];
+    _avatarView.layer.cornerRadius = SHStoryAvatar / 2;
+    _avatarView.layer.masksToBounds = YES;
+    _avatarView.layer.borderWidth = 1.5;
+    _avatarView.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.9].CGColor;
+    _avatarView.backgroundColor = [UIColor colorWithWhite:0.25 alpha:1];
+    _avatarView.maxPixels = 96;
+    [self.view addSubview:_avatarView];
+    _usernameLabel = [self shadowLabel:[UIFont boldSystemFontOfSize:15] color:[UIColor whiteColor]];
+    _timeLabel = [self shadowLabel:[UIFont boldSystemFontOfSize:12] color:[UIColor colorWithWhite:1 alpha:0.7]];
 
     // Tap zones go UNDER the controls (otherwise the close button is unreachable); a swipe down also closes.
     UITapGestureRecognizer *tapRight = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapNext)];
     UITapGestureRecognizer *tapLeft = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapPrev)];
-    UIView *rightZone = [[UIView alloc] initWithFrame:CGRectMake(self.view.bounds.size.width / 2, 0, self.view.bounds.size.width / 2, self.view.bounds.size.height)];
+    UIView *rightZone = [[UIView alloc] initWithFrame:CGRectMake(w / 2, 0, w / 2, self.view.bounds.size.height)];
     rightZone.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleLeftMargin;
     [rightZone addGestureRecognizer:tapRight];
     [self.view insertSubview:rightZone aboveSubview:_imageView];
 
-    UIView *leftZone = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width / 2, self.view.bounds.size.height)];
+    UIView *leftZone = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w / 2, self.view.bounds.size.height)];
     leftZone.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [leftZone addGestureRecognizer:tapLeft];
     [self.view insertSubview:leftZone aboveSubview:_imageView];
@@ -94,8 +119,13 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     swipeDown.direction = UISwipeGestureRecognizerDirectionDown;
     [self.view addGestureRecognizer:swipeDown];
 
+    // the picture and the name open the person's profile
+    _profileButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    [_profileButton addTarget:self action:@selector(profileTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:_profileButton];
+
     UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
-    close.frame = CGRectMake(self.view.bounds.size.width - 52, top + 2, 44, 44);
+    close.frame = CGRectMake(w - 52, SHStoryTop + 7, 44, 44);
     close.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [close setImage:[[SHTheme shared] closeIconWhite] forState:UIControlStateNormal];   // drawn, not a character
     close.accessibilityLabel = L(@"Done");
@@ -107,12 +137,22 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     [self.view addSubview:close];
 
     _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhiteLarge];
-    _spinner.center = CGPointMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2);
+    _spinner.center = CGPointMake(w / 2, self.view.bounds.size.height / 2);
     _spinner.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     _spinner.hidesWhenStopped = YES;
     [self.view addSubview:_spinner];
 
     [self showCurrentItem];
+}
+
+- (void)viewWillLayoutSubviews
+{
+    [super viewWillLayoutSubviews];
+    // (turned on its side: the bars are laid out again for the new width)
+    if (_segmentsReel && fabs(_progressContainer.bounds.size.width - _segmentsWidth) > 0.5) {
+        [self buildSegmentsForReel:_segmentsReel];
+        [self updateSegmentsWithProgress:_itemDuration > 0 ? (CFAbsoluteTimeGetCurrent() - _itemStart) / _itemDuration : 0];
+    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated
@@ -121,6 +161,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     [_timer invalidate];
     [_player stop];
     [_fetchTask cancel];
+    [self flushSeen];
 }
 
 - (SHStoryReel *)currentReel
@@ -144,15 +185,103 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     [[SHImageLoader shared] cancelToken:_imageToken];
 }
 
+#pragma mark - The person at the top
+
+- (void)showHeaderForReel:(SHStoryReel *)reel item:(SHStoryItem *)item
+{
+    [_avatarView setImageURL:reel.user.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:SHStoryAvatar]];
+    _usernameLabel.text = reel.user.username;
+    _timeLabel.text = item.takenAt ? [SHUtils formatRelativeDate:item.takenAt] : @"";
+    CGFloat x = 12 + SHStoryAvatar + 10, y = SHStoryTop + 12;
+    CGFloat maxName = self.view.bounds.size.width - x - 140;
+    CGFloat nameW = MIN(maxName, [_usernameLabel.text sizeWithFont:_usernameLabel.font].width);
+    _usernameLabel.frame = CGRectMake(x, y, nameW, SHStoryAvatar);
+    CGFloat timeW = [_timeLabel.text sizeWithFont:_timeLabel.font].width;
+    _timeLabel.frame = CGRectMake(x + nameW + 8, y + 1, timeW, SHStoryAvatar);
+    _profileButton.frame = CGRectMake(6, y - 6, x + nameW + 6, SHStoryAvatar + 12);
+    _profileButton.accessibilityLabel = reel.user.username;
+}
+
+- (void)profileTapped
+{
+    SHUser *user = [self currentReel].user;
+    if (!user.username.length && !user.pk.length) return;
+    void (^open)(SHUser *) = self.onOpenProfile;
+    [self closeThen:^{ if (open) open(user); }];
+}
+
+#pragma mark - Progress bars (one per story of the reel)
+
+- (void)buildSegmentsForReel:(SHStoryReel *)reel
+{
+    for (UIView *v in _segmentTracks) [v removeFromSuperview];
+    [_segmentTracks removeAllObjects];
+    [_segmentFills removeAllObjects];
+    NSUInteger n = MAX((NSUInteger)1, reel.items.count);
+    CGFloat w = _progressContainer.bounds.size.width, gap = 4;
+    CGFloat segW = floorf((w - gap * (n - 1)) / n);
+    for (NSUInteger i = 0; i < n; i++) {
+        UIView *track = [[UIView alloc] initWithFrame:CGRectMake(i * (segW + gap), 0, segW, 3)];
+        track.backgroundColor = [UIColor colorWithWhite:1 alpha:0.35];
+        track.layer.cornerRadius = 1.5;
+        track.clipsToBounds = YES;
+        UIView *fill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 3)];
+        fill.backgroundColor = [UIColor whiteColor];
+        [track addSubview:fill];
+        [_progressContainer addSubview:track];
+        [_segmentTracks addObject:track];
+        [_segmentFills addObject:fill];
+    }
+    _segmentsReel = reel;
+    _segmentsWidth = w;
+}
+
+// the stories before the current one full, the current one as far as it got, the rest empty
+- (void)updateSegmentsWithProgress:(CGFloat)progress
+{
+    CGFloat p = MAX(0, MIN(1, progress));
+    for (NSUInteger i = 0; i < _segmentFills.count; i++) {
+        UIView *fill = _segmentFills[i];
+        CGFloat full = [_segmentTracks[i] bounds].size.width;
+        CGFloat width = i < _itemIndex ? full : (i == _itemIndex ? floorf(full * p) : 0);
+        fill.frame = CGRectMake(0, 0, width, 3);
+    }
+}
+
+#pragma mark - Seen
+
+// The story is on screen: it counts as seen (the ring, where the reel starts next time, and Instagram's view list).
+- (void)itemShown:(SHStoryItem *)item ofReel:(SHStoryReel *)reel
+{
+    if (!item) return;
+    if (_pendingReel != reel) [self flushSeen];
+    BOOL isNew = [item.takenAt timeIntervalSince1970] > reel.seenUpTo;
+    [reel noteSeenItem:item];
+    if (!isNew) return;   // watched again: Instagram knows already, no request for it
+    _pendingReel = reel;
+    if (![_pendingSeen containsObject:item]) [_pendingSeen addObject:item];
+}
+
+// Tells Instagram about the stories seen of the reel just left (one request per person).
+- (void)flushSeen
+{
+    SHStoryReel *reel = _pendingReel;
+    if (reel && _pendingSeen.count) [SHInstagram markStoryItems:[_pendingSeen copy] ofReel:reel completion:nil];
+    [_pendingSeen removeAllObjects];
+    _pendingReel = nil;
+}
+
+#pragma mark - Showing
+
 // The tray carries the items of its first reels only. A reel reached without them is fetched here, into the
 // tray's own object, so the next opening is instant; one that has nothing to show (expired) is skipped.
 - (void)fetchCurrentReel:(SHStoryReel *)reel
 {
     NSUInteger serial = ++_showSerial;
     _imageView.image = nil;
-    _usernameLabel.text = reel.user.username;
-    _timeLabel.text = @"";
-    _progressFill.frame = CGRectMake(0, 0, 0, 2);
+    [self showHeaderForReel:reel item:nil];
+    [self buildSegmentsForReel:reel];
+    [self updateSegmentsWithProgress:0];
     [_spinner startAnimating];
     [_fetchTask cancel];
     _fetchTask = [SHInstagram storiesForUserIds:@[ reel.user.pk ?: @"" ] completion:^(NSArray *reels, NSError *error) {
@@ -160,6 +289,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
         SHStoryReel *fetched = [reels firstObject];
         if (fetched.items.count) {
             reel.items = fetched.items;
+            self->_itemIndex = [reel firstUnseenIndex];
             [self showCurrentItem];
             return;
         }
@@ -176,6 +306,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
 {
     [_timer invalidate];
     _timer = nil;
+    _itemDuration = 0;
     if (_player) {
         [[NSNotificationCenter defaultCenter] removeObserver:self name:nil object:_player];
         [_player stop];
@@ -192,9 +323,9 @@ static const NSTimeInterval SHStoryDuration = 5.0;
         SHLog(@"Story: reel %lu/%lu item %lu/%lu type=%ld", (unsigned long)_reelIndex + 1, (unsigned long)_reels.count,
               (unsigned long)_itemIndex + 1, (unsigned long)reel.items.count, (long)item.mediaType);
 
-    _usernameLabel.text = reel.user.username;
-    _timeLabel.text = item.takenAt ? [SHUtils formatRelativeDate:item.takenAt] : @"";
-    _progressFill.frame = CGRectMake(0, 0, 0, 2);
+    [self showHeaderForReel:reel item:item];
+    if (_segmentsReel != reel || _segmentTracks.count != MAX((NSUInteger)1, reel.items.count)) [self buildSegmentsForReel:reel];
+    [self updateSegmentsWithProgress:0];
 
     [[SHImageLoader shared] cancelToken:_imageToken];
     _imageToken = nil;
@@ -221,14 +352,15 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     } else {
         _imageView.image = nil;
         [_spinner startAnimating];
+        // (a picture already in memory answers at once, inside this call)
         _imageToken = [[SHImageLoader shared] loadImage:item.image.url maxPixels:1024 completion:^(UIImage *image) {
             if (serial != self->_showSerial) return;   // moved on already
             [self->_spinner stopAnimating];
             if (!image) { [self advanceItem]; return; }   // nothing to look at for five seconds: move on
             self->_imageView.image = image;
+            [self itemShown:item ofReel:reel];
             [self startTimerWithDuration:SHStoryDuration];
         }];
-        if (_imageView.image) { [_spinner stopAnimating]; [self startTimerWithDuration:SHStoryDuration]; }   // was cached
     }
 }
 
@@ -237,6 +369,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     if (_player.playbackState == MPMoviePlaybackStatePlaying && !_timer) {
         [_spinner stopAnimating];
         SHStoryItem *item = [self currentItem];
+        [self itemShown:item ofReel:[self currentReel]];
         NSTimeInterval dur = _player.duration > 0 ? _player.duration : (item.videoDuration > 0 ? item.videoDuration : 15);
         [self startTimerWithDuration:dur];
     }
@@ -247,22 +380,16 @@ static const NSTimeInterval SHStoryDuration = 5.0;
 - (void)startTimerWithDuration:(NSTimeInterval)duration
 {
     [_timer invalidate];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(timerTick:) userInfo:@(duration) repeats:YES];
+    _itemStart = CFAbsoluteTimeGetCurrent();
+    _itemDuration = MAX(0.5, duration);
+    _timer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(timerTick:) userInfo:nil repeats:YES];
 }
 
 - (void)timerTick:(NSTimer *)t
 {
-    NSTimeInterval duration = [t.userInfo doubleValue];
-    CGFloat barW = _progressContainer.bounds.size.width;
-    CGRect f = _progressFill.frame;
-    f.size.width += barW * 0.05 / duration;
-    if (f.size.width >= barW) {
-        f.size.width = barW;
-        _progressFill.frame = f;
-        [self advanceItem];
-        return;
-    }
-    _progressFill.frame = f;
+    CGFloat progress = (CFAbsoluteTimeGetCurrent() - _itemStart) / _itemDuration;
+    [self updateSegmentsWithProgress:progress];
+    if (progress >= 1) [self advanceItem];
 }
 
 - (void)advanceItem
@@ -271,8 +398,9 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     if (reel && _itemIndex + 1 < reel.items.count) {
         _itemIndex++;
     } else if (_reelIndex + 1 < _reels.count) {
+        [self flushSeen];
         _reelIndex++;
-        _itemIndex = 0;
+        _itemIndex = [[self currentReel] firstUnseenIndex];   // the next person's from where it was left off
     } else {
         [self closeTapped];
         return;
@@ -287,6 +415,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     if (_itemIndex > 0) {
         _itemIndex--;
     } else if (_reelIndex > 0) {
+        [self flushSeen];
         _reelIndex--;
         SHStoryReel *reel = [self currentReel];
         _itemIndex = reel.items.count > 0 ? reel.items.count - 1 : 0;
@@ -294,11 +423,21 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     [self showCurrentItem];
 }
 
-- (void)closeTapped
+- (void)closeTapped { [self closeThen:nil]; }
+
+// Closes the viewer (once), tells Instagram what was seen, and then runs `then` and the owner's onClose.
+- (void)closeThen:(void (^)(void))then
 {
+    if (_closing) return;
+    _closing = YES;
     [_timer invalidate];
     [_player stop];
-    [self dismissViewControllerAnimated:YES completion:nil];
+    [self flushSeen];
+    void (^onClose)(void) = self.onClose;
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (then) then();
+        if (onClose) onClose();
+    }];
 }
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orient

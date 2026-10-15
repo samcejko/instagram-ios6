@@ -93,6 +93,8 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 // Fetches the stories of the tray's circles that came without them (one request) and answers only the circles
 // that have a story to show.
 + (SHHTTPTask *)fillStoryReels:(NSArray *)reels completion:(void (^)(NSArray *viewable))completion;
+// Tells Instagram these stories of the reel were seen (the person sees the view, as with the app).
++ (SHHTTPTask *)markStoryItems:(NSArray *)items ofReel:(SHStoryReel *)reel completion:(SHActionCompletion)completion;
 
 + (SHHTTPTask *)likePost:(NSString *)mediaPk completion:(SHActionCompletion)completion;
 + (SHHTTPTask *)unlikePost:(NSString *)mediaPk completion:(SHActionCompletion)completion;
