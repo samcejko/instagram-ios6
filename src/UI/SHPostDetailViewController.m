@@ -29,6 +29,8 @@ static const CGFloat SHDetailHeaderH = 50;
 @property (nonatomic, strong) MPMoviePlayerController *player;
 @property (nonatomic, strong) NSMutableArray *tagLayers;   // per picture: the bubbles of the people tagged on it
 @property (nonatomic, strong) NSMutableArray *tagUsers;    // SHUser, by the bubble's tag
+@property (nonatomic, strong) UIView *contentView;         // everything in the scroll view, built for one width
+@property (nonatomic) CGFloat builtWidth;
 @end
 
 @implementation SHPostDetailViewController
@@ -74,11 +76,34 @@ static const CGFloat SHDetailHeaderH = 50;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:L(@"Comments")
         style:UIBarButtonItemStyleBordered target:self action:@selector(commentsTapped)];
 
-    CGFloat w = self.view.bounds.size.width;
     _scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     _scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _scrollView.indicatorStyle = theme.isDark ? UIScrollViewIndicatorStyleWhite : UIScrollViewIndicatorStyleDefault;
     [self.view addSubview:_scrollView];
+    [self buildContent];
+}
+
+// Laid out for the width the screen had when it loaded; turned, or opened while the iPad lies on its side (iOS 6
+// loads the view in the upright size first), the post is laid out again for the width it really has.
+- (void)viewWillLayoutSubviews
+{
+    [super viewWillLayoutSubviews];
+    if (fabs(self.view.bounds.size.width - _builtWidth) > 1) [self buildContent];
+}
+
+- (void)buildContent
+{
+    SHTheme *theme = [SHTheme shared];
+    CGFloat w = self.view.bounds.size.width;
+    _builtWidth = w;
+    NSInteger page = _pageControl.currentPage;
+    BOOL tagsShown = _tagLayers.count && ![_tagLayers.firstObject isHidden];
+    [_contentView removeFromSuperview];
+    _contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 0)];
+    _contentView.backgroundColor = [UIColor clearColor];
+    [_scrollView addSubview:_contentView];
+    _pageControl = nil;
+    _carousel = nil;
 
     // the glossy header: picture, name (both open the profile), the time with a clock
     UIImageView *header = [[UIImageView alloc] initWithImage:[theme headerBarImage]];
@@ -109,7 +134,7 @@ static const CGFloat SHDetailHeaderH = 50;
     name.backgroundColor = [UIColor clearColor];
     [theme embossLabel:name];
     [header addSubview:name];
-    [_scrollView addSubview:header];
+    [_contentView addSubview:header];
 
     CGFloat top = SHDetailHeaderH;
     CGFloat imgH = w;
@@ -131,21 +156,26 @@ static const CGFloat SHDetailHeaderH = 50;
         poster.backgroundColor = mediaBack;
         poster.maxPixels = 1024;
         [poster setImageURL:_post.image.url placeholder:nil];
-        [_scrollView addSubview:poster];
-        NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:_post.videoURL]];
-        _player = [[MPMoviePlayerController alloc] initWithContentURL:[NSURL URLWithString:proxied]];
+        [_contentView addSubview:poster];
+        BOOL started = _player != nil && _player.playbackState != MPMoviePlaybackStateStopped;
+        if (!_player) {   // (laid out again: the same player goes on where it was)
+            NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:_post.videoURL]];
+            _player = [[MPMoviePlayerController alloc] initWithContentURL:[NSURL URLWithString:proxied]];
+            _player.view.backgroundColor = [UIColor clearColor];
+            _player.backgroundView.backgroundColor = [UIColor clearColor];   // the poster shows until it plays
+            _player.controlStyle = MPMovieControlStyleEmbedded;
+            _player.shouldAutoplay = NO;
+        }
         _player.view.frame = CGRectMake(0, top, w, imgH);
-        _player.view.backgroundColor = [UIColor clearColor];
-        _player.backgroundView.backgroundColor = [UIColor clearColor];   // the poster shows until it plays
-        _player.controlStyle = MPMovieControlStyleEmbedded;
-        _player.shouldAutoplay = NO;
-        [_scrollView addSubview:_player.view];
+        [_contentView addSubview:_player.view];
         // a glossy play button over the poster starts it
-        UIButton *play = [UIButton buttonWithType:UIButtonTypeCustom];
-        [play setImage:[theme playButtonImageWithSize:72] forState:UIControlStateNormal];
-        play.frame = CGRectMake(floorf((w - 72) / 2), top + floorf((imgH - 72) / 2), 72, 72);
-        [play addTarget:self action:@selector(playTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [_scrollView addSubview:play];
+        if (!started) {
+            UIButton *play = [UIButton buttonWithType:UIButtonTypeCustom];
+            [play setImage:[theme playButtonImageWithSize:72] forState:UIControlStateNormal];
+            play.frame = CGRectMake(floorf((w - 72) / 2), top + floorf((imgH - 72) / 2), 72, 72);
+            [play addTarget:self action:@selector(playTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [_contentView addSubview:play];
+        }
     } else {
         _carousel = [[UIScrollView alloc] initWithFrame:CGRectMake(0, top, w, imgH)];
         _carousel.pagingEnabled = YES;
@@ -186,13 +216,18 @@ static const CGFloat SHDetailHeaderH = 50;
             }
             [_carousel addSubview:iv];
         }
-        [_scrollView addSubview:_carousel];
+        [_contentView addSubview:_carousel];
         if (items.count > 1) {
             _pageControl = [[UIPageControl alloc] initWithFrame:CGRectMake(0, top + imgH - 24, w, 16)];
             _pageControl.numberOfPages = (NSInteger)items.count;
             _pageControl.userInteractionEnabled = NO;
-            [_scrollView addSubview:_pageControl];
+            [_contentView addSubview:_pageControl];
+            // the same picture as before it was laid out again
+            NSInteger keep = MAX(0, MIN(page, (NSInteger)items.count - 1));
+            _pageControl.currentPage = keep;
+            _carousel.contentOffset = CGPointMake(w * (CGFloat)keep, 0);
         }
+        for (UIView *layer in _tagLayers) layer.hidden = !tagsShown;
     }
 
     CGFloat y = top + imgH + 8;
@@ -206,29 +241,29 @@ static const CGFloat SHDetailHeaderH = 50;
     _likeButton = [self glossyButton:compact ? nil : L(@"Like") image:nil action:@selector(likeTapped)];
     _likeButton.frame = CGRectMake(10, y, likeW, 32);
     _likeButton.accessibilityLabel = L(@"Like");
-    [_scrollView addSubview:_likeButton];
+    [_contentView addSubview:_likeButton];
 
     UIButton *commentButton = [self glossyButton:compact ? nil : L(@"Comment")
                                            image:[SHTabIcons commentBubbleWithSize:17 color:[theme textColor] dark:theme.isDark]
                                           action:@selector(commentsTapped)];
     commentButton.frame = CGRectMake(10 + likeW + 8, y, commentW, 32);
     commentButton.accessibilityLabel = L(@"Comment");
-    [_scrollView addSubview:commentButton];
+    [_contentView addSubview:commentButton];
 
     UIButton *shareButton = [self glossyButton:nil image:[SHTabIcons paperPlaneWithSize:18 color:[theme textColor] dark:theme.isDark]
                                         action:@selector(shareTapped)];
     shareButton.frame = CGRectMake(CGRectGetMaxX(commentButton.frame) + 8, y, 46, 32);
     shareButton.accessibilityLabel = L(@"Share");
-    [_scrollView addSubview:shareButton];
+    [_contentView addSubview:shareButton];
 
     _saveButton = [self glossyButton:nil image:nil action:@selector(saveTapped)];
     _saveButton.frame = CGRectMake(w - 52, y, 42, 32);
-    [_scrollView addSubview:_saveButton];
+    [_contentView addSubview:_saveButton];
     y += 32 + 10;
 
     UIImageView *heart = [[UIImageView alloc] initWithImage:[SHTabIcons heartWithSize:14 filled:YES color:[theme linkColor] dark:theme.isDark]];
     heart.frame = CGRectMake(12, y + 3, heart.image.size.width, heart.image.size.height);
-    [_scrollView addSubview:heart];
+    [_contentView addSubview:heart];
     _likesLabel = [[UILabel alloc] initWithFrame:CGRectMake(32, y, w - 44, 20)];
     _likesLabel.font = [UIFont boldSystemFontOfSize:14];
     _likesLabel.textColor = [theme linkColor];
@@ -236,7 +271,7 @@ static const CGFloat SHDetailHeaderH = 50;
     [theme embossLabel:_likesLabel];
     _likesLabel.userInteractionEnabled = YES;
     [_likesLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(showLikers)]];
-    [_scrollView addSubview:_likesLabel];
+    [_contentView addSubview:_likesLabel];
     [self updateLikeUI];
     [self updateSaveUI];
     y += 26;
@@ -257,10 +292,11 @@ static const CGFloat SHDetailHeaderH = 50;
         [caption addUserLinkWithRange:nameRange username:user pk:_post.user.pk];
         CGSize sz = [caption sizeThatFits:CGSizeMake(w - 24, 0)];
         caption.frame = CGRectMake(12, y, w - 24, sz.height);
-        [_scrollView addSubview:caption];
+        [_contentView addSubview:caption];
         y += sz.height + 12;
     }
 
+    _contentView.frame = CGRectMake(0, 0, w, y + 20);
     _scrollView.contentSize = CGSizeMake(w, y + 20);
 }
 

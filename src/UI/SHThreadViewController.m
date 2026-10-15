@@ -453,6 +453,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 @property (nonatomic, strong) NSData *pendingJPEG;
 @property (nonatomic, strong) UIImage *pendingImage;
 @property (nonatomic, strong) UIPopoverController *pickerPopover;
+@property (nonatomic, strong) UIActionSheet *photoSheet;     // "Take Photo / Choose Existing" while it is up
 @property (nonatomic) CGFloat keyboardOverlap;
 @end
 
@@ -634,12 +635,35 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     [_task cancel];
     _playingPk = nil;   // no row reloads from a dying controller
     [self stopVoice];
+    [self closeTransientUI];
+    [_recorder cancel];
 }
 
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
     [self stopVoice];
+    if (!self.presentedViewController) {   // (not when the camera is what covers the chat)
+        [self closeTransientUI];
+        if (_recorder) [self cancelRecording];   // a recording ends with the chat
+    }
+}
+
+// The photo menu and the library's popover go with the chat. A popover released while it is still on screen stops
+// the app (UIKit raises in its dealloc), and both hold this controller as an unretained delegate.
+- (void)closeTransientUI
+{
+    if (_photoSheet) {
+        _photoSheet.delegate = nil;
+        [_photoSheet dismissWithClickedButtonIndex:_photoSheet.cancelButtonIndex animated:NO];
+        _photoSheet = nil;
+    }
+    if (_pickerPopover) {
+        UIImagePickerController *picker = (UIImagePickerController *)_pickerPopover.contentViewController;
+        if ([picker isKindOfClass:[UIImagePickerController class]]) picker.delegate = nil;
+        [_pickerPopover dismissPopoverAnimated:NO];
+        _pickerPopover = nil;
+    }
 }
 
 - (void)setMessagesNewestFirst:(NSArray *)newestFirst
@@ -811,12 +835,14 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) [sheet addButtonWithTitle:L(@"Take Photo")];
     if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) [sheet addButtonWithTitle:L(@"Choose Existing")];
     sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
+    _photoSheet = sheet;
     if (SHIsPad()) [sheet showFromRect:button.bounds inView:button animated:YES];
     else [sheet showInView:self.view];
 }
 
 - (void)actionSheet:(UIActionSheet *)sheet didDismissWithButtonIndex:(NSInteger)index
 {
+    if (sheet == _photoSheet) _photoSheet = nil;
     if (index < 0 || index == sheet.cancelButtonIndex) return;
     NSString *title = [sheet buttonTitleAtIndex:index];
     if ([title isEqualToString:L(@"Take Photo")]) [self presentPickerWithSource:UIImagePickerControllerSourceTypeCamera];

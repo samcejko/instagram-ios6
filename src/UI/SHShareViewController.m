@@ -93,7 +93,11 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     label.shadowOffset = CGSizeMake(0, -1);
     [box addSubview:label];
     [window addSubview:box];
-    [UIView animateWithDuration:0.3 delay:1.1 options:0 animations:^{ box.alpha = 0; } completion:^(BOOL finished) { [box removeFromSuperview]; }];
+    // (the fade starts later rather than with a delay: a delayed animation would set the box's alpha to 0 at once,
+    // and the debug snapshot, which draws the layers' model values, would never show the notice)
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [UIView animateWithDuration:0.3 animations:^{ box.alpha = 0; } completion:^(BOOL finished) { [box removeFromSuperview]; }];
+    });
 }
 
 - (instancetype)initWithPost:(SHPost *)post
@@ -197,7 +201,28 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     }];
 }
 
-- (void)dealloc { [_inboxTask cancel]; [_searchTask cancel]; }
+- (void)dealloc
+{
+    [_inboxTask cancel];
+    [_searchTask cancel];
+    [self closePopover];
+}
+
+- (void)viewWillDisappear:(BOOL)animated
+{
+    [super viewWillDisappear:animated];
+    [self closePopover];
+}
+
+// The system's share sheet goes with this screen: a popover released while still on screen stops the app.
+- (void)closePopover
+{
+    if (!_popover) return;
+    if ([_popover.contentViewController isKindOfClass:[UIActivityViewController class]])
+        [(UIActivityViewController *)_popover.contentViewController setCompletionHandler:nil];
+    [_popover dismissPopoverAnimated:NO];
+    _popover = nil;
+}
 
 - (void)showThreads:(NSArray *)threads
 {
