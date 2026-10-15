@@ -382,6 +382,16 @@ static NSString *SHExtractBloksError(NSString *body)
                 if (newCsrf) [SHSettings setCsrfToken:newCsrf];
                 SHSaveTokensFromHeaders(headers);   // the token (and ds_user_id) arrive here on success
 
+                // Diagnostic (debug builds only): dump the server reply so a real login can be inspected without
+                // ever logging the password or the session token's value.
+                if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
+                    BOOL authPresent = NO;
+                    for (NSString *k in headers) if ([[k lowercaseString] isEqualToString:@"ig-set-authorization"] && [headers[k] length] > 14) authPresent = YES;
+                    NSString *dbg = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
+                    SHLog(@"CAALOGIN HTTP %ld authHeader=%@ loggedIn=%@ bodyLen=%lu", (long)status, authPresent ? @"yes" : @"no", [SHSettings isLoggedIn] ? @"yes" : @"no", (unsigned long)dbg.length);
+                    SHLog(@"CAALOGIN body: %@", dbg.length > 1400 ? [dbg substringToIndex:1400] : dbg);
+                }
+
                 if ([SHSettings isLoggedIn]) {
                     [SHSettings setUsername:username];
                     [SHSettings save];
