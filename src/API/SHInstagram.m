@@ -643,8 +643,12 @@ static NSString *SHExtractBloksError(NSString *body)
     // reels_media takes a SIGNED JSON body with user_ids as an array (a plain form with a comma list is rejected).
     NSMutableArray *ids = [NSMutableArray array];
     for (id uid in userIds) if (SHStr(uid).length) [ids addObject:SHStr(uid)];
+    NSString *capabilities = @"[{\"name\":\"SUPPORTED_SDK_VERSIONS\",\"value\":\"108.0,109.0,110.0,111.0,112.0,113.0,114.0,115.0,116.0,117.0,118.0,119.0\"},"
+                              "{\"name\":\"FACE_TRACKER_VERSION\",\"value\":\"14\"},{\"name\":\"segmentation\",\"value\":\"segmentation_enabled\"},"
+                              "{\"name\":\"COMPRESSION\",\"value\":\"ETC2_COMPRESSION\"},{\"name\":\"world_tracker\",\"value\":\"world_tracker_enabled\"},"
+                              "{\"name\":\"gyroscope\",\"value\":\"gyroscope_enabled\"}]";
     NSDictionary *params = @{ @"user_ids": ids, @"_uuid": [SHSettings deviceId], @"_csrftoken": [SHSettings csrfToken] ?: @"",
-                              @"source": @"feed_timeline" };
+                              @"source": @"feed_timeline", @"supported_capabilities_new": capabilities };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"Content-Type"] = @"application/x-www-form-urlencoded";
 
@@ -677,7 +681,36 @@ static NSString *SHExtractBloksError(NSString *body)
                 if (r) [reels addObject:r];
             }
         }
+        if (reels.count == 0 && ids.count == 1) {   // reels_media answers {"reels":{}} for this account: ask per user
+            [self userStoryFeed:ids[0] completion:completion];
+            return;
+        }
         completion(reels, nil);
+    }];
+}
+
+// The older per-user story endpoints, tried in turn: feed/user/{id}/story/ answers {"reel": …} (null without a
+// story), feed/user/{id}/reel_media/ is the reel itself.
++ (SHHTTPTask *)userStoryFeed:(NSString *)userId completion:(SHStoriesCompletion)completion
+{
+    BOOL debug = [[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]];
+    NSString *url = [NSString stringWithFormat:@"%@/feed/user/%@/story/", SHApiBase, userId];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        NSDictionary *d = SHDict(json);
+        SHStoryReel *r = [SHStoryReel fromJSON:SHDict(d[@"reel"])];
+        if (debug) SHLog(@"USERSTORY %@ status=%ld error=%@ keys=%@ items=%lu", userId, (long)status, error.localizedDescription ?: @"-",
+                         [[d allKeys] componentsJoinedByString:@","], (unsigned long)r.items.count);
+        if (error) { completion(nil, error); return; }
+        if (r.items.count) { completion(@[ r ], nil); return; }
+        NSString *url2 = [NSString stringWithFormat:@"%@/feed/user/%@/reel_media/", SHApiBase, userId];
+        [SHHTTP getJSON:url2 headers:SHAuthHeaders() completion:^(id json2, NSInteger status2, NSError *error2) {
+            NSDictionary *d2 = SHDict(json2);
+            SHStoryReel *r2 = [SHStoryReel fromJSON:d2];
+            if (debug) SHLog(@"REELMEDIA %@ status=%ld error=%@ keys=%@ items=%lu", userId, (long)status2, error2.localizedDescription ?: @"-",
+                             [[d2 allKeys] componentsJoinedByString:@","], (unsigned long)r2.items.count);
+            if (error2) { completion(nil, error2); return; }
+            completion(r2.items.count ? @[ r2 ] : @[], nil);
+        }];
     }];
 }
 

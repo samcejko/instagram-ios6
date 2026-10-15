@@ -13,6 +13,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
 @interface SHStoryViewController ()
 @property (nonatomic, strong) NSArray *reels;
 @property (nonatomic) NSUInteger reelIndex;
+@property (nonatomic) NSUInteger startIndex;   // the circle that was tapped
 @property (nonatomic) NSUInteger itemIndex;
 @property (nonatomic, strong) SHImageView *imageView;
 @property (nonatomic, strong) MPMoviePlayerController *player;
@@ -34,6 +35,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     if ((self = [super init])) {
         _reels = reels;
         _reelIndex = index;
+        _startIndex = index;
         _itemIndex = 0;
     }
     return self;
@@ -160,15 +162,12 @@ static const NSTimeInterval SHStoryDuration = 5.0;
             [self showCurrentItem];
             return;
         }
+        // Nothing to show: the viewer closes rather than racing through the rest of the tray with a request per
+        // reel (a burst Instagram would notice); the user picks the next circle. The reel that was tapped says why.
         [self->_spinner stopAnimating];
-        if (self->_reelIndex + 1 < self->_reels.count) {
-            self->_reelIndex++;
-            self->_itemIndex = 0;
-            [self showCurrentItem];
-        } else {
-            if (error) [SHUtils alertWithTitle:L(@"Stories") message:error.localizedDescription];
-            [self closeTapped];
-        }
+        if (self->_reelIndex == self->_startIndex)
+            [SHUtils alertWithTitle:L(@"Stories") message:error.localizedDescription ?: L(@"This story is no longer available.")];
+        [self closeTapped];
     }];
 }
 
