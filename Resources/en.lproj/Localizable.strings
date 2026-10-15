@@ -199,6 +199,18 @@
 "Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone." = "Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone.";
 "Instagram didn't accept it. In a message request they haven't accepted yet, only text can be sent." = "Instagram didn't accept it. In a message request they haven't accepted yet, only text can be sent.";
 
+/* Requests */
+"Follow requests" = "Follow requests";
+"%@ and others" = "%@ and others";
+"Confirm" = "Confirm";
+"Delete" = "Delete";
+"No requests." = "No requests.";
+"Message requests" = "Message requests";
+"Accept the message request?" = "Accept the message request?";
+"Accept" = "Accept";
+"Accepted" = "Accepted";
+"Something went wrong." = "Something went wrong.";
+
 /* Calls in a chat's history */
 "Call" = "Call";
 "Call started" = "Call started";

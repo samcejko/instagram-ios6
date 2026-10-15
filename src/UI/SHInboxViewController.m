@@ -71,15 +71,24 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 @property (nonatomic) BOOL fresh;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
+@property (nonatomic) BOOL pending;   // the message requests instead of the inbox
 @end
 
 @implementation SHInboxViewController
+
+- (instancetype)initWithPendingRequests
+{
+    if ((self = [super init])) _pending = YES;
+    return self;
+}
 
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     SHTheme *theme = [SHTheme shared];
-    self.title = L(@"Direct");
+    // (the tab keeps its own item: a pushed list of requests takes the title, the tab's root only the bar's)
+    if (_pending) self.title = L(@"Message requests");
+    else self.title = L(@"Direct");
     self.view.backgroundColor = [theme linenColor];
     _threads = [NSMutableArray array];
 
@@ -109,12 +118,47 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     [self.view addSubview:_spinner];
 
     // the conversations of last time at once; the network freshens them when the tab shows
-    [SHInstagram cachedDirectInboxWithCompletion:^(NSArray *threads, NSString *cursor, NSError *error) {
-        if (self->_fresh || !threads.count) return;
-        [self->_threads setArray:threads];
-        [self->_spinner stopAnimating];
-        [self->_tableView reloadData];
-    }];
+    if (!_pending) {
+        [SHInstagram cachedDirectInboxWithCompletion:^(NSArray *threads, NSString *cursor, NSError *error) {
+            if (self->_fresh || !threads.count) return;
+            [self->_threads setArray:threads];
+            [self->_spinner stopAnimating];
+            [self->_tableView reloadData];
+        }];
+    }
+}
+
+// "Message requests (n)" over the conversations while some wait (the count comes with the inbox).
+- (void)updateRequestsRow
+{
+    NSInteger count = _pending ? 0 : [SHInstagram pendingMessageRequestCount];
+    if (count <= 0) { _tableView.tableHeaderView = nil; return; }
+    SHTheme *theme = [SHTheme shared];
+    CGFloat w = _tableView.bounds.size.width;
+    UIImageView *row = [[UIImageView alloc] initWithImage:[theme cellBackgroundImage]];
+    row.frame = CGRectMake(0, 0, w, 50);
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    row.userInteractionEnabled = YES;
+    row.accessibilityLabel = L(@"Message requests");
+    [row addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openRequests)]];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(14, 0, w - 50, 50)];
+    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    label.text = [NSString stringWithFormat:@"%@ (%ld)", L(@"Message requests"), (long)count];
+    label.font = [UIFont boldSystemFontOfSize:15];
+    label.textColor = [theme linkColor];
+    label.backgroundColor = [UIColor clearColor];
+    [theme embossLabel:label];
+    [row addSubview:label];
+    UIImageView *chevron = [[UIImageView alloc] initWithImage:[theme disclosureChevronImage]];
+    chevron.frame = CGRectMake(w - 24, floorf((50 - chevron.image.size.height) / 2), chevron.image.size.width, chevron.image.size.height);
+    chevron.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [row addSubview:chevron];
+    _tableView.tableHeaderView = row;
+}
+
+- (void)openRequests
+{
+    [self.navigationController pushViewController:[[SHInboxViewController alloc] initWithPendingRequests] animated:YES];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -132,7 +176,7 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     _loading = YES;
     if (_threads.count == 0) [_spinner startAnimating];
     [_task cancel];
-    _task = [SHInstagram directInboxWithCursor:more ? _cursor : nil completion:^(NSArray *threads, NSString *cursor, NSError *error) {
+    SHThreadsCompletion done = ^(NSArray *threads, NSString *cursor, NSError *error) {
         self->_loading = NO;
         [self->_spinner stopAnimating];
         if (error) {
@@ -141,11 +185,17 @@ static NSString * const SHThreadCellId = @"ThreadCell";
         }
         if (!more) { [self->_threads removeAllObjects]; self->_fresh = YES; }
         [self->_threads addObjectsFromArray:threads];
-        self->_cursor = cursor;
+        self->_cursor = self->_pending ? nil : cursor;
         self->_statusLabel.hidden = self->_threads.count > 0;
-        if (self->_threads.count == 0) { self->_statusLabel.text = L(@"No messages yet."); self->_statusLabel.hidden = NO; }
+        if (self->_threads.count == 0) {
+            self->_statusLabel.text = self->_pending ? L(@"No requests.") : L(@"No messages yet.");
+            self->_statusLabel.hidden = NO;
+        }
+        [self updateRequestsRow];
         [self->_tableView reloadData];
-    }];
+    };
+    if (_pending) _task = [SHInstagram pendingDirectInboxWithCompletion:done];
+    else _task = [SHInstagram directInboxWithCursor:more ? _cursor : nil completion:done];
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return (NSInteger)_threads.count; }
@@ -182,6 +232,12 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     SHDirectThread *t = _threads[(NSUInteger)indexPath.row];
     SHThreadViewController *vc = [[SHThreadViewController alloc] initWithThread:t];
+    if (_pending) {
+        // a request: read it first, then Accept or Delete in place of the bar
+        vc.pendingRequest = YES;
+        __weak SHInboxViewController *weakSelf = self;
+        vc.onRequestAnswered = ^(BOOL accepted) { [weakSelf load:NO]; };
+    }
     [self.navigationController pushViewController:vc animated:YES];
 }
 

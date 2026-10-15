@@ -16,6 +16,8 @@
 + (SHHTTPTask *)fetchEncryptionKeyWithCompletion:(void (^)(NSString *pubKey, NSInteger keyId, NSError *error))completion;
 @end
 
+static BOOL SHDebugLogging(void);   // (defined with the Direct helpers further down)
+
 static NSString * const SHApiBase      = @"https://i.instagram.com/api/v1";
 static NSString * const SHAppId        = @"567067343352427";
 // The spoofed app version must stay recent or Instagram refuses the login with error_type "needs_upgrade"
@@ -378,6 +380,19 @@ static NSArray *SHParseReels(NSDictionary *d)
 static NSArray *SHParseNews(NSDictionary *d)
 {
     NSMutableArray *stories = [NSMutableArray array];
+    // the pinned row on top: people who asked to follow this (private) account
+    for (id s in SHArr(d[@"friend_request_stories"])) {
+        NSDictionary *args = SHDict(SHDict(s)[@"args"]);
+        NSMutableArray *users = [NSMutableArray array];
+        for (id u in SHArr(args[@"users"])) { SHUser *user = [SHUser fromJSON:SHDict(u)]; if (user.pk.length) [users addObject:user]; }
+        if (!users.count) continue;
+        SHNewsStory *n = [[SHNewsStory alloc] init];
+        n.requestUsers = users;
+        n.text = L(@"Follow requests");
+        n.profilePicURL = [users.firstObject profilePicURL] ?: @"";
+        [stories addObject:n];
+        break;
+    }
     for (NSString *key in @[ @"new_stories", @"old_stories", @"stories" ]) {
         for (id s in SHArr(d[key])) { SHNewsStory *n = [SHNewsStory fromJSON:SHDict(s)]; if (n) [stories addObject:n]; }
     }
@@ -1531,6 +1546,10 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
 
 #pragma mark - Direct messages
 
+static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page said last
+
++ (NSInteger)pendingMessageRequestCount { return g_pendingMessageRequests; }
+
 + (SHHTTPTask *)directInboxWithCursor:(NSString *)cursor completion:(SHThreadsCompletion)completion
 {
     NSMutableString *url = [NSMutableString stringWithFormat:@"%@/direct_v2/inbox/?persistentBadging=true&limit=20&thread_message_limit=1", SHApiBase];
@@ -1539,8 +1558,75 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
         if (error) { completion(nil, nil, error); return; }
         NSString *next = nil;
         NSArray *threads = SHParseInbox(SHDict(json), &next);
-        if (!cursor.length) SHResponseCacheStore(@"inbox", SHDict(json));
+        if (!cursor.length) {
+            SHResponseCacheStore(@"inbox", SHDict(json));
+            // the message requests waiting (they are not in this list): counted by the same answer, no request more
+            g_pendingMessageRequests = SHInt(SHDict(json)[@"pending_requests_total"]);
+            if (SHDebugLogging()) SHLog(@"INBOX threads=%lu pending_requests_total=%ld", (unsigned long)threads.count, (long)g_pendingMessageRequests);
+        }
         completion(threads, next, nil);
+    }];
+}
+
+#pragma mark - Requests (follow requests to a private account, message requests)
+
++ (SHHTTPTask *)pendingFollowRequestsWithCompletion:(void (^)(NSArray *users, NSError *error))completion
+{
+    return [SHHTTP getJSON:[SHApiBase stringByAppendingString:@"/friendships/pending/"] headers:SHAuthHeaders()
+                completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, error); return; }
+        NSMutableArray *users = [NSMutableArray array];
+        for (id u in SHArr(SHDict(json)[@"users"])) { SHUser *user = [SHUser fromJSON:SHDict(u)]; if (user.pk.length) [users addObject:user]; }
+        if (SHDebugLogging()) SHLog(@"FOLLOWREQ pending=%lu", (unsigned long)users.count);
+        completion(users, nil);
+    }];
+}
+
+// Lets the person follow this account (approve) or turns them down (ignore).
++ (SHHTTPTask *)answerFollowRequest:(NSString *)userPk approve:(BOOL)approve completion:(SHActionCompletion)completion
+{
+    NSDictionary *params = @{ @"_uuid": [SHSettings deviceId], @"_uid": [SHSettings userId] ?: @"", @"user_id": userPk ?: @"",
+                              @"radio_type": @"wifi-none" };
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *url = [NSString stringWithFormat:@"%@/friendships/%@/%@/", SHApiBase, approve ? @"approve" : @"ignore", userPk ?: @""];
+    return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
+        BOOL ok = !error && status < 400 && [SHStr(d[@"status"]) isEqualToString:@"ok"];
+        if (SHDebugLogging()) SHLog(@"FOLLOWREQ %@ %@ status=%ld ok=%d", approve ? @"approve" : @"ignore", userPk, (long)status, ok);
+        completion(ok, ok ? nil : (error ?: SHMakeError(status >= 400 ? status : SHErrorAPI, [SHHTTP messageFromErrorJSON:d] ?: L(@"Something went wrong."))));
+    }];
+}
+
++ (SHHTTPTask *)pendingDirectInboxWithCompletion:(SHThreadsCompletion)completion
+{
+    NSString *url = [SHApiBase stringByAppendingString:@"/direct_v2/pending_inbox/?persistentBadging=true&use_unified_inbox=true"];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { completion(nil, nil, error); return; }
+        NSString *next = nil;
+        NSArray *threads = SHParseInbox(SHDict(json), &next);
+        g_pendingMessageRequests = threads.count ? MAX(g_pendingMessageRequests, (NSInteger)threads.count) : 0;
+        if (SHDebugLogging()) SHLog(@"PENDINGINBOX threads=%lu status=%ld", (unsigned long)threads.count, (long)status);
+        completion(threads, next, nil);
+    }];
+}
+
+// A message request accepted (the chat moves to the inbox, the person can send anything) or deleted.
++ (SHHTTPTask *)answerMessageRequest:(NSString *)threadId accept:(BOOL)accept completion:(SHActionCompletion)completion
+{
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{ @"_uuid": [SHSettings deviceId] }];
+    if ([SHSettings csrfToken].length) fields[@"_csrftoken"] = [SHSettings csrfToken];
+    if (accept) fields[@"filter"] = @"DEFAULT";
+    else fields[@"use_unified_inbox"] = @"true";
+    NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/%@/%@/", SHApiBase, threadId ?: @"", accept ? @"approve" : @"hide"];
+    return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
+        BOOL ok = !error && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"];
+        if (SHDebugLogging()) SHLog(@"MSGREQ %@ status=%ld ok=%d", accept ? @"approve" : @"hide", (long)status, ok);
+        if (ok && g_pendingMessageRequests > 0) g_pendingMessageRequests--;
+        completion(ok, ok ? nil : (error ?: SHMakeError(SHErrorAPI, [SHHTTP messageFromErrorJSON:json] ?: L(@"Something went wrong."))));
     }];
 }
 

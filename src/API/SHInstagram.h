@@ -98,6 +98,14 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (SHHTTPTask *)sendDirectVoice:(NSData *)audio duration:(NSTimeInterval)duration waveform:(NSArray *)waveform
                        toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 
+// Requests: people asking to follow this private account (answered with approve / ignore), and message requests
+// (the pending inbox, accepted or hidden). The count of message requests comes with the inbox's first page.
++ (SHHTTPTask *)pendingFollowRequestsWithCompletion:(void (^)(NSArray *users, NSError *error))completion;
++ (SHHTTPTask *)answerFollowRequest:(NSString *)userPk approve:(BOOL)approve completion:(SHActionCompletion)completion;
++ (SHHTTPTask *)pendingDirectInboxWithCompletion:(SHThreadsCompletion)completion;
++ (SHHTTPTask *)answerMessageRequest:(NSString *)threadId accept:(BOOL)accept completion:(SHActionCompletion)completion;
++ (NSInteger)pendingMessageRequestCount;
+
 // A tag's posts (its page) and tags matching a search (NSDictionary: "name", "count" = the number of posts).
 + (SHHTTPTask *)hashtagFeed:(NSString *)tag maxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
 + (SHHTTPTask *)searchHashtags:(NSString *)query completion:(void (^)(NSArray *tags, NSError *error))completion;

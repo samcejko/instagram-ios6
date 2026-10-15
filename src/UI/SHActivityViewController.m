@@ -1,6 +1,7 @@
 #import "SHActivityViewController.h"
 #import "SHProfileViewController.h"
 #import "SHPostDetailViewController.h"
+#import "SHFollowRequestsViewController.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
@@ -156,8 +157,25 @@ static NSString * const SHNewsCellId = @"NewsCell";
     [[SHTheme shared] styleCell:cell];
     SHNewsStory *n = _stories[(NSUInteger)indexPath.row];
     [cell.avatar setImageURL:n.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:44]];
-    cell.textView2.text = [SHUtils displayText:n.text];
+    if (n.requestUsers.count) {
+        // the pinned row: "Follow requests" in bold, who asked under it
+        NSMutableArray *names = [NSMutableArray array];
+        for (SHUser *u in n.requestUsers) if (u.username.length && names.count < 3) [names addObject:u.username];
+        NSString *who = [names componentsJoinedByString:@", "];
+        if (n.requestUsers.count > names.count) who = [NSString stringWithFormat:L(@"%@ and others"), who];
+        NSMutableAttributedString *a = [[NSMutableAttributedString alloc] initWithString:[NSString stringWithFormat:@"%@\n%@", n.text, who]
+            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13], NSForegroundColorAttributeName: [[SHTheme shared] secondaryTextColor] }];
+        [a addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:14], NSForegroundColorAttributeName: [[SHTheme shared] textColor] }
+                   range:NSMakeRange(0, n.text.length)];
+        cell.textView2.attributedText = a;
+        cell.accessoryView = [[UIImageView alloc] initWithImage:[[SHTheme shared] disclosureChevronImage]];
+    } else {
+        cell.textView2.attributedText = nil;
+        cell.textView2.text = [SHUtils displayText:n.text];
+        cell.accessoryView = nil;
+    }
     cell.dateLabel.text = n.timestamp ? [SHUtils formatRelativeDate:n.timestamp] : @"";
+    cell.clockView.hidden = n.timestamp == nil;
     [cell.thumb setImageURL:n.mediaThumbURL.length ? n.mediaThumbURL : nil placeholder:nil];
     [cell setNeedsLayout];
     return cell;
@@ -167,6 +185,13 @@ static NSString * const SHNewsCellId = @"NewsCell";
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     SHNewsStory *n = _stories[(NSUInteger)indexPath.row];
+    if (n.requestUsers.count) {
+        SHFollowRequestsViewController *vc = [[SHFollowRequestsViewController alloc] init];
+        __weak SHActivityViewController *weakSelf = self;
+        vc.onChange = ^{ [weakSelf load]; };   // (the pinned row goes when nobody is left)
+        [self.navigationController pushViewController:vc animated:YES];
+        return;
+    }
     if (n.mediaPk.length) {
         [_task cancel];
         _task = [SHInstagram mediaInfo:n.mediaPk completion:^(SHPost *post, NSError *error) {

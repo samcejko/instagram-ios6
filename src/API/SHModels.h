@@ -107,6 +107,7 @@
 @property (nonatomic, copy) NSString *mediaPk;          // the related post, when any
 @property (nonatomic, copy) NSString *userPk;           // the actor, when the link is to a profile
 @property (nonatomic, copy) NSString *username;
+@property (nonatomic, strong) NSArray *requestUsers;    // the pinned "Follow requests" row: SHUser who asked (else nil)
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end
 

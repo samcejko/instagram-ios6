@@ -467,6 +467,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 @property (nonatomic, strong) UIPopoverController *pickerPopover;
 @property (nonatomic, strong) UIActionSheet *photoSheet;     // "Take Photo / Choose Existing" while it is up
 @property (nonatomic) CGFloat keyboardOverlap;
+@property (nonatomic, strong) UIView *requestBar;            // a message request: Accept / Delete over the bar
 @end
 
 @implementation SHThreadViewController
@@ -633,6 +634,8 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     [_attachmentView addSubview:removeAttachment];
     [self.view addSubview:_attachmentView];
 
+    if (_pendingRequest) [self showRequestBar];
+
     // The inbox preview only carried the last message; show it at once, then load the thread.
     [self setMessagesNewestFirst:_thread.messages];
     [self refresh];
@@ -784,6 +787,82 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
         if (!ok) [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription ?: L(@"The message didn't send.")];
     }];
 }
+
+#pragma mark - A message request
+
+// Over the bar until answered: the question, Delete and Accept (nothing can be sent before).
+- (void)showRequestBar
+{
+    SHTheme *theme = [SHTheme shared];
+    CGFloat w = _inputBar.bounds.size.width;
+    _requestBar = [[UIView alloc] initWithFrame:_inputBar.bounds];
+    _requestBar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    UIImageView *art = [[UIImageView alloc] initWithImage:[theme barBackgroundImage]];
+    art.frame = _requestBar.bounds;
+    art.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_requestBar addSubview:art];
+
+    UIFont *font = [UIFont boldSystemFontOfSize:14];
+    CGFloat acceptW = MAX(90, [L(@"Accept") sizeWithFont:font].width + 28);
+    CGFloat deleteW = MAX(80, [L(@"Delete") sizeWithFont:font].width + 28);
+    UIButton *accept = [UIButton buttonWithType:UIButtonTypeCustom];
+    accept.frame = CGRectMake(w - 8 - acceptW, 8, acceptW, 32);
+    accept.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [accept setTitle:L(@"Accept") forState:UIControlStateNormal];
+    [accept setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    accept.titleLabel.font = font;
+    [accept setBackgroundImage:[theme accentButtonImageHighlighted:NO disabled:NO] forState:UIControlStateNormal];
+    [accept setBackgroundImage:[theme accentButtonImageHighlighted:YES disabled:NO] forState:UIControlStateHighlighted];
+    [theme embossButton:accept];
+    [accept addTarget:self action:@selector(acceptRequest) forControlEvents:UIControlEventTouchUpInside];
+    [_requestBar addSubview:accept];
+    UIButton *decline = [self barGlyphButton:nil action:@selector(declineRequest)];
+    decline.frame = CGRectMake(CGRectGetMinX(accept.frame) - 8 - deleteW, 8, deleteW, 32);
+    decline.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [decline setTitle:L(@"Delete") forState:UIControlStateNormal];
+    [decline setTitleColor:[theme textColor] forState:UIControlStateNormal];
+    decline.titleLabel.font = font;
+    [theme embossButton:decline];
+    [_requestBar addSubview:decline];
+
+    UILabel *question = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, CGRectGetMinX(decline.frame) - 20, SHBarH)];
+    question.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    question.text = L(@"Accept the message request?");
+    question.font = [UIFont boldSystemFontOfSize:14];
+    question.textColor = [theme textColor];
+    question.backgroundColor = [UIColor clearColor];
+    question.adjustsFontSizeToFitWidth = YES;
+    question.minimumFontSize = 11;
+    [theme embossLabel:question];
+    [_requestBar addSubview:question];
+    [_inputBar addSubview:_requestBar];
+}
+
+- (void)answerRequest:(BOOL)accept
+{
+    if (!_thread.threadId.length) return;
+    _requestBar.userInteractionEnabled = NO;
+    _requestBar.alpha = 0.6f;
+    [SHInstagram answerMessageRequest:_thread.threadId accept:accept completion:^(BOOL ok, NSError *error) {
+        self->_requestBar.userInteractionEnabled = YES;
+        self->_requestBar.alpha = 1;
+        if (!ok) { [SHUtils alertWithTitle:L(@"Message requests") message:error.localizedDescription]; return; }
+        void (^answered)(BOOL) = self.onRequestAnswered;
+        if (accept) {
+            // a chat like any other now: the bar is free
+            [self->_requestBar removeFromSuperview];
+            self->_requestBar = nil;
+            self->_pendingRequest = NO;
+            [SHShareViewController flashMessage:L(@"Accepted")];
+        } else {
+            [self.navigationController popViewControllerAnimated:YES];
+        }
+        if (answered) answered(accept);
+    }];
+}
+
+- (void)acceptRequest { [self answerRequest:YES]; }
+- (void)declineRequest { [self answerRequest:NO]; }
 
 #pragma mark - The bar's buttons
 
