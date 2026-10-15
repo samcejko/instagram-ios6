@@ -33,6 +33,11 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 // Password-free connectivity probe: fetches the pre-login key sync and reports what came back.
 + (SHHTTPTask *)probeConnectivityWithCompletion:(void (^)(BOOL ok, NSString *detail, NSError *error))completion;
 
+// Password-free self-test of the enc_password pipeline: encrypts a throwaway string with the real pubkey and
+// checks the output is a well-formed #PWD_INSTAGRAM:4 blob (nothing is sent to Instagram). Verifies the RSA-OAEP
+// (SHA-1) + AES-GCM path runs on-device without falling back to plaintext.
++ (SHHTTPTask *)encryptionSelfTestWithCompletion:(void (^)(BOOL ok, NSString *detail))completion;
+
 + (SHHTTPTask *)timelineFeedWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
 
 + (SHHTTPTask *)userInfoByUsername:(NSString *)username completion:(SHUserCompletion)completion;

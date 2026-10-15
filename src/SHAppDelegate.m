@@ -100,6 +100,12 @@
         }];
         return YES;
     }
+    if ([target isEqualToString:@"enctest"]) {
+        [SHInstagram encryptionSelfTestWithCompletion:^(BOOL ok, NSString *detail) {
+            SHLog(@"ENCTEST %@ — %@", ok ? @"PASS" : @"FAIL", detail ?: @"");
+        }];
+        return YES;
+    }
     if ([target isEqualToString:@"showtabs"]) {
         [self showFeed];   // the main tab shell, even without a session, to inspect the layout
         return YES;

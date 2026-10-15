@@ -704,6 +704,31 @@ static NSString *g_challengePath = nil;
     }];
 }
 
++ (SHHTTPTask *)encryptionSelfTestWithCompletion:(void (^)(BOOL ok, NSString *detail))completion
+{
+    return [self fetchEncryptionKeyWithCompletion:^(NSString *pubKey, NSInteger keyId, NSError *error) {
+        if (error || !pubKey.length) { completion(NO, [NSString stringWithFormat:@"no pubkey (%@)", error.localizedDescription ?: @"?"]); return; }
+        const char *sample = "selftest-not-a-credential";
+        NSString *enc = SHEncryptPassword([NSString stringWithUTF8String:sample], pubKey, keyId);
+        if (!enc.length) { completion(NO, @"SHEncryptPassword returned nil (crypto path failed)"); return; }
+        if (![enc hasPrefix:@"#PWD_INSTAGRAM:4:"]) {
+            completion(NO, [NSString stringWithFormat:@"wrong prefix, plaintext fallback? %@", [enc substringToIndex:MIN((NSUInteger)20, enc.length)]]);
+            return;
+        }
+        NSArray *parts = [enc componentsSeparatedByString:@":"];
+        NSData *payload = parts.count >= 4 ? [SHUtils base64Decode:parts[3]] : nil;
+        size_t expected = 2 + 12 + 2 + 256 + 16 + strlen(sample);
+        if (payload.length < 32) { completion(NO, @"payload too short / base64 decode failed"); return; }
+        const unsigned char *p = payload.bytes;
+        int version = p[0];
+        int kid = p[1];
+        int rsaLen = p[14] | (p[15] << 8);
+        BOOL ok = (version == 1 && kid == (int)keyId && rsaLen == 256 && payload.length == expected);
+        completion(ok, [NSString stringWithFormat:@"v4 prefix=yes version=%d keyId=%d(exp %ld) rsaLen=%d payloadLen=%lu expected=%lu",
+            version, kid, (long)keyId, rsaLen, (unsigned long)payload.length, (unsigned long)expected]);
+    }];
+}
+
 #pragma mark - Current user, lists and media info
 
 + (SHHTTPTask *)currentUserWithCompletion:(SHUserCompletion)completion
