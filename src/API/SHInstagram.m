@@ -1069,29 +1069,48 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
             for (NSDictionary *s in SHArr(d[key])) { SHNewsStory *n = [SHNewsStory fromJSON:s]; if (n) [stories addObject:n]; }
         }
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
-            SHLog(@"NEWS status=%ld keys=%@ new=%lu old=%lu parsed=%lu", (long)status, [[d allKeys] componentsJoinedByString:@","],
-                  (unsigned long)SHArr(d[@"new_stories"]).count, (unsigned long)SHArr(d[@"old_stories"]).count, (unsigned long)stories.count);
+            SHLog(@"NEWS status=%ld new=%lu old=%lu parsed=%lu firstArgsKeys=%@", (long)status,
+                  (unsigned long)SHArr(d[@"new_stories"]).count, (unsigned long)SHArr(d[@"old_stories"]).count, (unsigned long)stories.count,
+                  [[SHDict(SHDict([SHArr(d[@"old_stories"]) firstObject])[@"args"]) allKeys] componentsJoinedByString:@","]);
         completion(stories, nil);
     }];
 }
 
-// Reels: the clips discovery feed (short videos), paginated by max_id.
+// Reels: the clips discovery feed (short videos), paginated by max_id. Signed JSON body like the app sends; when
+// the endpoint gives nothing (it is picky about the device profile), the videos of the explore feed stand in so
+// the screen is never empty.
 + (SHHTTPTask *)reelsWithMaxId:(NSString *)maxId completion:(SHFeedCompletion)completion
 {
+    BOOL fallback = [maxId hasPrefix:@"explore:"];
+    if (fallback) {
+        NSString *exploreMax = [maxId substringFromIndex:@"explore:".length];
+        return [self exploreWithMaxId:exploreMax.length ? exploreMax : nil completion:^(NSArray *posts, NSString *next, NSError *error) {
+            NSMutableArray *videos = [NSMutableArray array];
+            for (SHPost *p in posts) if (p.videoURL.length || p.mediaType == 2) [videos addObject:p];
+            completion(videos, next.length ? [@"explore:" stringByAppendingString:next] : nil, error);
+        }];
+    }
+    NSMutableDictionary *params = [@{ @"_uuid": [SHSettings deviceId], @"_csrftoken": [SHSettings csrfToken] ?: @"",
+                                      @"container_module": @"clips_viewer_clips_tab", @"should_refetch_chaining_media": @NO,
+                                      @"seen_reels": @[], @"server_driven_cache_config": @{ @"serve_from_server_cache": @YES } } mutableCopy];
+    if (maxId.length) params[@"max_id"] = maxId;
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    NSMutableDictionary *fields = [@{ @"_uuid": [SHSettings deviceId], @"container_module": @"clips_viewer_clips_tab",
-                                      @"should_refetch_chaining_media": @"false", @"seen_reels": @"[]" } mutableCopy];
-    if (maxId.length) fields[@"max_id"] = maxId;
-    return [SHHTTP postForm:[SHApiBase stringByAppendingString:@"/clips/discover/"] headers:h fields:fields
-                 completion:^(id json, NSInteger status, NSError *error) {
-        if (error) { completion(nil, nil, error); return; }
-        NSDictionary *d = SHDict(json);
+    return [SHHTTP request:@"POST" url:[SHApiBase stringByAppendingString:@"/clips/discover/"] headers:h body:SHSignedBodyData(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         NSMutableArray *posts = [NSMutableArray array];
         NSMutableSet *seen = [NSMutableSet set];
-        SHCollectMedia(d[@"items"] ?: d, posts, seen);
-        NSDictionary *paging = SHDict(d[@"paging_info"]);
-        completion(posts, SHStr(paging[@"max_id"]) ?: SHStr(d[@"next_max_id"]), nil);
+        if (!error && status < 400) SHCollectMedia(d[@"items"] ?: d, posts, seen);
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
+            SHLog(@"REELS status=%ld parsed=%lu msg=%@ keys=%@", (long)status, (unsigned long)posts.count, SHStr(d[@"message"]) ?: @"-",
+                  [[d allKeys] componentsJoinedByString:@","]);
+        if (posts.count) {
+            NSDictionary *paging = SHDict(d[@"paging_info"]);
+            completion(posts, SHStr(paging[@"max_id"]) ?: SHStr(d[@"next_max_id"]), nil);
+            return;
+        }
+        [self reelsWithMaxId:@"explore:" completion:completion];   // stand-in: explore's videos
     }];
 }
 
