@@ -164,3 +164,36 @@
 "The certificate bundle is missing, cannot verify the server." = "Chybí svazek certifikátů, server nelze ověřit.";
 "TLS handshake failed: %@" = "TLS handshake selhal: %@";
 "TLS handshake timed out." = "Vypršel čas TLS handshake.";
+
+/* Hashtags, links in texts */
+"%@ posts" = "Příspěvky: %@";
+"Search users or #hashtags" = "Hledat uživatele nebo #hashtagy";
+"No posts with this hashtag yet." = "S tímto hashtagem zatím nejsou žádné příspěvky.";
+"This post is no longer available." = "Tento příspěvek už není dostupný.";
+
+/* Sharing a post */
+"Share" = "Sdílet";
+"Send to" = "Poslat komu";
+"Write a message..." = "Napsat zprávu...";
+"Copy Link" = "Kopírovat odkaz";
+"Share via..." = "Sdílet přes...";
+"Link copied" = "Odkaz zkopírován";
+"Recent" = "Nedávné";
+"Results" = "Výsledky";
+"Group" = "Skupina";
+"No chats yet." = "Zatím žádné konverzace.";
+"No users found." = "Nikdo nenalezen.";
+"Sent" = "Odesláno";
+"The post didn't send." = "Příspěvek se nepodařilo odeslat.";
+
+/* Direct: photos and voice messages */
+"Take Photo" = "Pořídit fotku";
+"Choose Existing" = "Vybrat existující";
+"Photo ready to send" = "Fotka připravená k odeslání";
+"Remove" = "Odebrat";
+"Recording" = "Nahrávání";
+"Ready to send" = "Připraveno k odeslání";
+"Too short" = "Příliš krátké";
+"The upload failed." = "Nahrání se nezdařilo.";
+"The microphone could not be started." = "Mikrofon se nepodařilo spustit.";
+"Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone." = "Gramify nemá přístup k mikrofonu. Povolte ho v Nastavení > Soukromí > Mikrofon.";

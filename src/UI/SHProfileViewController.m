@@ -4,6 +4,7 @@
 #import "SHUserListViewController.h"
 #import "SHPostDetailViewController.h"
 #import "SHSettingsViewController.h"
+#import "SHLinkLabel.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
@@ -267,14 +268,14 @@ static const CGFloat SHProfileAvatar = 84;
         y += 22;
     }
     if (_user.biography.length) {
-        UILabel *bio = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 0)];
-        bio.text = [SHUtils displayText:_user.biography];
+        // the bio's @names, #tags and links open on a tap
+        SHLinkLabel *bio = [[SHLinkLabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 0)];
         bio.font = [UIFont systemFontOfSize:13];
         bio.textColor = [theme textColor];
-        bio.backgroundColor = [UIColor clearColor];
-        bio.numberOfLines = 0;
-        [theme embossLabel:bio];
-        CGSize sz = [bio sizeThatFits:CGSizeMake(w - pad * 2, 200)];
+        bio.shadowColor = theme.isDark ? [UIColor colorWithWhite:0 alpha:0.8] : [UIColor colorWithWhite:1 alpha:0.9];
+        bio.shadowOffset = theme.isDark ? CGSizeMake(0, -1) : CGSizeMake(0, 1);
+        bio.text = [SHUtils displayText:_user.biography];
+        CGSize sz = [bio sizeThatFits:CGSizeMake(w - pad * 2, 0)];
         bio.frame = CGRectMake(pad, y, w - pad * 2, sz.height);
         [_headerView addSubview:bio];
         y += sz.height + 4;

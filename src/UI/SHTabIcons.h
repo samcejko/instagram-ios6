@@ -15,4 +15,9 @@
 + (UIImage *)heartWithSize:(CGFloat)size filled:(BOOL)filled color:(UIColor *)color dark:(BOOL)dark;
 + (UIImage *)commentBubbleWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;
 + (UIImage *)bookmarkWithSize:(CGFloat)size filled:(BOOL)filled color:(UIColor *)color dark:(BOOL)dark;
++ (UIImage *)paperPlaneWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;   // share
++ (UIImage *)cameraWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;
++ (UIImage *)photosWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;       // the photo library
++ (UIImage *)microphoneWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;
++ (UIImage *)personWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark;       // people tagged on a photo
 @end

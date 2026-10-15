@@ -38,6 +38,12 @@ static const CGFloat SHStoryAvatar = 34;
 @property (nonatomic, strong) NSMutableArray *pendingSeen;   // stories of the current reel seen, not told to Instagram yet
 @property (nonatomic, weak) SHStoryReel *pendingReel;
 @property (nonatomic) BOOL closing;
+@property (nonatomic, strong) UIView *rightZone;
+@property (nonatomic, strong) NSMutableArray *mentionAreas;   // a button over each "@name" sticker of the story
+@property (nonatomic, strong) UIButton *mentionBubble;        // the name of a tapped sticker; it opens the profile
+@property (nonatomic, strong) SHUser *mentionUser;
+@property (nonatomic) BOOL paused;
+@property (nonatomic) NSTimeInterval pausedElapsed;
 @end
 
 @implementation SHStoryViewController
@@ -53,6 +59,7 @@ static const CGFloat SHStoryAvatar = 34;
         _pendingSeen = [NSMutableArray array];
         _segmentTracks = [NSMutableArray array];
         _segmentFills = [NSMutableArray array];
+        _mentionAreas = [NSMutableArray array];
     }
     return self;
 }
@@ -109,6 +116,7 @@ static const CGFloat SHStoryAvatar = 34;
     rightZone.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleLeftMargin;
     [rightZone addGestureRecognizer:tapRight];
     [self.view insertSubview:rightZone aboveSubview:_imageView];
+    _rightZone = rightZone;
 
     UIView *leftZone = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w / 2, self.view.bounds.size.height)];
     leftZone.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -152,6 +160,7 @@ static const CGFloat SHStoryAvatar = 34;
     if (_segmentsReel && fabs(_progressContainer.bounds.size.width - _segmentsWidth) > 0.5) {
         [self buildSegmentsForReel:_segmentsReel];
         [self updateSegmentsWithProgress:_itemDuration > 0 ? (CFAbsoluteTimeGetCurrent() - _itemStart) / _itemDuration : 0];
+        if (_mentionAreas.count) [self showMentionsForItem:[self currentItem]];   // (the picture moved)
     }
 }
 
@@ -210,6 +219,110 @@ static const CGFloat SHStoryAvatar = 34;
     [self closeThen:^{ if (open) open(user); }];
 }
 
+#pragma mark - "@name" stickers
+
+// Where the picture is on the screen (fitted, as it is shown): the stickers' places are fractions of it.
+- (CGRect)mediaRectForItem:(SHStoryItem *)item
+{
+    CGSize b = self.view.bounds.size;
+    CGFloat iw = item.image.width, ih = item.image.height;
+    if (iw <= 0 || ih <= 0) return self.view.bounds;
+    CGFloat scale = MIN(b.width / iw, b.height / ih);
+    CGFloat w = iw * scale, h = ih * scale;
+    return CGRectMake((b.width - w) / 2, (b.height - h) / 2, w, h);
+}
+
+- (void)clearMentions
+{
+    for (UIView *v in _mentionAreas) [v removeFromSuperview];
+    [_mentionAreas removeAllObjects];
+    [_mentionBubble removeFromSuperview];
+    _mentionBubble = nil;
+    _mentionUser = nil;
+}
+
+- (void)showMentionsForItem:(SHStoryItem *)item
+{
+    [self clearMentions];
+    if (!item.mentions.count) return;
+    CGRect media = [self mediaRectForItem:item];
+    for (NSUInteger i = 0; i < item.mentions.count; i++) {
+        SHStoryMention *m = item.mentions[i];
+        CGFloat w = MAX(44, (CGFloat)m.width * media.size.width), h = MAX(32, (CGFloat)m.height * media.size.height);
+        CGPoint c = CGPointMake(media.origin.x + (CGFloat)m.x * media.size.width, media.origin.y + (CGFloat)m.y * media.size.height);
+        UIButton *area = [UIButton buttonWithType:UIButtonTypeCustom];
+        area.frame = CGRectMake(floorf(c.x - w / 2), floorf(c.y - h / 2), w, h);
+        area.tag = (NSInteger)i;
+        area.accessibilityLabel = [@"@" stringByAppendingString:m.user.username ?: @""];
+        [area addTarget:self action:@selector(mentionTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [self.view insertSubview:area aboveSubview:_rightZone];
+        [_mentionAreas addObject:area];
+    }
+}
+
+// A sticker tapped: the story stops and the name shows over the sticker; a tap on it opens the profile.
+- (void)mentionTapped:(UIButton *)area
+{
+    SHStoryItem *item = [self currentItem];
+    if (area.tag < 0 || area.tag >= (NSInteger)item.mentions.count) return;
+    SHStoryMention *m = item.mentions[(NSUInteger)area.tag];
+    [self pauseStory];
+    [_mentionBubble removeFromSuperview];
+    _mentionUser = m.user;
+    UIButton *bubble = [UIButton buttonWithType:UIButtonTypeCustom];
+    [bubble setBackgroundImage:[[SHTheme shared] badgeImageWithHeight:40] forState:UIControlStateNormal];
+    [bubble setTitle:[NSString stringWithFormat:@"@%@  ›", m.user.username ?: @""] forState:UIControlStateNormal];
+    [bubble setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    bubble.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+    bubble.titleLabel.shadowOffset = CGSizeMake(0, -1);
+    [bubble setTitleShadowColor:[UIColor blackColor] forState:UIControlStateNormal];
+    CGFloat bw = MIN(self.view.bounds.size.width - 20, [[bubble titleForState:UIControlStateNormal] sizeWithFont:bubble.titleLabel.font].width + 36);
+    CGFloat bx = MAX(10, MIN(self.view.bounds.size.width - bw - 10, CGRectGetMidX(area.frame) - bw / 2));
+    CGFloat by = CGRectGetMinY(area.frame) - 48;
+    if (by < SHStoryTop + 56) by = CGRectGetMaxY(area.frame) + 8;   // no room above it: under it
+    bubble.frame = CGRectMake(floorf(bx), floorf(by), bw, 40);
+    [bubble addTarget:self action:@selector(mentionBubbleTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:bubble];
+    _mentionBubble = bubble;
+}
+
+- (void)mentionBubbleTapped
+{
+    SHUser *user = _mentionUser;
+    if (!user.username.length && !user.pk.length) return;
+    void (^open)(SHUser *) = self.onOpenProfile;
+    [self closeThen:^{ if (open) open(user); }];
+}
+
+- (void)hideMentionBubble
+{
+    [_mentionBubble removeFromSuperview];
+    _mentionBubble = nil;
+    _mentionUser = nil;
+    [self resumeStory];
+}
+
+- (void)pauseStory
+{
+    if (_paused) return;
+    _paused = YES;
+    _pausedElapsed = _itemDuration > 0 ? CFAbsoluteTimeGetCurrent() - _itemStart : 0;
+    [_timer invalidate];
+    _timer = nil;
+    [_player pause];
+}
+
+- (void)resumeStory
+{
+    if (!_paused) return;
+    _paused = NO;
+    if (_itemDuration > 0) {
+        _itemStart = CFAbsoluteTimeGetCurrent() - _pausedElapsed;
+        _timer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(timerTick:) userInfo:nil repeats:YES];
+    }
+    [_player play];
+}
+
 #pragma mark - Progress bars (one per story of the reel)
 
 - (void)buildSegmentsForReel:(SHStoryReel *)reel
@@ -254,6 +367,7 @@ static const CGFloat SHStoryAvatar = 34;
 - (void)itemShown:(SHStoryItem *)item ofReel:(SHStoryReel *)reel
 {
     if (!item) return;
+    [self showMentionsForItem:item];
     if (_pendingReel != reel) [self flushSeen];
     BOOL isNew = [item.takenAt timeIntervalSince1970] > reel.seenUpTo;
     [reel noteSeenItem:item];
@@ -307,6 +421,8 @@ static const CGFloat SHStoryAvatar = 34;
     [_timer invalidate];
     _timer = nil;
     _itemDuration = 0;
+    _paused = NO;
+    [self clearMentions];
     if (_player) {
         [[NSNotificationCenter defaultCenter] removeObserver:self name:nil object:_player];
         [_player stop];
@@ -408,10 +524,15 @@ static const CGFloat SHStoryAvatar = 34;
     [self showCurrentItem];
 }
 
-- (void)tapNext { [self advanceItem]; }
+- (void)tapNext
+{
+    if (_mentionBubble) { [self hideMentionBubble]; return; }   // a tap away from the name: the story goes on
+    [self advanceItem];
+}
 
 - (void)tapPrev
 {
+    if (_mentionBubble) { [self hideMentionBubble]; return; }
     if (_itemIndex > 0) {
         _itemIndex--;
     } else if (_reelIndex > 0) {

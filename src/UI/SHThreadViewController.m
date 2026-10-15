@@ -10,8 +10,12 @@
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHLinkRouter.h"
+#import "SHLinkLabel.h"
+#import "SHShareViewController.h"
 #import "SHCommon.h"
 #import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
+#import <QuartzCore/QuartzCore.h>
 #include <math.h>
 
 static NSString * const SHMsgCellId = @"MsgCell";
@@ -48,7 +52,8 @@ static const CGFloat SHBarH          = 48.0;
 @property (nonatomic, strong) SHUser *sender;
 @property (nonatomic, strong) SHImageView *avatar;
 @property (nonatomic, strong) UIImageView *bubble;
-@property (nonatomic, strong) UILabel *textLabel2;
+@property (nonatomic, strong) UITapGestureRecognizer *bubbleTap;
+@property (nonatomic, strong) SHLinkLabel *textLabel2;
 @property (nonatomic, strong) SHImageView *media;
 @property (nonatomic, strong) UIImageView *playBadge;
 @property (nonatomic, strong) UILabel *captionLabel;   // "@user" under a shared post
@@ -68,17 +73,24 @@ static const CGFloat SHBarH          = 48.0;
 
 static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like"]; }
 
+// What a text bubble says (a label in italics for what has no text of its own); the same measures and draws.
+static NSAttributedString *SHBubbleText(SHDirectMessage *m)
+{
+    BOOL placeholder = m.text.length == 0;
+    NSString *s = [SHUtils displayText:placeholder ? (m.placeholderText ?: @"") : m.text];
+    UIFont *font = placeholder ? [UIFont italicSystemFontOfSize:SHBubbleFont] : [UIFont systemFontOfSize:SHBubbleFont];
+    return [[NSAttributedString alloc] initWithString:s.length ? s : @" " attributes:@{ NSFontAttributeName: font }];
+}
+
 // The size of the bubble for a message, given the table width.
 + (CGSize)bubbleSizeForMessage:(SHDirectMessage *)m width:(CGFloat)width
 {
     CGFloat tail = [[SHTheme shared] bubbleTailWidth];
     if (SHIsLike(m)) return CGSizeMake(SHLikeSide, SHLikeSide);
     if (m.audioURL.length) return CGSizeMake(SHVoiceW, SHVoiceH);
-    if (m.previewURL.length) return CGSizeMake(SHMediaSide, SHMediaSide + (m.sharedPost ? 20 : 0));
-    NSString *text = m.text.length ? m.text : (m.placeholderText ?: @" ");
+    if (m.previewURL.length || m.localImage) return CGSizeMake(SHMediaSide, SHMediaSide + (m.sharedPost ? 20 : 0));
     CGFloat maxw = floorf(width * SHBubbleMaxFrac) - SHBubblePadX * 2 - tail;
-    CGSize sz = [[SHUtils displayText:text] sizeWithFont:[UIFont systemFontOfSize:SHBubbleFont]
-                                        constrainedToSize:CGSizeMake(maxw, 4000) lineBreakMode:NSLineBreakByWordWrapping];
+    CGSize sz = [SHLinkLabel sizeForAttributedText:SHBubbleText(m) width:maxw lines:0];
     // (never below the caps of the bubble artwork: 30 points high, 36 wide)
     return CGSizeMake(MAX(ceilf(sz.width), 12) + SHBubblePadX * 2 + tail, MAX(ceilf(sz.height), 19) + SHBubblePadY * 2);
 }
@@ -105,14 +117,13 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
 
         _bubble = [[UIImageView alloc] initWithFrame:CGRectZero];
         _bubble.userInteractionEnabled = YES;
-        [_bubble addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(bubbleTapped)]];
+        _bubbleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(bubbleTapped)];
+        [_bubble addGestureRecognizer:_bubbleTap];
         [self.contentView addSubview:_bubble];
 
-        _textLabel2 = [[UILabel alloc] initWithFrame:CGRectZero];
-        _textLabel2.numberOfLines = 0;
+        // a text's @names, #tags and links open on a tap
+        _textLabel2 = [[SHLinkLabel alloc] initWithFrame:CGRectZero];
         _textLabel2.font = [UIFont systemFontOfSize:SHBubbleFont];
-        _textLabel2.backgroundColor = [UIColor clearColor];
-        _textLabel2.lineBreakMode = NSLineBreakByWordWrapping;
         [_bubble addSubview:_textLabel2];
 
         _media = [[SHImageView alloc] initWithFrame:CGRectZero];
@@ -180,7 +191,10 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
     SHTheme *theme = [SHTheme shared];
     BOOL isLike = SHIsLike(m);
     BOOL isVoice = !isLike && m.audioURL.length > 0;
-    BOOL isMedia = !isLike && !isVoice && m.previewURL.length > 0;
+    BOOL isMedia = !isLike && !isVoice && (m.previewURL.length > 0 || m.localImage);
+    // a text's own label takes the taps on its links; the bubble's tap is for voice, pictures and shared posts
+    _bubbleTap.enabled = isVoice || isMedia;
+    self.contentView.alpha = m.sending ? 0.55f : 1;
     CGFloat tail = [theme bubbleTailWidth];
     CGFloat inset = outgoing ? 0 : tail;   // the tail side of a bubble is not room for its content
     UIColor *fg = (outgoing || theme.isDark) ? [UIColor whiteColor] : [theme textColor];
@@ -241,7 +255,12 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
         [self setVoiceProgress:playing ? progress : 0];
     } else if (isMedia) {
         _media.frame = CGRectMake(0, 0, SHMediaSide, SHMediaSide);
-        [_media setImageURL:m.previewURL placeholder:nil];
+        if (m.localImage) {   // a photo just sent from here
+            [_media setImageURL:nil placeholder:nil];
+            _media.image = m.localImage;
+        } else {
+            [_media setImageURL:m.previewURL placeholder:nil];
+        }
         _playBadge.frame = CGRectMake(SHMediaSide / 2 - 22, SHMediaSide / 2 - 22, 44, 44);
         if (m.sharedPost) {
             _captionLabel.frame = CGRectMake(8, SHMediaSide, SHMediaSide - 16, 20);
@@ -251,11 +270,12 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
     } else {
         [_media setImageURL:nil placeholder:nil];
         BOOL placeholder = m.text.length == 0;
-        _textLabel2.text = [SHUtils displayText:m.text.length ? m.text : (m.placeholderText ?: @"")];
         _textLabel2.textColor = placeholder ? [fg colorWithAlphaComponent:0.75] : fg;
+        // links stand out from the text: light on a blue or dark bubble, the link blue on a light one
+        _textLabel2.linkColor = (outgoing || theme.isDark) ? [UIColor colorWithRed:0.78 green:0.9 blue:1 alpha:1] : [theme linkColor];
         _textLabel2.shadowColor = shadow;
         _textLabel2.shadowOffset = shadowOffset;
-        _textLabel2.font = placeholder ? [UIFont italicSystemFontOfSize:SHBubbleFont] : [UIFont systemFontOfSize:SHBubbleFont];
+        _textLabel2.attributedText = SHBubbleText(m);
         _textLabel2.frame = CGRectMake(inset + SHBubblePadX, SHBubblePadY, bsz.width - SHBubblePadX * 2 - tail, bsz.height - SHBubblePadY * 2);
     }
 
@@ -267,9 +287,144 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
 
 @end
 
+#pragma mark - Voice recorder
+
+// A voice message being recorded: AAC in an MP4 file (what Instagram takes), at most a minute, with the level of
+// the sound ten times a second (the waveform the chat draws).
+@interface SHVoiceRecorder : NSObject <AVAudioRecorderDelegate>
+@property (nonatomic, copy) void (^onTick)(NSTimeInterval seconds);
+@property (nonatomic, copy) void (^onLimit)(void);   // the minute is full: recording stopped, ready to send
+@property (nonatomic, readonly) NSTimeInterval duration;
+@property (nonatomic, readonly) NSArray *waveform;
+@property (nonatomic, readonly) NSString *path;
+@property (nonatomic, readonly) BOOL recording;
+- (BOOL)start;
+- (NSData *)finish;   // stops; the recording's bytes (nil when nothing usable was recorded)
+- (void)cancel;
+@end
+
+@interface SHVoiceRecorder ()
+@property (nonatomic, strong) AVAudioRecorder *recorder;
+@property (nonatomic, strong) NSTimer *timer;
+@property (nonatomic, strong) NSMutableArray *levels;
+@property (nonatomic, readwrite) NSTimeInterval duration;
+@property (nonatomic, readwrite) NSString *path;
+@property (nonatomic, readwrite) BOOL recording;
+@property (nonatomic) BOOL stoppedHere;
+@end
+
+static const NSTimeInterval SHVoiceLimit = 60;
+
+@implementation SHVoiceRecorder
+
+- (NSArray *)waveform { return [_levels copy] ?: @[]; }
+
+- (BOOL)start
+{
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
+    [session setActive:YES error:nil];
+    _path = [NSTemporaryDirectory() stringByAppendingPathComponent:
+             [NSString stringWithFormat:@"voice-%lld.m4a", (long long)([NSDate timeIntervalSinceReferenceDate] * 1000)]];
+    NSDictionary *settings = @{ AVFormatIDKey: @(kAudioFormatMPEG4AAC), AVSampleRateKey: @44100.0f, AVNumberOfChannelsKey: @1,
+                                AVEncoderBitRateKey: @64000, AVEncoderAudioQualityKey: @(AVAudioQualityHigh) };
+    NSError *error = nil;
+    _recorder = [[AVAudioRecorder alloc] initWithURL:[NSURL fileURLWithPath:_path] settings:settings error:&error];
+    _recorder.delegate = self;
+    _recorder.meteringEnabled = YES;
+    if (!_recorder || ![_recorder prepareToRecord] || ![_recorder recordForDuration:SHVoiceLimit]) {
+        SHLog(@"Voice: the recorder did not start: %@", error.localizedDescription ?: @"-");
+        _recorder = nil;
+        [self restoreSession];
+        return NO;
+    }
+    _levels = [NSMutableArray array];
+    _duration = 0;
+    _recording = YES;
+    _stoppedHere = NO;
+    _timer = [NSTimer scheduledTimerWithTimeInterval:0.1 target:self selector:@selector(tick) userInfo:nil repeats:YES];
+    return YES;
+}
+
+- (void)tick
+{
+    if (!_recorder.isRecording) return;
+    [_recorder updateMeters];
+    float db = [_recorder averagePowerForChannel:0];                 // -160 … 0 dB
+    float level = sqrtf(MAX(0.f, MIN(1.f, powf(10.f, db / 20.f))));  // loudness 0 … 1, the quiet parts still visible
+    [_levels addObject:@(roundf(level * 1000.f) / 1000.f)];
+    _duration = MAX(_duration, _recorder.currentTime);
+    if (_onTick) _onTick(_duration);
+}
+
+- (void)restoreSession
+{
+    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
+}
+
+- (void)audioRecorderDidFinishRecording:(AVAudioRecorder *)recorder successfully:(BOOL)flag
+{
+    if (_stoppedHere) return;
+    // the minute is full
+    [_timer invalidate];
+    _timer = nil;
+    _recording = NO;
+    _duration = MAX(_duration, SHVoiceLimit);
+    [self restoreSession];
+    if (_onLimit) _onLimit();
+}
+
+- (NSData *)finish
+{
+    _duration = MAX(_duration, _recorder.currentTime);
+    _stoppedHere = YES;
+    [_recorder stop];
+    [_timer invalidate];
+    _timer = nil;
+    _recording = NO;
+    [self restoreSession];
+    if (_duration < 1) return nil;   // (a tap, not a message)
+    NSData *data = [NSData dataWithContentsOfFile:_path];
+    return data.length > 1000 ? data : nil;
+}
+
+- (void)cancel
+{
+    _stoppedHere = YES;
+    [_recorder stop];
+    [_recorder deleteRecording];
+    [_timer invalidate];
+    _timer = nil;
+    _recording = NO;
+    [self restoreSession];
+}
+
+- (void)dealloc { [_timer invalidate]; }
+
+@end
+
 #pragma mark - Thread
 
-@interface SHThreadViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, SHBubbleCellDelegate>
+static const CGFloat SHAttachH = 72;   // the strip with a picked photo above the bar
+
+// A photo as it is sent: at most 1080 points on its longer side, turned upright (the camera's orientation applied).
+static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
+{
+    CGSize s = image.size;
+    CGFloat longest = MAX(s.width, s.height);
+    if (longest <= 0) return nil;
+    CGFloat scale = longest > 1080 ? 1080 / longest : 1;
+    CGSize target = CGSizeMake(floorf(s.width * scale), floorf(s.height * scale));
+    UIGraphicsBeginImageContextWithOptions(target, YES, 1);
+    [image drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    UIImage *flat = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    if (thumb) *thumb = flat;
+    return UIImageJPEGRepresentation(flat, 0.82f);
+}
+
+@interface SHThreadViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, SHBubbleCellDelegate,
+                                      UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, strong) SHDirectThread *thread;
 @property (nonatomic, strong) NSMutableArray *messages;      // chronological (oldest first)
 @property (nonatomic, strong) NSMutableDictionary *usersByPk; // SHUser by pk, incl. me
@@ -287,6 +442,18 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
 @property (nonatomic, copy) NSString *playingPk;
 @property (nonatomic, strong) NSDateFormatter *timeFormatter;
 @property (nonatomic, strong) NSDateFormatter *dateFormatter;
+@property (nonatomic, strong) UIButton *cameraButton;
+@property (nonatomic, strong) UIButton *micButton;
+@property (nonatomic, strong) UIView *recordView;          // over the field while a voice message is recorded
+@property (nonatomic, strong) UILabel *recordLabel;
+@property (nonatomic, strong) UIImageView *recordDot;
+@property (nonatomic, strong) SHVoiceRecorder *recorder;
+@property (nonatomic, strong) UIView *attachmentView;      // a picked photo waiting for Send, above the bar
+@property (nonatomic, strong) UIImageView *attachmentThumb;
+@property (nonatomic, strong) NSData *pendingJPEG;
+@property (nonatomic, strong) UIImage *pendingImage;
+@property (nonatomic, strong) UIPopoverController *pickerPopover;
+@property (nonatomic) CGFloat keyboardOverlap;
 @end
 
 @implementation SHThreadViewController
@@ -349,7 +516,13 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
     barArt.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_inputBar addSubview:barArt];
 
-    _inputField = [[UITextField alloc] initWithFrame:CGRectMake(8, 8, _inputBar.bounds.size.width - 86, 32)];
+    // the camera on the left, as in iOS 6 Messages: take a photo or choose one
+    _cameraButton = [self barGlyphButton:[SHTabIcons cameraWithSize:20 color:[theme textColor] dark:theme.isDark] action:@selector(cameraTapped:)];
+    _cameraButton.frame = CGRectMake(6, 8, 40, 32);
+    _cameraButton.accessibilityLabel = L(@"Photo");
+    [_inputBar addSubview:_cameraButton];
+
+    _inputField = [[UITextField alloc] initWithFrame:CGRectMake(52, 8, _inputBar.bounds.size.width - 52 - 6 - 40 - 8 - 64 - 8, 32)];
     _inputField.borderStyle = UITextBorderStyleNone;
     _inputField.background = [theme textFieldBackgroundImage];
     _inputField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 32)];
@@ -375,7 +548,77 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
     [theme embossButton:_sendButton];
     [_sendButton addTarget:self action:@selector(sendTapped) forControlEvents:UIControlEventTouchUpInside];
     [_inputBar addSubview:_sendButton];
+
+    // the microphone: a tap starts a voice message, Send sends it
+    _micButton = [self barGlyphButton:[SHTabIcons microphoneWithSize:20 color:[theme textColor] dark:theme.isDark] action:@selector(micTapped)];
+    _micButton.frame = CGRectMake(_inputBar.bounds.size.width - 72 - 8 - 40, 8, 40, 32);
+    _micButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    _micButton.accessibilityLabel = L(@"Voice message");
+    [_inputBar addSubview:_micButton];
+
+    // while recording: Cancel, a red light and the time, over the camera, the field and the microphone
+    _recordView = [[UIView alloc] initWithFrame:CGRectMake(6, 6, _inputBar.bounds.size.width - 72 - 12, 36)];
+    _recordView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _recordView.backgroundColor = [UIColor clearColor];
+    _recordView.hidden = YES;
+    UIButton *cancelRecording = [self barGlyphButton:nil action:@selector(cancelRecording)];
+    [cancelRecording setTitle:L(@"Cancel") forState:UIControlStateNormal];
+    [cancelRecording setTitleColor:[theme textColor] forState:UIControlStateNormal];
+    cancelRecording.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [theme embossButton:cancelRecording];
+    CGFloat cancelW = MAX(70, [L(@"Cancel") sizeWithFont:cancelRecording.titleLabel.font].width + 24);
+    cancelRecording.frame = CGRectMake(0, 2, cancelW, 32);
+    [_recordView addSubview:cancelRecording];
+    _recordDot = [[UIImageView alloc] initWithImage:[self recordDotImage]];
+    _recordDot.frame = CGRectMake(cancelW + 14, 11, 14, 14);
+    [_recordView addSubview:_recordDot];
+    _recordLabel = [[UILabel alloc] initWithFrame:CGRectMake(cancelW + 36, 0, _recordView.bounds.size.width - cancelW - 40, 36)];
+    _recordLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _recordLabel.font = [UIFont boldSystemFontOfSize:15];
+    _recordLabel.textColor = [theme textColor];
+    _recordLabel.backgroundColor = [UIColor clearColor];
+    [theme embossLabel:_recordLabel];
+    [_recordView addSubview:_recordLabel];
+    [_inputBar addSubview:_recordView];
     [self.view addSubview:_inputBar];
+
+    // a picked photo waits above the bar until Send (or Remove)
+    _attachmentView = [[UIView alloc] initWithFrame:CGRectMake(0, _inputBar.frame.origin.y - SHAttachH, self.view.bounds.size.width, SHAttachH)];
+    _attachmentView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    _attachmentView.hidden = YES;
+    UIImageView *attachArt = [[UIImageView alloc] initWithImage:[theme barBackgroundImage]];
+    attachArt.frame = _attachmentView.bounds;
+    attachArt.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_attachmentView addSubview:attachArt];
+    UIView *thumbFrame = [[UIView alloc] initWithFrame:CGRectMake(10, 6, 60, 60)];
+    thumbFrame.backgroundColor = [UIColor whiteColor];
+    thumbFrame.layer.cornerRadius = 4;
+    thumbFrame.layer.shadowColor = [UIColor blackColor].CGColor;
+    thumbFrame.layer.shadowOpacity = 0.5;
+    thumbFrame.layer.shadowRadius = 1.5;
+    thumbFrame.layer.shadowOffset = CGSizeMake(0, 1);
+    _attachmentThumb = [[UIImageView alloc] initWithFrame:CGRectInset(thumbFrame.bounds, 2, 2)];
+    _attachmentThumb.contentMode = UIViewContentModeScaleAspectFill;
+    _attachmentThumb.clipsToBounds = YES;
+    [thumbFrame addSubview:_attachmentThumb];
+    [_attachmentView addSubview:thumbFrame];
+    UILabel *attachLabel = [[UILabel alloc] initWithFrame:CGRectMake(82, 0, self.view.bounds.size.width - 82 - 110, SHAttachH)];
+    attachLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    attachLabel.text = L(@"Photo ready to send");
+    attachLabel.font = [UIFont boldSystemFontOfSize:14];
+    attachLabel.textColor = [theme textColor];
+    attachLabel.backgroundColor = [UIColor clearColor];
+    [theme embossLabel:attachLabel];
+    [_attachmentView addSubview:attachLabel];
+    UIButton *removeAttachment = [self barGlyphButton:nil action:@selector(removeAttachment)];
+    [removeAttachment setTitle:L(@"Remove") forState:UIControlStateNormal];
+    [removeAttachment setTitleColor:[theme textColor] forState:UIControlStateNormal];
+    removeAttachment.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [theme embossButton:removeAttachment];
+    removeAttachment.frame = CGRectMake(self.view.bounds.size.width - 96, floorf((SHAttachH - 32) / 2), 86, 32);
+    removeAttachment.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [_attachmentView addSubview:removeAttachment];
+    [self.view addSubview:_attachmentView];
 
     // The inbox preview only carried the last message; show it at once, then load the thread.
     [self setMessagesNewestFirst:_thread.messages];
@@ -453,16 +696,23 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
 
 #pragma mark - Keyboard
 
+// The bar over the keyboard, the picked photo's strip over the bar, the messages above both.
+- (void)layoutBars
+{
+    CGFloat w = self.view.bounds.size.width, h = self.view.bounds.size.height;
+    CGFloat attachH = _attachmentView.hidden ? 0 : SHAttachH;
+    _inputBar.frame = CGRectMake(0, h - SHBarH - _keyboardOverlap, w, SHBarH);
+    _attachmentView.frame = CGRectMake(0, _inputBar.frame.origin.y - SHAttachH, w, SHAttachH);
+    _tableView.frame = CGRectMake(0, 0, w, h - SHBarH - _keyboardOverlap - attachH);
+}
+
 - (void)keyboardWillChange:(NSNotification *)note
 {
     CGRect end = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGRect endInView = [self.view convertRect:end fromView:nil];
-    CGFloat overlap = MAX(0, self.view.bounds.size.height - endInView.origin.y);
+    _keyboardOverlap = MAX(0, self.view.bounds.size.height - endInView.origin.y);
     CGFloat dur = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-    [UIView animateWithDuration:dur animations:^{
-        self->_inputBar.frame = CGRectMake(0, self.view.bounds.size.height - SHBarH - overlap, self.view.bounds.size.width, SHBarH);
-        self->_tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, self.view.bounds.size.height - SHBarH - overlap);
-    } completion:^(BOOL f) { [self scrollToBottom:NO]; }];
+    [UIView animateWithDuration:dur animations:^{ [self layoutBars]; } completion:^(BOOL f) { [self scrollToBottom:NO]; }];
 }
 
 #pragma mark - Actions
@@ -479,6 +729,8 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
 
 - (void)sendTapped
 {
+    if (_recorder) { [self sendVoice]; return; }   // Send ends the recording and sends it
+    if (_pendingJPEG) [self sendPhoto];           // the photo first, then the text with it (if any)
     NSString *text = [_inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (!text.length || !_thread.threadId.length) return;
 
@@ -494,6 +746,273 @@ static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like
 
     [SHInstagram sendDirectText:text toThread:_thread.threadId completion:^(BOOL ok, NSError *error) {
         if (!ok) [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription ?: L(@"The message didn't send.")];
+    }];
+}
+
+#pragma mark - The bar's buttons
+
+- (UIButton *)barGlyphButton:(UIImage *)glyph action:(SEL)action
+{
+    SHTheme *theme = [SHTheme shared];
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+    [b setBackgroundImage:[theme buttonImageHighlighted:NO] forState:UIControlStateNormal];
+    [b setBackgroundImage:[theme buttonImageHighlighted:YES] forState:UIControlStateHighlighted];
+    if (glyph) [b setImage:glyph forState:UIControlStateNormal];
+    b.adjustsImageWhenHighlighted = NO;
+    [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return b;
+}
+
+// The glossy red light of a recording.
+- (UIImage *)recordDotImage
+{
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(14, 14), NO, 0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    [[UIColor colorWithRed:0.62f green:0.04f blue:0.04f alpha:1] setFill];
+    CGContextFillEllipseInRect(ctx, CGRectMake(0.5f, 0.5f, 13, 13));
+    [[UIColor colorWithRed:0.93f green:0.15f blue:0.12f alpha:1] setFill];
+    CGContextFillEllipseInRect(ctx, CGRectMake(1.5f, 1.5f, 11, 11));
+    [[UIColor colorWithWhite:1 alpha:0.5f] setFill];
+    CGContextFillEllipseInRect(ctx, CGRectMake(4, 2.5f, 6, 4));
+    UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return img;
+}
+
+- (void)appendLocal:(SHDirectMessage *)m
+{
+    m.pk = [@"local-" stringByAppendingString:[[NSUUID UUID] UUIDString]];
+    [_messages addObject:m];
+    [_tableView reloadData];
+    [self scrollToBottom:YES];
+}
+
+// A photo or voice message sent from here: kept (no longer faded) once Instagram took it, then the thread is loaded
+// again for the real thing; taken away again with a word if it did not go.
+- (void)localMessage:(SHDirectMessage *)m sent:(BOOL)ok error:(NSError *)error
+{
+    m.sending = NO;
+    if (!ok) {
+        [_messages removeObjectIdenticalTo:m];
+        [_tableView reloadData];
+        [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription ?: L(@"The message didn't send.")];
+        return;
+    }
+    [_tableView reloadData];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self refresh]; });
+}
+
+#pragma mark - Photos
+
+- (void)cameraTapped:(UIButton *)button
+{
+    [_inputField resignFirstResponder];
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
+    if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) [sheet addButtonWithTitle:L(@"Take Photo")];
+    if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) [sheet addButtonWithTitle:L(@"Choose Existing")];
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
+    if (SHIsPad()) [sheet showFromRect:button.bounds inView:button animated:YES];
+    else [sheet showInView:self.view];
+}
+
+- (void)actionSheet:(UIActionSheet *)sheet didDismissWithButtonIndex:(NSInteger)index
+{
+    if (index < 0 || index == sheet.cancelButtonIndex) return;
+    NSString *title = [sheet buttonTitleAtIndex:index];
+    if ([title isEqualToString:L(@"Take Photo")]) [self presentPickerWithSource:UIImagePickerControllerSourceTypeCamera];
+    else if ([title isEqualToString:L(@"Choose Existing")]) [self presentPickerWithSource:UIImagePickerControllerSourceTypePhotoLibrary];
+}
+
+- (void)presentPickerWithSource:(UIImagePickerControllerSourceType)source
+{
+    if (![UIImagePickerController isSourceTypeAvailable:source]) return;
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    picker.sourceType = source;
+    picker.delegate = self;
+    if (SHIsPad() && source == UIImagePickerControllerSourceTypePhotoLibrary) {
+        // the iPad shows the photo library only in a popover
+        _pickerPopover = [[UIPopoverController alloc] initWithContentViewController:picker];
+        [_pickerPopover presentPopoverFromRect:_cameraButton.bounds inView:_cameraButton permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+        return;
+    }
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)closePicker:(UIImagePickerController *)picker
+{
+    if (_pickerPopover) { [_pickerPopover dismissPopoverAnimated:YES]; _pickerPopover = nil; return; }
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info
+{
+    UIImage *image = info[UIImagePickerControllerOriginalImage];
+    [self closePicker:picker];
+    if (image) [self attachPhoto:image];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker { [self closePicker:picker]; }
+
+// The photo is made ready (upright, at most 1080) away from the main thread, then waits above the bar for Send.
+- (void)attachPhoto:(UIImage *)image
+{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        UIImage *flat = nil;
+        NSData *jpeg = SHJPEGForSending(image, &flat);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!jpeg.length) return;
+            self->_pendingJPEG = jpeg;
+            self->_pendingImage = flat;
+            self->_attachmentThumb.image = flat;
+            self->_attachmentView.hidden = NO;
+            [UIView animateWithDuration:0.2 animations:^{ [self layoutBars]; } completion:^(BOOL f) { [self scrollToBottom:YES]; }];
+        });
+    });
+}
+
+- (void)removeAttachment
+{
+    _pendingJPEG = nil;
+    _pendingImage = nil;
+    _attachmentThumb.image = nil;
+    _attachmentView.hidden = YES;
+    [self layoutBars];
+}
+
+- (void)sendPhoto
+{
+    NSData *jpeg = _pendingJPEG;
+    UIImage *image = _pendingImage;
+    [self removeAttachment];
+    if (!jpeg.length || !_thread.threadId.length) return;
+    SHDirectMessage *local = [[SHDirectMessage alloc] init];
+    local.type = @"media";
+    local.senderPk = _myId;
+    local.timestamp = [NSDate date];
+    local.localImage = image;
+    local.placeholderText = L(@"Photo");
+    local.sending = YES;
+    [self appendLocal:local];
+    SHLog(@"Photo: sending %lu bytes", (unsigned long)jpeg.length);
+    [SHInstagram sendDirectPhoto:jpeg toThread:_thread.threadId completion:^(BOOL ok, NSError *error) {
+        [self localMessage:local sent:ok error:error];
+    }];
+}
+
+// Debug builds: a plain test picture in place of the camera (the URL command dmtestphoto), to try the sending.
+- (void)debugAttachTestPhoto
+{
+    CGSize size = CGSizeMake(800, 600);
+    UIGraphicsBeginImageContextWithOptions(size, YES, 1);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGFloat comps[8] = { 0.16f, 0.42f, 0.85f, 1, 0.05f, 0.18f, 0.45f, 1 };
+    CGGradientRef gradient = CGGradientCreateWithColorComponents(space, comps, NULL, 2);
+    CGContextDrawLinearGradient(ctx, gradient, CGPointZero, CGPointMake(0, size.height), 0);
+    CGGradientRelease(gradient);
+    CGColorSpaceRelease(space);
+    [[UIColor whiteColor] setFill];
+    NSString *s = @"Gramify test";
+    UIFont *font = [UIFont boldSystemFontOfSize:64];
+    CGSize ts = [s sizeWithFont:font];
+    [s drawAtPoint:CGPointMake(floorf((size.width - ts.width) / 2), floorf((size.height - ts.height) / 2)) withFont:font];
+    UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    [self attachPhoto:img];
+}
+
+#pragma mark - Recording
+
+- (void)micTapped
+{
+    if (_recorder) return;
+    [_inputField resignFirstResponder];
+    [self stopVoice];
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    SEL ask = NSSelectorFromString(@"requestRecordPermission:");
+    if ([session respondsToSelector:ask]) {
+        // iOS 7 and newer ask the user once before the microphone hears anything
+        __weak SHThreadViewController *weakSelf = self;
+        void (^answer)(BOOL) = ^(BOOL granted) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (granted) [weakSelf startRecording];
+                else [SHUtils alertWithTitle:L(@"Voice message") message:L(@"Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone.")];
+            });
+        };
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [session performSelector:ask withObject:answer];
+#pragma clang diagnostic pop
+        return;
+    }
+    [self startRecording];
+}
+
+- (void)startRecording
+{
+    if (_recorder) return;
+    SHVoiceRecorder *rec = [[SHVoiceRecorder alloc] init];
+    __weak SHThreadViewController *weakSelf = self;
+    rec.onTick = ^(NSTimeInterval seconds) { [weakSelf showRecordingTime:seconds full:NO]; };
+    rec.onLimit = ^{ [weakSelf showRecordingTime:SHVoiceLimit full:YES]; };
+    if (![rec start]) {
+        [SHUtils alertWithTitle:L(@"Voice message") message:L(@"The microphone could not be started.")];
+        return;
+    }
+    _recorder = rec;
+    [self showRecordingTime:0 full:NO];
+    _recordView.hidden = NO;
+    _cameraButton.hidden = _inputField.hidden = _micButton.hidden = YES;
+    CABasicAnimation *pulse = [CABasicAnimation animationWithKeyPath:@"opacity"];
+    pulse.fromValue = @1;
+    pulse.toValue = @0.25;
+    pulse.duration = 0.6;
+    pulse.autoreverses = YES;
+    pulse.repeatCount = HUGE_VALF;
+    [_recordDot.layer addAnimation:pulse forKey:@"pulse"];
+    SHLog(@"Voice: recording");
+}
+
+- (void)showRecordingTime:(NSTimeInterval)seconds full:(BOOL)full
+{
+    _recordLabel.text = [NSString stringWithFormat:@"%@  %@", full ? L(@"Ready to send") : L(@"Recording"), [SHUtils formatDuration:seconds]];
+    if (full) [_recordDot.layer removeAnimationForKey:@"pulse"];
+}
+
+- (void)endRecordingUI
+{
+    [_recordDot.layer removeAnimationForKey:@"pulse"];
+    _recordView.hidden = YES;
+    _cameraButton.hidden = _inputField.hidden = _micButton.hidden = NO;
+}
+
+- (void)cancelRecording
+{
+    [_recorder cancel];
+    _recorder = nil;
+    [self endRecordingUI];
+}
+
+- (void)sendVoice
+{
+    SHVoiceRecorder *rec = _recorder;
+    _recorder = nil;
+    NSData *audio = [rec finish];
+    [self endRecordingUI];
+    if (!audio.length) { [SHShareViewController flashMessage:L(@"Too short")]; return; }
+    if (!_thread.threadId.length) return;
+    SHDirectMessage *local = [[SHDirectMessage alloc] init];
+    local.type = @"voice_media";
+    local.senderPk = _myId;
+    local.timestamp = [NSDate date];
+    local.audioURL = [[NSURL fileURLWithPath:rec.path] absoluteString];
+    local.audioDuration = rec.duration;
+    local.placeholderText = L(@"Voice message");
+    local.sending = YES;
+    [self appendLocal:local];
+    SHLog(@"Voice: sending %.1f s, %lu bytes, %lu levels", rec.duration, (unsigned long)audio.length, (unsigned long)rec.waveform.count);
+    [SHInstagram sendDirectVoice:audio duration:rec.duration waveform:rec.waveform toThread:_thread.threadId completion:^(BOOL ok, NSError *error) {
+        [self localMessage:local sent:ok error:error];
     }];
 }
 
@@ -521,8 +1040,9 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
 {
     if ([_playingPk isEqualToString:m.pk]) { [self stopVoice]; return; }
     [self stopVoice];
-    // The audio comes over the app's own media proxy (iOS 6 cannot speak the CDN's TLS itself).
-    NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:m.audioURL]];
+    // The audio comes over the app's own media proxy (iOS 6 cannot speak the CDN's TLS itself); one just recorded
+    // here plays from its file.
+    NSString *proxied = [m.audioURL hasPrefix:@"file:"] ? m.audioURL : [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:m.audioURL]];
     if (!proxied.length) return;
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     [[AVAudioSession sharedInstance] setActive:YES error:nil];

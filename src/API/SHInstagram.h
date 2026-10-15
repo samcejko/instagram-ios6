@@ -87,6 +87,20 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (SHHTTPTask *)directInboxWithCursor:(NSString *)cursor completion:(SHThreadsCompletion)completion;
 + (SHHTTPTask *)directThread:(NSString *)threadId cursor:(NSString *)cursor completion:(SHThreadCompletion)completion;
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
+// The same to a thread or, without one, to a person (Instagram finds or opens the one-to-one thread); answers the thread.
++ (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId orUser:(NSString *)userPk
+                    completion:(void (^)(BOOL ok, NSString *threadId, NSError *error))completion;
+// A post shared into a chat (the paper plane under a post).
++ (SHHTTPTask *)sharePost:(SHPost *)post toThread:(NSString *)threadId orUser:(NSString *)userPk
+               completion:(void (^)(BOOL ok, NSString *threadId, NSError *error))completion;
+// A photo (JPEG) and a voice message (AAC in MP4, with its levels 0-1 ten times a second) into a chat.
++ (SHHTTPTask *)sendDirectPhoto:(NSData *)jpeg toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
++ (SHHTTPTask *)sendDirectVoice:(NSData *)audio duration:(NSTimeInterval)duration waveform:(NSArray *)waveform
+                       toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
+
+// A tag's posts (its page) and tags matching a search (NSDictionary: "name", "count" = the number of posts).
++ (SHHTTPTask *)hashtagFeed:(NSString *)tag maxId:(NSString *)maxId completion:(SHFeedCompletion)completion;
++ (SHHTTPTask *)searchHashtags:(NSString *)query completion:(void (^)(NSArray *tags, NSError *error))completion;
 
 + (SHHTTPTask *)storiesTrayWithCompletion:(SHStoriesCompletion)completion;
 + (SHHTTPTask *)storiesForUserIds:(NSArray *)userIds completion:(SHStoriesCompletion)completion;

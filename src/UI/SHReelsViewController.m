@@ -2,6 +2,8 @@
 #import "SHPostDetailViewController.h"
 #import "SHCommentsViewController.h"
 #import "SHProfileViewController.h"
+#import "SHShareViewController.h"
+#import "SHLinkLabel.h"
 #import "SHTabIcons.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
@@ -21,7 +23,8 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 @protocol SHReelPageDelegate <NSObject>
 - (void)reelPageTapped:(SHReelPage *)page;
 - (void)reelPageDoubleTapped:(SHReelPage *)page;
-- (void)reelPage:(SHReelPage *)page action:(NSString *)action;   // "like", "comment", "post", "user"
+- (void)reelPage:(SHReelPage *)page action:(NSString *)action;   // "like", "comment", "post", "user", "share"
+- (void)reelPage:(SHReelPage *)page openLink:(SHTextLink *)link;  // an @name, #tag or link in the caption
 @end
 
 @interface SHReelPage : UIView
@@ -34,10 +37,11 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 @property (nonatomic, strong) UIImageView *shade;
 @property (nonatomic, strong) SHImageView *avatar;
 @property (nonatomic, strong) UILabel *nameLabel;
-@property (nonatomic, strong) UILabel *captionLabel;
+@property (nonatomic, strong) SHLinkLabel *captionLabel;
 @property (nonatomic, strong) UIButton *likeButton;
 @property (nonatomic, strong) UILabel *likeCount;
 @property (nonatomic, strong) UIButton *commentButton;
+@property (nonatomic, strong) UIButton *shareButton;
 @property (nonatomic, strong) UIButton *postButton;
 - (void)showPost:(SHPost *)post;
 - (void)attachPlayer:(AVPlayer *)player;
@@ -103,13 +107,27 @@ static void *SHReelReadyContext = &SHReelReadyContext;
         _nameLabel = [self shadowLabel:[UIFont boldSystemFontOfSize:15]];
         _nameLabel.userInteractionEnabled = YES;
         [_nameLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(userTapped)]];
-        _captionLabel = [self shadowLabel:[UIFont systemFontOfSize:14]];
+        // the caption: white over the video, its @names and #tags in bold white
+        _captionLabel = [[SHLinkLabel alloc] initWithFrame:CGRectZero];
+        _captionLabel.font = [UIFont systemFontOfSize:14];
+        _captionLabel.textColor = [UIColor whiteColor];
+        _captionLabel.linkColor = [UIColor colorWithRed:0.75 green:0.87 blue:1 alpha:1];
+        _captionLabel.shadowColor = [UIColor colorWithWhite:0 alpha:0.8];
+        _captionLabel.shadowOffset = CGSizeMake(0, 1);
         _captionLabel.numberOfLines = 2;
+        __weak SHReelPage *weakSelf = self;
+        _captionLabel.linkHandler = ^(SHTextLink *link) {
+            SHReelPage *page = weakSelf;
+            [page.delegate reelPage:page openLink:link];
+        };
+        [self addSubview:_captionLabel];
 
         _likeButton = [self roundButton:nil action:@selector(likeTapped)];
         _likeCount = [self shadowLabel:[UIFont boldSystemFontOfSize:12]];
         _likeCount.textAlignment = NSTextAlignmentCenter;
         _commentButton = [self roundButton:[SHTabIcons commentBubbleWithSize:24 color:[UIColor whiteColor] dark:YES] action:@selector(commentTapped)];
+        _shareButton = [self roundButton:[SHTabIcons paperPlaneWithSize:24 color:[UIColor whiteColor] dark:YES] action:@selector(shareTapped)];
+        _shareButton.accessibilityLabel = L(@"Share");
         _postButton = [self roundButton:[theme carouselGlyph] action:@selector(postTapped)];
 
         UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(doubleTapped)];
@@ -137,9 +155,10 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 
     CGFloat right = w - 14 - 50;
     _postButton.frame = CGRectMake(right, h - 90, 50, 50);
-    _commentButton.frame = CGRectMake(right, h - 150, 50, 50);
-    _likeCount.frame = CGRectMake(right - 10, h - 172, 70, 16);
-    _likeButton.frame = CGRectMake(right, h - 226, 50, 50);
+    _shareButton.frame = CGRectMake(right, h - 150, 50, 50);
+    _commentButton.frame = CGRectMake(right, h - 210, 50, 50);
+    _likeCount.frame = CGRectMake(right - 10, h - 232, 70, 16);
+    _likeButton.frame = CGRectMake(right, h - 286, 50, 50);
 
     CGFloat textW = right - 14 - 16;
     _captionLabel.frame = CGRectMake(14, h - 64, textW, 40);
@@ -153,7 +172,14 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     [_cover setImageURL:post.mediumImage.url ?: post.image.url placeholder:nil];
     [_avatar setImageURL:post.user.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:36]];
     _nameLabel.text = post.user.username;
-    _captionLabel.text = [SHUtils displayText:post.captionText ?: @""];
+    // (one flowing line of text: the caption's line breaks would waste the two lines it has)
+    NSArray *parts = [[SHUtils displayText:post.captionText ?: @""] componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    NSMutableArray *kept = [NSMutableArray array];
+    for (NSString *p in parts) {
+        NSString *t = [p stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (t.length) [kept addObject:t];
+    }
+    _captionLabel.text = [kept componentsJoinedByString:@" "];
     _pausedMark.hidden = YES;
     [self refreshLike];
 }
@@ -199,6 +225,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 - (void)doubleTapped { [_delegate reelPageDoubleTapped:self]; }
 - (void)likeTapped { [_delegate reelPage:self action:@"like"]; }
 - (void)commentTapped { [_delegate reelPage:self action:@"comment"]; }
+- (void)shareTapped { [_delegate reelPage:self action:@"share"]; }
 - (void)postTapped { [_delegate reelPage:self action:@"post"]; }
 - (void)userTapped { [_delegate reelPage:self action:@"user"]; }
 
@@ -513,7 +540,19 @@ static void *SHReelReadyContext = &SHReelReadyContext;
         if (!post.user.username.length && !post.user.pk.length) return;
         [_player pause];
         [SHLinkRouter presentInNavigation:[[SHProfileViewController alloc] initWithUsername:post.user.username pk:post.user.pk]];
+    } else if ([action isEqualToString:@"share"]) {
+        [_player pause];
+        [SHShareViewController presentForPost:post];
     }
+}
+
+// A link in the caption: the video stops, the profile, tag or post opens over the player (closing it plays on).
+- (void)reelPage:(SHReelPage *)page openLink:(SHTextLink *)link
+{
+    [_player pause];
+    _userPaused = YES;
+    [page setPaused:YES];
+    [SHLinkLabel openLink:link from:page];
 }
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orient

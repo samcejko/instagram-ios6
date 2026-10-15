@@ -1,6 +1,7 @@
 #import "SHLinkRouter.h"
 #import "SHProfileViewController.h"
 #import "SHPostDetailViewController.h"
+#import "SHGridViewController.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHExternalOpen.h"
@@ -71,8 +72,13 @@ static NSMutableArray *g_choices;
     if (![host isEqualToString:@"instagram.com"] && ![host hasSuffix:@".instagram.com"] && ![host isEqualToString:@"instagr.am"]) return NO;
 
     NSArray *parts = [[path stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] componentsSeparatedByString:@"/"];
-    if (parts.count >= 2 && ([[parts[0] lowercaseString] isEqualToString:@"p"] || [[parts[0] lowercaseString] isEqualToString:@"reel"])) {
+    if (parts.count >= 2 && ([[parts[0] lowercaseString] isEqualToString:@"p"] || [[parts[0] lowercaseString] isEqualToString:@"reel"]
+                             || [[parts[0] lowercaseString] isEqualToString:@"tv"])) {
         [self openPost:parts[1]];
+        return YES;
+    }
+    if (parts.count >= 3 && [[parts[0] lowercaseString] isEqualToString:@"explore"] && [[parts[1] lowercaseString] isEqualToString:@"tags"]) {
+        [self openHashtag:parts[2]];
         return YES;
     }
     if (parts.count >= 1 && [parts[0] length] && ![[parts[0] lowercaseString] isEqualToString:@"explore"]
@@ -83,26 +89,62 @@ static NSMutableArray *g_choices;
     return NO;
 }
 
-+ (void)openProfile:(NSString *)username
++ (void)pushController:(UIViewController *)controller
 {
-    NSString *name = username;
-    if ([name hasPrefix:@"@"]) name = [name substringFromIndex:1];
-    if (!name.length) return;
-    SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:name pk:nil];
     UIViewController *top = [self topController];
-    if ([top isKindOfClass:[UINavigationController class]]) {
-        [(UINavigationController *)top pushViewController:vc animated:YES];
-    } else if (top.navigationController) {
-        [top.navigationController pushViewController:vc animated:YES];
-    } else {
-        [self presentInNavigation:vc];
+    UINavigationController *nav = [top isKindOfClass:[UINavigationController class]] ? (UINavigationController *)top : top.navigationController;
+    if (nav) [nav pushViewController:controller animated:YES];
+    else [self presentInNavigation:controller];
+}
+
++ (void)openProfile:(NSString *)username { [self openProfileWithUsername:username pk:nil]; }
+
++ (void)openProfileWithUsername:(NSString *)username pk:(NSString *)pk
+{
+    NSString *name = [username hasPrefix:@"@"] ? [username substringFromIndex:1] : username;
+    if (!name.length && !pk.length) return;
+    [self pushController:[[SHProfileViewController alloc] initWithUsername:name pk:pk]];
+}
+
++ (void)openHashtag:(NSString *)tag
+{
+    NSString *t = [tag hasPrefix:@"#"] ? [tag substringFromIndex:1] : tag;
+    t = [t lowercaseString];
+    if (!t.length) return;
+    SHGridViewController *vc = [[SHGridViewController alloc] initWithTitle:[@"#" stringByAppendingString:t]
+        loader:^SHHTTPTask *(NSString *maxId, SHFeedCompletion completion) {
+            return [SHInstagram hashtagFeed:t maxId:maxId completion:completion];
+        }];
+    vc.emptyMessage = L(@"No posts with this hashtag yet.");
+    [self pushController:vc];
+}
+
+// The numeric id of a post from the code in its link: the code is the id in base 64 (A-Z a-z 0-9 - _). A private
+// post's long code starts with the same 11 characters.
+static NSString *SHMediaPkFromShortcode(NSString *code)
+{
+    static NSString * const alphabet = @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    NSString *c = code.length > 11 ? [code substringToIndex:11] : code;
+    unsigned long long pk = 0;
+    for (NSUInteger i = 0; i < c.length; i++) {
+        NSRange r = [alphabet rangeOfString:[c substringWithRange:NSMakeRange(i, 1)]];
+        if (r.location == NSNotFound) return nil;
+        pk = pk * 64 + r.location;
     }
+    return pk ? [NSString stringWithFormat:@"%llu", pk] : nil;
 }
 
 + (void)openPost:(NSString *)shortcode
 {
-    // Resolve post by shortcode - for now just log; full resolution needs media_id from shortcode
-    SHLog(@"Open post %@", shortcode);
+    NSString *pk = SHMediaPkFromShortcode(shortcode);
+    if (!pk) return;
+    [SHInstagram mediaInfo:pk completion:^(SHPost *post, NSError *error) {
+        if (!post.pk.length) {
+            [SHUtils alertWithTitle:L(@"Post") message:error.localizedDescription ?: L(@"This post is no longer available.")];
+            return;
+        }
+        [self pushController:[[SHPostDetailViewController alloc] initWithPost:post]];
+    }];
 }
 
 #pragma mark - Web links in texts

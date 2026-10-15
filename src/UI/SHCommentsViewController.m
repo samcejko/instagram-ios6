@@ -2,9 +2,92 @@
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
+#import "SHLinkLabel.h"
+#import "SHLinkRouter.h"
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
+
+static const CGFloat SHCommentFont = 13;
+static const CGFloat SHCommentAvatar = 32;
+static const CGFloat SHCommentTextX = 52;
+
+// "name comment": the name in bold (it opens the profile), the comment's @names, #tags and links live.
+static NSAttributedString *SHCommentText(SHComment *c)
+{
+    UIColor *tc = [[SHTheme shared] textColor];
+    NSString *name = c.user.username ?: @"";
+    NSString *body = [SHUtils displayText:c.text] ?: @"";
+    NSString *s = name.length ? [NSString stringWithFormat:@"%@ %@", name, body] : body;
+    NSMutableAttributedString *a = [[NSMutableAttributedString alloc] initWithString:s attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:SHCommentFont], NSForegroundColorAttributeName: tc }];
+    if (name.length) [a addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:SHCommentFont] range:NSMakeRange(0, name.length)];
+    return a;
+}
+
+// A comment the way the app lists them: the picture, the text, the time under it.
+@interface SHCommentCell : UITableViewCell
+@property (nonatomic, strong) SHImageView *avatar;
+@property (nonatomic, strong) SHLinkLabel *body;
+@property (nonatomic, strong) UILabel *timeLabel;
+@property (nonatomic, strong) SHComment *comment;
+- (void)configureWithComment:(SHComment *)comment;
+@end
+
+@implementation SHCommentCell
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
+{
+    if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
+        SHTheme *theme = [SHTheme shared];
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _avatar = [[SHImageView alloc] initWithFrame:CGRectMake(10, 10, SHCommentAvatar, SHCommentAvatar)];
+        [theme styleAvatar:_avatar radius:4];
+        _avatar.maxPixels = 96;
+        _avatar.userInteractionEnabled = YES;
+        [_avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)]];
+        [self.contentView addSubview:_avatar];
+        _body = [[SHLinkLabel alloc] initWithFrame:CGRectZero];
+        _body.shadowColor = theme.isDark ? [UIColor colorWithWhite:0 alpha:0.8] : [UIColor colorWithWhite:1 alpha:0.9];
+        _body.shadowOffset = theme.isDark ? CGSizeMake(0, -1) : CGSizeMake(0, 1);
+        [self.contentView addSubview:_body];
+        _timeLabel = [[UILabel alloc] init];
+        _timeLabel.font = [UIFont systemFontOfSize:11];
+        _timeLabel.textColor = [theme secondaryTextColor];
+        _timeLabel.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:_timeLabel];
+        [self.contentView addSubview:_timeLabel];
+    }
+    return self;
+}
+
+- (void)configureWithComment:(SHComment *)comment
+{
+    _comment = comment;
+    [_avatar setImageURL:comment.user.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:SHCommentAvatar]];
+    NSAttributedString *text = SHCommentText(comment);
+    _body.attributedText = text;
+    if (comment.user.username.length)
+        [_body addUserLinkWithRange:NSMakeRange(0, comment.user.username.length) username:comment.user.username pk:comment.user.pk];
+    _timeLabel.text = comment.createdAt ? [SHUtils formatRelativeDate:comment.createdAt] : @"";
+    [self setNeedsLayout];
+}
+
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    CGFloat w = self.contentView.bounds.size.width - SHCommentTextX - 12;
+    CGFloat h = [SHLinkLabel sizeForAttributedText:SHCommentText(_comment) width:w lines:0].height;
+    _body.frame = CGRectMake(SHCommentTextX, 10, w, h);
+    _timeLabel.frame = CGRectMake(SHCommentTextX, 10 + h + 3, w, 14);
+}
+
+- (void)avatarTapped
+{
+    if (_comment.user) [SHLinkRouter openProfileWithUsername:_comment.user.username pk:_comment.user.pk];
+}
+
+@end
 
 @interface SHCommentsViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
 @property (nonatomic, strong) SHPost *post;
@@ -118,25 +201,10 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"C"];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"C"];
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        cell.textLabel.numberOfLines = 0;
-        cell.textLabel.font = [UIFont systemFontOfSize:13];
-        cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
-        cell.detailTextLabel.textColor = [[SHTheme shared] secondaryTextColor];
-    }
+    SHCommentCell *cell = [tableView dequeueReusableCellWithIdentifier:@"C"];
+    if (!cell) cell = [[SHCommentCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"C"];
     [[SHTheme shared] styleCell:cell];
-    SHComment *c = _comments[(NSUInteger)indexPath.row];
-    UIColor *tc = [[SHTheme shared] textColor];
-    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] init];
-    [text appendAttributedString:[[NSAttributedString alloc] initWithString:[c.user.username stringByAppendingString:@" "]
-        attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:13], NSForegroundColorAttributeName: tc }]];
-    [text appendAttributedString:[[NSAttributedString alloc] initWithString:[SHUtils displayText:c.text]
-        attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13], NSForegroundColorAttributeName: tc }]];
-    cell.textLabel.attributedText = text;
-    cell.detailTextLabel.text = c.createdAt ? [SHUtils formatRelativeDate:c.createdAt] : @"";
+    [cell configureWithComment:_comments[(NSUInteger)indexPath.row]];
     return cell;
 }
 
@@ -144,10 +212,9 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
     SHComment *c = _comments[(NSUInteger)indexPath.row];
-    NSString *text = [NSString stringWithFormat:@"%@ %@", c.user.username ?: @"", [SHUtils displayText:c.text] ?: @""];
-    CGSize sz = [text sizeWithFont:[UIFont boldSystemFontOfSize:13] constrainedToSize:CGSizeMake(tableView.bounds.size.width - 32, 2000)
-                     lineBreakMode:NSLineBreakByWordWrapping];
-    return MAX(52, ceilf(sz.height) + 34);
+    CGFloat w = tableView.bounds.size.width - SHCommentTextX - 12;
+    CGFloat h = [SHLinkLabel sizeForAttributedText:SHCommentText(c) width:w lines:0].height;
+    return MAX(SHCommentAvatar + 20, 10 + h + 3 + 14 + 10);
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath

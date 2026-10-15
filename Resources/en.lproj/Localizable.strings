@@ -164,3 +164,36 @@
 "The certificate bundle is missing, cannot verify the server." = "The certificate bundle is missing, cannot verify the server.";
 "TLS handshake failed: %@" = "TLS handshake failed: %@";
 "TLS handshake timed out." = "TLS handshake timed out.";
+
+/* Hashtags, links in texts */
+"%@ posts" = "%@ posts";
+"Search users or #hashtags" = "Search users or #hashtags";
+"No posts with this hashtag yet." = "No posts with this hashtag yet.";
+"This post is no longer available." = "This post is no longer available.";
+
+/* Sharing a post */
+"Share" = "Share";
+"Send to" = "Send to";
+"Write a message..." = "Write a message...";
+"Copy Link" = "Copy Link";
+"Share via..." = "Share via...";
+"Link copied" = "Link copied";
+"Recent" = "Recent";
+"Results" = "Results";
+"Group" = "Group";
+"No chats yet." = "No chats yet.";
+"No users found." = "No users found.";
+"Sent" = "Sent";
+"The post didn't send." = "The post didn't send.";
+
+/* Direct: photos and voice messages */
+"Take Photo" = "Take Photo";
+"Choose Existing" = "Choose Existing";
+"Photo ready to send" = "Photo ready to send";
+"Remove" = "Remove";
+"Recording" = "Recording";
+"Ready to send" = "Ready to send";
+"Too short" = "Too short";
+"The upload failed." = "The upload failed.";
+"The microphone could not be started." = "The microphone could not be started.";
+"Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone." = "Gramify can't use the microphone. Allow it in Settings > Privacy > Microphone.";

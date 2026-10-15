@@ -110,6 +110,20 @@
     NSTimeInterval ts = SHDbl(d[@"taken_at"]);
     p.takenAt = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
 
+    NSMutableArray *tags = [NSMutableArray array];
+    for (id t in SHArr(SHDict(d[@"usertags"])[@"in"])) {
+        NSDictionary *td = SHDict(t);
+        NSArray *position = SHArr(td[@"position"]);
+        SHUser *u = [SHUser fromJSON:SHDict(td[@"user"])];
+        if (!u.username.length || position.count < 2) continue;
+        SHUserTag *tag = [[SHUserTag alloc] init];
+        tag.user = u;
+        tag.x = MAX(0, MIN(1, SHDbl(position[0])));
+        tag.y = MAX(0, MIN(1, SHDbl(position[1])));
+        [tags addObject:tag];
+    }
+    p.userTags = tags;
+
     NSArray *carousel = SHArr(d[@"carousel_media"]);
     if (carousel.count) {
         NSMutableArray *items = [NSMutableArray array];
@@ -125,6 +139,12 @@
     return p;
 }
 
+@end
+
+@implementation SHUserTag
+@end
+
+@implementation SHStoryMention
 @end
 
 @implementation SHComment
@@ -170,6 +190,36 @@
     NSTimeInterval ts = SHDbl(d[@"taken_at"]);
     s.takenAt = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
     s.expiringAt = SHDbl(d[@"expiring_at"]);
+
+    // "@name" stickers: reel_mentions, and the newer bloks stickers (sticker_data.ig_mention)
+    NSMutableArray *mentions = [NSMutableArray array];
+    NSMutableSet *names = [NSMutableSet set];
+    void (^add)(SHUser *, NSDictionary *) = ^(SHUser *u, NSDictionary *place) {
+        if (!u.username.length || [names containsObject:u.username]) return;
+        SHStoryMention *m = [[SHStoryMention alloc] init];
+        m.user = u;
+        m.x = SHDbl(place[@"x"]);
+        m.y = SHDbl(place[@"y"]);
+        m.width = SHDbl(place[@"width"]);
+        m.height = SHDbl(place[@"height"]);
+        m.rotation = SHDbl(place[@"rotation"]);
+        if (m.width <= 0 || m.height <= 0) return;
+        [names addObject:u.username];
+        [mentions addObject:m];
+    };
+    for (id m in SHArr(d[@"reel_mentions"])) add([SHUser fromJSON:SHDict(SHDict(m)[@"user"])], SHDict(m));
+    for (id st in SHArr(d[@"story_bloks_stickers"])) {
+        NSDictionary *sticker = SHDict(st);
+        NSDictionary *mention = SHDict(SHDict(SHDict(sticker[@"bloks_sticker"])[@"sticker_data"])[@"ig_mention"]);
+        if (!mention) continue;
+        SHUser *u = [[SHUser alloc] init];
+        u.pk = SHStr(mention[@"account_id"]) ?: @"";
+        u.username = SHStr(mention[@"username"]) ?: @"";
+        u.fullName = SHStr(mention[@"full_name"]) ?: @"";
+        u.profilePicURL = SHStr(mention[@"profile_pic_url"]) ?: @"";
+        add(u, sticker);
+    }
+    s.mentions = mentions;
     return s;
 }
 

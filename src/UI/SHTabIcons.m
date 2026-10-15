@@ -1,4 +1,5 @@
 #import "SHTabIcons.h"
+#include <math.h>
 
 @implementation SHTabIcons
 
@@ -153,6 +154,82 @@ static UIImage *SHGlyphDraw(CGFloat size, UIColor *color, BOOL dark, void (^addP
         CGContextAddLineToPoint(ctx, s * 0.26, s * 0.9);
         CGContextClosePath(ctx);
     }, filled);
+}
+
++ (UIImage *)paperPlaneWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark
+{
+    return SHGlyphDraw(size, color, dark, ^(CGContextRef ctx, CGFloat s) {
+        // the outline of a paper plane flying up to the right, with its fold
+        CGContextMoveToPoint(ctx, s * 0.1, s * 0.46);
+        CGContextAddLineToPoint(ctx, s * 0.9, s * 0.12);
+        CGContextAddLineToPoint(ctx, s * 0.62, s * 0.88);
+        CGContextAddLineToPoint(ctx, s * 0.47, s * 0.58);
+        CGContextClosePath(ctx);
+        CGContextMoveToPoint(ctx, s * 0.47, s * 0.58);
+        CGContextAddLineToPoint(ctx, s * 0.9, s * 0.12);
+    }, NO);
+}
+
++ (UIImage *)cameraWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark
+{
+    return SHGlyphDraw(size, color, dark, ^(CGContextRef ctx, CGFloat s) {
+        // the body with the viewfinder bump, the lens in the middle
+        CGFloat r = s * 0.1, x0 = s * 0.08, x1 = s * 0.92, y0 = s * 0.3, y1 = s * 0.84;
+        CGContextMoveToPoint(ctx, x0 + r, y0);
+        CGContextAddLineToPoint(ctx, s * 0.33, y0);
+        CGContextAddLineToPoint(ctx, s * 0.39, s * 0.19);
+        CGContextAddLineToPoint(ctx, s * 0.61, s * 0.19);
+        CGContextAddLineToPoint(ctx, s * 0.67, y0);
+        CGContextAddArcToPoint(ctx, x1, y0, x1, y0 + r, r);
+        CGContextAddArcToPoint(ctx, x1, y1, x1 - r, y1, r);
+        CGContextAddArcToPoint(ctx, x0, y1, x0, y1 - r, r);
+        CGContextAddArcToPoint(ctx, x0, y0, x0 + r, y0, r);
+        CGContextClosePath(ctx);
+        CGContextAddEllipseInRect(ctx, CGRectMake(s * 0.33, s * 0.41, s * 0.34, s * 0.34));
+    }, NO);
+}
+
++ (UIImage *)photosWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark
+{
+    return SHGlyphDraw(size, color, dark, ^(CGContextRef ctx, CGFloat s) {
+        // a framed picture: hills and the sun
+        CGContextAddRect(ctx, CGRectMake(s * 0.1, s * 0.2, s * 0.8, s * 0.62));
+        CGContextMoveToPoint(ctx, s * 0.14, s * 0.74);
+        CGContextAddLineToPoint(ctx, s * 0.38, s * 0.48);
+        CGContextAddLineToPoint(ctx, s * 0.55, s * 0.64);
+        CGContextAddLineToPoint(ctx, s * 0.66, s * 0.54);
+        CGContextAddLineToPoint(ctx, s * 0.86, s * 0.74);
+        CGContextAddEllipseInRect(ctx, CGRectMake(s * 0.62, s * 0.29, s * 0.12, s * 0.12));
+    }, NO);
+}
+
++ (UIImage *)microphoneWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark
+{
+    return SHGlyphDraw(size, color, dark, ^(CGContextRef ctx, CGFloat s) {
+        // the capsule, the holder round its lower half, the stand
+        CGFloat w = s * 0.26, x = s * 0.5 - w / 2, top = s * 0.1, bottom = s * 0.58;
+        CGContextMoveToPoint(ctx, x, top + w / 2);
+        CGContextAddArc(ctx, s * 0.5, top + w / 2, w / 2, (CGFloat)M_PI, 0, 0);
+        CGContextAddLineToPoint(ctx, x + w, bottom - w / 2);
+        CGContextAddArc(ctx, s * 0.5, bottom - w / 2, w / 2, 0, (CGFloat)M_PI, 0);
+        CGContextClosePath(ctx);
+        CGContextMoveToPoint(ctx, s * 0.24, s * 0.46);
+        CGContextAddArc(ctx, s * 0.5, s * 0.46, s * 0.26, (CGFloat)M_PI, 0, 1);
+        CGContextMoveToPoint(ctx, s * 0.5, s * 0.72);
+        CGContextAddLineToPoint(ctx, s * 0.5, s * 0.88);
+        CGContextMoveToPoint(ctx, s * 0.34, s * 0.88);
+        CGContextAddLineToPoint(ctx, s * 0.66, s * 0.88);
+    }, NO);
+}
+
++ (UIImage *)personWithSize:(CGFloat)size color:(UIColor *)color dark:(BOOL)dark
+{
+    return SHGlyphDraw(size, color, dark, ^(CGContextRef ctx, CGFloat s) {
+        CGContextAddEllipseInRect(ctx, CGRectMake(s * 0.32, s * 0.1, s * 0.36, s * 0.36));
+        CGContextMoveToPoint(ctx, s * 0.14, s * 0.9);
+        CGContextAddCurveToPoint(ctx, s * 0.16, s * 0.52, s * 0.84, s * 0.52, s * 0.86, s * 0.9);
+        CGContextClosePath(ctx);
+    }, YES);
 }
 
 @end

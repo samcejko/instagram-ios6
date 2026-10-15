@@ -4,6 +4,7 @@
 #import "SHModels.h"
 #import "SHSettings.h"
 #import "SHImageLoader.h"
+#import "SHLinkRouter.h"
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
@@ -25,7 +26,7 @@
     _results = @[];
 
     _searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
-    _searchBar.placeholder = L(@"Search users...");
+    _searchBar.placeholder = L(@"Search users or #hashtags");
     _searchBar.delegate = self;
     _searchBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [[SHTheme shared] applyToSearchBar:_searchBar];
@@ -56,6 +57,15 @@
     if (!q.length) return;
     [SHSettings addSearch:q];
     [_task cancel];
+    if ([q hasPrefix:@"#"]) {
+        // "#…": tags (NSDictionary name / count); a tap opens the tag's posts
+        _task = [SHInstagram searchHashtags:q completion:^(NSArray *tags, NSError *error) {
+            if (error) { [SHUtils alertWithTitle:L(@"Search") message:error.localizedDescription]; return; }
+            self->_results = tags ?: @[];
+            [self->_tableView reloadData];
+        }];
+        return;
+    }
     _task = [SHInstagram searchUsers:q completion:^(NSArray *users, NSError *error) {
         if (error) { [SHUtils alertWithTitle:L(@"Search") message:error.localizedDescription]; return; }
         self->_results = users ?: @[];
@@ -78,7 +88,18 @@
         [[SHTheme shared] styleAvatar:cell.imageView radius:5];
     }
     [[SHTheme shared] styleCell:cell];
-    SHUser *u = _results[(NSUInteger)indexPath.row];
+    id result = _results[(NSUInteger)indexPath.row];
+    if ([result isKindOfClass:[NSDictionary class]]) {
+        // a tag: its name and how many posts it has, a "#" disc for the picture
+        cell.textLabel.text = [@"#" stringByAppendingString:result[@"name"] ?: @""];
+        cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
+        cell.detailTextLabel.text = [NSString stringWithFormat:L(@"%@ posts"), [SHUtils formatCount:[result[@"count"] integerValue]]];
+        cell.detailTextLabel.font = [UIFont systemFontOfSize:13];
+        cell.detailTextLabel.textColor = [[SHTheme shared] secondaryTextColor];
+        cell.imageView.image = [self hashImage];
+        return cell;
+    }
+    SHUser *u = result;
     cell.textLabel.text = u.username;
     cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
     cell.detailTextLabel.text = [SHUtils displayText:u.fullName];
@@ -91,7 +112,8 @@
             // (the row may show somebody else by now)
             NSIndexPath *now = [tableView indexPathForCell:cell];
             if (!image || !now || (NSUInteger)now.row >= self->_results.count) return;
-            if (![[self->_results[(NSUInteger)now.row] profilePicURL] isEqualToString:url]) return;
+            id shown = self->_results[(NSUInteger)now.row];
+            if (![shown isKindOfClass:[SHUser class]] || ![[shown profilePicURL] isEqualToString:url]) return;
             CGFloat scale = image.size.width > 0 ? image.size.width * image.scale / 40.0f : 1;   // shown 40 points wide
             cell.imageView.image = [UIImage imageWithCGImage:image.CGImage scale:scale orientation:UIImageOrientationUp];
             [cell setNeedsLayout];
@@ -100,10 +122,35 @@
     return cell;
 }
 
+// The picture of a tag row: a "#" pressed into a light disc.
+- (UIImage *)hashImage
+{
+    static UIImage *image;
+    if (image) return image;
+    CGFloat s = 40;
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(s, s), NO, 0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    [[UIColor colorWithWhite:0.6f alpha:1] setFill];
+    CGContextFillEllipseInRect(ctx, CGRectMake(0, 0, s, s));
+    [[UIColor colorWithWhite:0.96f alpha:1] setFill];
+    CGContextFillEllipseInRect(ctx, CGRectMake(1, 1, s - 2, s - 2));
+    UIFont *font = [UIFont boldSystemFontOfSize:22];
+    CGSize ts = [@"#" sizeWithFont:font];
+    [[UIColor whiteColor] setFill];
+    [@"#" drawAtPoint:CGPointMake(floorf((s - ts.width) / 2), floorf((s - ts.height) / 2) + 1) withFont:font];
+    [[UIColor colorWithWhite:0.35f alpha:1] setFill];
+    [@"#" drawAtPoint:CGPointMake(floorf((s - ts.width) / 2), floorf((s - ts.height) / 2)) withFont:font];
+    image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return image;
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    SHUser *u = _results[(NSUInteger)indexPath.row];
+    id result = _results[(NSUInteger)indexPath.row];
+    if ([result isKindOfClass:[NSDictionary class]]) { [SHLinkRouter openHashtag:result[@"name"]]; return; }
+    SHUser *u = result;
     SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:u.username pk:u.pk];
     [self.navigationController pushViewController:vc animated:YES];
 }

@@ -147,6 +147,18 @@
         [self pressAtPoint:pt];
         return YES;
     }
+    if ([target isEqualToString:@"dmtestphoto"]) {   // a plain test picture waiting to be sent in the open chat
+        UIViewController *top = [self topController];
+        SEL attach = NSSelectorFromString(@"debugAttachTestPhoto");
+        if ([top respondsToSelector:attach]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [top performSelector:attach];
+#pragma clang diagnostic pop
+        }
+        SHLog(@"dmtestphoto -> %@", NSStringFromClass([top class]));
+        return YES;
+    }
     if ([target isEqualToString:@"back"]) {   // the back button of a navigation bar is not a control: pop directly
         UIViewController *top = [self topController];
         [top.navigationController popViewControllerAnimated:YES];

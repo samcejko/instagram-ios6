@@ -1,0 +1,4 @@
+/* What the system says when it asks for access (Info.plist) */
+"NSCameraUsageDescription" = "Gramify uses the camera to take photos you send in Direct.";
+"NSMicrophoneUsageDescription" = "Gramify uses the microphone to record voice messages.";
+"NSPhotoLibraryUsageDescription" = "Gramify opens your photos so you can send them in Direct.";

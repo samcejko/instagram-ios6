@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 
+@class UIImage;
+
 @interface SHUser : NSObject
 @property (nonatomic, copy) NSString *pk;
 @property (nonatomic, copy) NSString *username;
@@ -44,7 +46,15 @@
 @property (nonatomic) BOOL saved;
 @property (nonatomic, strong) NSDate *takenAt;
 @property (nonatomic, strong) NSArray *carouselMedia;
+@property (nonatomic, strong) NSArray *userTags;          // SHUserTag: the people tagged on the photo
 + (instancetype)fromJSON:(NSDictionary *)json;
+@end
+
+// A person tagged on a photo, at a point of it (0-1 across and down).
+@interface SHUserTag : NSObject
+@property (nonatomic, strong) SHUser *user;
+@property (nonatomic) double x;
+@property (nonatomic) double y;
 @end
 
 @interface SHComment : NSObject
@@ -64,7 +74,14 @@
 @property (nonatomic) NSTimeInterval videoDuration;
 @property (nonatomic, strong) NSDate *takenAt;
 @property (nonatomic) NSTimeInterval expiringAt;
+@property (nonatomic, strong) NSArray *mentions;          // SHStoryMention: the "@name" stickers on it
 + (instancetype)fromJSON:(NSDictionary *)json;
+@end
+
+// A mention sticker on a story: where it sits (its centre, 0-1 of the picture), how big and turned it is.
+@interface SHStoryMention : NSObject
+@property (nonatomic, strong) SHUser *user;
+@property (nonatomic) double x, y, width, height, rotation;
 @end
 
 // One person's stories. "Seen" means every one of them has been looked at (the ring turns grey); how far the viewer
@@ -106,6 +123,8 @@
 @property (nonatomic) NSTimeInterval audioDuration;
 @property (nonatomic, strong) SHPost *sharedPost;       // media_share / clip: the post, to open it on tap
 @property (nonatomic, copy) NSString *videoURL;         // a video sent directly
+@property (nonatomic, strong) UIImage *localImage;      // a photo just sent from here, shown until the thread reloads
+@property (nonatomic) BOOL sending;                     // on its way (drawn faded)
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end
 

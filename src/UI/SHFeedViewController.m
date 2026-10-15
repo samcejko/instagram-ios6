@@ -7,6 +7,7 @@
 #import "SHSearchViewController.h"
 #import "SHSettingsViewController.h"
 #import "SHStoryViewController.h"
+#import "SHShareViewController.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHSettings.h"
@@ -298,6 +299,11 @@ static const CGFloat SHStoryBarHeight = 96;
     };
     if (willSave) [SHInstagram savePost:post.pk completion:done];
     else [SHInstagram unsavePost:post.pk completion:done];
+}
+
+- (void)feedCell:(SHFeedCell *)cell didTapShareOnPost:(SHPost *)post
+{
+    [SHShareViewController presentForPost:post];
 }
 
 - (void)feedCell:(SHFeedCell *)cell didTapCommentOnPost:(SHPost *)post

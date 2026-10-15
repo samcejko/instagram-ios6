@@ -129,6 +129,14 @@
 		<string>kicker</string>
 		<string>tiktak</string>
 	</array>
+	<!-- what the system says when it asks for the camera, the microphone and the photos (Direct); translated in
+	     the InfoPlist.strings of each language. iOS 10 and newer stop an app that uses them without these. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Gramify uses the camera to take photos you send in Direct.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Gramify uses the microphone to record voice messages.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Gramify opens your photos so you can send them in Direct.</string>
 	<!-- the player loads http://127.0.0.1 from the app's own proxy: never a question for App Transport Security -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

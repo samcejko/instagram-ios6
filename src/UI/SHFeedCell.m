@@ -1,5 +1,6 @@
 #import "SHFeedCell.h"
 #import "SHTabIcons.h"
+#import "SHLinkLabel.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
 #import "SHTheme.h"
@@ -25,10 +26,11 @@ static const NSInteger SHCaptionLines = 3;
 @property (nonatomic, strong) UIImageView *videoMark;
 @property (nonatomic, strong) UIButton *likeButton;
 @property (nonatomic, strong) UIButton *commentButton;
+@property (nonatomic, strong) UIButton *shareButton;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UIImageView *likesHeart;
 @property (nonatomic, strong) UILabel *likesLabel;
-@property (nonatomic, strong) UILabel *captionLabel;
+@property (nonatomic, strong) SHLinkLabel *captionLabel;
 @property (nonatomic, strong) UIView *groove;          // the etched end of a post
 @property (nonatomic, strong, readwrite) SHPost *post;
 @end
@@ -60,15 +62,25 @@ static NSString *SHCaptionText(SHPost *post)
     return [NSString stringWithFormat:@"%@ %@", post.user.username ?: @"", [kept componentsJoinedByString:@" "]];
 }
 
+// The caption with the author's name in bold link colour in front; the same text measures and draws.
+static NSAttributedString *SHCaptionAttributed(SHPost *post)
+{
+    NSString *caption = SHCaptionText(post);
+    if (!caption.length) return nil;
+    SHTheme *theme = [SHTheme shared];
+    NSUInteger nameLength = MIN(caption.length, post.user.username.length);
+    NSMutableAttributedString *cap = [[NSMutableAttributedString alloc] initWithString:caption attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:SHCaptionFont], NSForegroundColorAttributeName: [theme textColor] }];
+    [cap addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:SHCaptionFont], NSForegroundColorAttributeName: [theme linkColor] }
+                 range:NSMakeRange(0, nameLength)];
+    return cap;
+}
+
 static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
 {
-    NSString *text = SHCaptionText(post);
+    NSAttributedString *text = SHCaptionAttributed(post);
     if (!text.length) return 0;
-    UIFont *font = [UIFont systemFontOfSize:SHCaptionFont];
-    CGFloat maxH = ceilf(font.lineHeight * SHCaptionLines);
-    CGSize sz = [text sizeWithFont:[UIFont boldSystemFontOfSize:SHCaptionFont] constrainedToSize:CGSizeMake(width, maxH)
-                     lineBreakMode:NSLineBreakByWordWrapping];
-    return MIN(maxH, ceilf(sz.height));
+    return [SHLinkLabel sizeForAttributedText:text width:width lines:SHCaptionLines].height;
 }
 
 + (CGFloat)heightForPost:(SHPost *)post width:(CGFloat)width
@@ -156,6 +168,10 @@ static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
         _commentButton = [self glossyButtonWithTitle:L(@"Comment") action:@selector(commentTapped)];
         [_commentButton setImage:[SHTabIcons commentBubbleWithSize:16 color:[theme textColor] dark:theme.isDark] forState:UIControlStateNormal];
         [self.contentView addSubview:_commentButton];
+        _shareButton = [self glossyButtonWithTitle:nil action:@selector(shareTapped)];
+        [_shareButton setImage:[SHTabIcons paperPlaneWithSize:17 color:[theme textColor] dark:theme.isDark] forState:UIControlStateNormal];
+        _shareButton.accessibilityLabel = L(@"Share");
+        [self.contentView addSubview:_shareButton];
         _saveButton = [self glossyButtonWithTitle:nil action:@selector(saveTapped)];
         [self.contentView addSubview:_saveButton];
 
@@ -168,12 +184,12 @@ static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
         [theme embossLabel:_likesLabel];
         [self.contentView addSubview:_likesLabel];
 
-        _captionLabel = [[UILabel alloc] init];
+        _captionLabel = [[SHLinkLabel alloc] initWithFrame:CGRectZero];
         _captionLabel.numberOfLines = SHCaptionLines;
-        _captionLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-        _captionLabel.backgroundColor = [UIColor clearColor];
         _captionLabel.shadowColor = theme.isDark ? [UIColor colorWithWhite:0 alpha:0.8] : [UIColor colorWithWhite:1 alpha:0.9];
         _captionLabel.shadowOffset = theme.isDark ? CGSizeMake(0, -1) : CGSizeMake(0, 1);
+        __weak SHFeedCell *weakSelf = self;
+        _captionLabel.textTapHandler = ^{ [weakSelf imageTapped]; };   // the whole caption is on the post's screen
         [self.contentView addSubview:_captionLabel];
 
         _groove = [[UIView alloc] init];
@@ -204,18 +220,10 @@ static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
     [_likeButton setBackgroundImage:[theme buttonImageHighlighted:post.hasLiked] forState:UIControlStateNormal];   // pressed in once liked
     [_saveButton setImage:[SHTabIcons bookmarkWithSize:16 filled:post.saved color:[theme textColor] dark:theme.isDark] forState:UIControlStateNormal];
 
-    NSString *caption = SHCaptionText(post);
-    if (caption.length) {
-        NSUInteger nameLength = MIN(caption.length, post.user.username.length);
-        NSMutableAttributedString *cap = [[NSMutableAttributedString alloc] initWithString:caption attributes:@{
-            NSFontAttributeName: [UIFont systemFontOfSize:SHCaptionFont], NSForegroundColorAttributeName: [theme textColor] }];
-        [cap addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:SHCaptionFont], NSForegroundColorAttributeName: [theme linkColor] }
-                     range:NSMakeRange(0, nameLength)];
-        _captionLabel.attributedText = cap;
-    } else {
-        _captionLabel.attributedText = nil;
-        _captionLabel.text = nil;
-    }
+    NSAttributedString *caption = SHCaptionAttributed(post);
+    _captionLabel.attributedText = caption;
+    if (caption.length)
+        [_captionLabel addUserLinkWithRange:NSMakeRange(0, MIN(caption.length, post.user.username.length)) username:post.user.username pk:post.user.pk];
 
     _videoMark.hidden = !(post.mediaType == 2 || post.videoURL.length);
     [_avatarView setImageURL:post.user.profilePicURL placeholder:[theme avatarPlaceholderWithSize:SHAvatarSize]];
@@ -242,10 +250,16 @@ static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
     y += imgH;
 
     CGFloat by = y + (SHButtonsRow - SHButtonsH) / 2;
-    CGFloat likeW = MAX(96, [[_likeButton titleForState:UIControlStateNormal] sizeWithFont:_likeButton.titleLabel.font].width + 46);
-    CGFloat commentW = MAX(96, [[_commentButton titleForState:UIControlStateNormal] sizeWithFont:_commentButton.titleLabel.font].width + 46);
+    CGFloat likeW = MAX(96, [L(@"Like") sizeWithFont:_likeButton.titleLabel.font].width + 46);
+    CGFloat commentW = MAX(96, [L(@"Comment") sizeWithFont:_commentButton.titleLabel.font].width + 46);
+    // only the glyphs where the words would not fit (a phone in Czech)
+    BOOL compact = SHPadding + likeW + 8 + commentW + 8 + 44 + 8 + 40 + SHPadding > w;
+    if (compact) likeW = commentW = 52;
+    [_likeButton setTitle:compact ? nil : L(@"Like") forState:UIControlStateNormal];
+    [_commentButton setTitle:compact ? nil : L(@"Comment") forState:UIControlStateNormal];
     _likeButton.frame = CGRectMake(SHPadding, by, likeW, SHButtonsH);
     _commentButton.frame = CGRectMake(SHPadding + likeW + 8, by, commentW, SHButtonsH);
+    _shareButton.frame = CGRectMake(CGRectGetMaxX(_commentButton.frame) + 8, by, 44, SHButtonsH);
     _saveButton.frame = CGRectMake(w - SHPadding - 40, by, 40, SHButtonsH);
     y += SHButtonsRow;
 
@@ -286,6 +300,12 @@ static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
 {
     if ([_delegate respondsToSelector:@selector(feedCell:didTapSaveOnPost:)])
         [_delegate feedCell:self didTapSaveOnPost:_post];
+}
+
+- (void)shareTapped
+{
+    if ([_delegate respondsToSelector:@selector(feedCell:didTapShareOnPost:)])
+        [_delegate feedCell:self didTapShareOnPost:_post];
 }
 
 - (void)imageTapped

@@ -3,6 +3,8 @@
 #import "SHCommentsViewController.h"
 #import "SHProfileViewController.h"
 #import "SHUserListViewController.h"
+#import "SHShareViewController.h"
+#import "SHLinkLabel.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
@@ -25,6 +27,8 @@ static const CGFloat SHDetailHeaderH = 50;
 @property (nonatomic, strong) UIButton *likeButton;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) MPMoviePlayerController *player;
+@property (nonatomic, strong) NSMutableArray *tagLayers;   // per picture: the bubbles of the people tagged on it
+@property (nonatomic, strong) NSMutableArray *tagUsers;    // SHUser, by the bubble's tag
 @end
 
 @implementation SHPostDetailViewController
@@ -148,6 +152,8 @@ static const CGFloat SHDetailHeaderH = 50;
         _carousel.showsHorizontalScrollIndicator = NO;
         _carousel.delegate = self;
         _carousel.contentSize = CGSizeMake(w * items.count, imgH);
+        _tagLayers = [NSMutableArray array];
+        _tagUsers = [NSMutableArray array];
         for (NSUInteger i = 0; i < items.count; i++) {
             SHPost *item = items[i];
             SHImageView *iv = [[SHImageView alloc] initWithFrame:CGRectMake(w * (CGFloat)i, 0, w, imgH)];
@@ -159,7 +165,25 @@ static const CGFloat SHDetailHeaderH = 50;
             UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoDoubleTapped)];
             doubleTap.numberOfTapsRequired = 2;
             [iv addGestureRecognizer:doubleTap];
+            // one tap shows the people tagged on the picture (and hides them again), as in the app
+            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoTapped)];
+            [tap requireGestureRecognizerToFail:doubleTap];
+            [iv addGestureRecognizer:tap];
             [iv setImageURL:item.image.url placeholder:nil];
+            NSArray *tags = item.userTags.count ? item.userTags : (items.count == 1 ? _post.userTags : nil);
+            if (tags.count) {
+                UIView *layer = [self tagLayerForTags:tags image:item.image ?: _post.image size:CGSizeMake(w, imgH)];
+                layer.hidden = YES;
+                [iv addSubview:layer];
+                [_tagLayers addObject:layer];
+                // the hint the app shows: a person in a dark disc in the corner
+                UIImageView *badge = [[UIImageView alloc] initWithImage:[theme roundButtonImageWithSize:28]];
+                badge.frame = CGRectMake(10, imgH - 38, 28, 28);
+                UIImageView *person = [[UIImageView alloc] initWithImage:[SHTabIcons personWithSize:14 color:[UIColor whiteColor] dark:YES]];
+                person.frame = CGRectMake(7, 6, person.image.size.width, person.image.size.height);
+                [badge addSubview:person];
+                [iv addSubview:badge];
+            }
             [_carousel addSubview:iv];
         }
         [_scrollView addSubview:_carousel];
@@ -173,17 +197,29 @@ static const CGFloat SHDetailHeaderH = 50;
 
     CGFloat y = top + imgH + 8;
 
-    // glossy Like / Comment buttons and the bookmark, as in the app of the iOS 6 days
-    _likeButton = [self glossyButton:L(@"Like") image:nil action:@selector(likeTapped)];
+    // glossy Like / Comment / share buttons and the bookmark, as in the app of the iOS 6 days (only the glyphs where
+    // the words would not fit: a phone in Czech)
     CGFloat likeW = MAX(110, [L(@"Like") sizeWithFont:[UIFont boldSystemFontOfSize:13]].width + 50);
+    CGFloat commentW = MAX(110, [L(@"Comment") sizeWithFont:[UIFont boldSystemFontOfSize:13]].width + 50);
+    BOOL compact = 10 + likeW + 8 + commentW + 8 + 46 + 8 + 42 + 10 > w;
+    if (compact) likeW = commentW = 56;
+    _likeButton = [self glossyButton:compact ? nil : L(@"Like") image:nil action:@selector(likeTapped)];
     _likeButton.frame = CGRectMake(10, y, likeW, 32);
+    _likeButton.accessibilityLabel = L(@"Like");
     [_scrollView addSubview:_likeButton];
 
-    UIButton *commentButton = [self glossyButton:L(@"Comment") image:[SHTabIcons commentBubbleWithSize:17 color:[theme textColor] dark:theme.isDark]
+    UIButton *commentButton = [self glossyButton:compact ? nil : L(@"Comment")
+                                           image:[SHTabIcons commentBubbleWithSize:17 color:[theme textColor] dark:theme.isDark]
                                           action:@selector(commentsTapped)];
-    CGFloat commentW = MAX(110, [L(@"Comment") sizeWithFont:[UIFont boldSystemFontOfSize:13]].width + 50);
     commentButton.frame = CGRectMake(10 + likeW + 8, y, commentW, 32);
+    commentButton.accessibilityLabel = L(@"Comment");
     [_scrollView addSubview:commentButton];
+
+    UIButton *shareButton = [self glossyButton:nil image:[SHTabIcons paperPlaneWithSize:18 color:[theme textColor] dark:theme.isDark]
+                                        action:@selector(shareTapped)];
+    shareButton.frame = CGRectMake(CGRectGetMaxX(commentButton.frame) + 8, y, 46, 32);
+    shareButton.accessibilityLabel = L(@"Share");
+    [_scrollView addSubview:shareButton];
 
     _saveButton = [self glossyButton:nil image:nil action:@selector(saveTapped)];
     _saveButton.frame = CGRectMake(w - 52, y, 42, 32);
@@ -206,19 +242,20 @@ static const CGFloat SHDetailHeaderH = 50;
     y += 26;
 
     if (_post.captionText.length) {
-        UILabel *caption = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 24, 0)];
-        caption.numberOfLines = 0;
-        caption.backgroundColor = [UIColor clearColor];
+        // the caption with its @names, #tags and links live; the author's name in front opens the profile
+        SHLinkLabel *caption = [[SHLinkLabel alloc] initWithFrame:CGRectMake(12, y, w - 24, 0)];
         caption.shadowColor = theme.isDark ? [UIColor colorWithWhite:0 alpha:0.8] : [UIColor colorWithWhite:1 alpha:0.9];
         caption.shadowOffset = theme.isDark ? CGSizeMake(0, -1) : CGSizeMake(0, 1);
         NSString *user = _post.user.username ?: @"";
         NSString *text = [NSString stringWithFormat:@"%@ %@", user, [SHUtils displayText:_post.captionText]];
         NSMutableAttributedString *cap = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
             NSFontAttributeName: [UIFont systemFontOfSize:14], NSForegroundColorAttributeName: [theme textColor] }];
+        NSRange nameRange = NSMakeRange(0, MIN(user.length, text.length));
         [cap addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:14], NSForegroundColorAttributeName: [theme linkColor] }
-                     range:NSMakeRange(0, MIN(user.length, text.length))];
+                     range:nameRange];
         caption.attributedText = cap;
-        CGSize sz = [caption sizeThatFits:CGSizeMake(w - 24, 9999)];
+        [caption addUserLinkWithRange:nameRange username:user pk:_post.user.pk];
+        CGSize sz = [caption sizeThatFits:CGSizeMake(w - 24, 0)];
         caption.frame = CGRectMake(12, y, w - 24, sz.height);
         [_scrollView addSubview:caption];
         y += sz.height + 12;
@@ -255,6 +292,85 @@ static const CGFloat SHDetailHeaderH = 50;
 - (void)photoDoubleTapped
 {
     if (!_post.hasLiked) [self likeTapped];
+}
+
+#pragma mark - People tagged on the photo
+
+// A dark see-through bubble with the name and a small point on top that touches the tagged spot.
+- (UIImage *)tagBubbleImage:(NSString *)name
+{
+    UIFont *font = [UIFont boldSystemFontOfSize:13];
+    CGSize ts = [name sizeWithFont:font];
+    CGFloat w = ceilf(ts.width) + 20, h = 26, point = 6;
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(w, h + point), NO, 0);
+    UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, point, w, h) cornerRadius:5];
+    [shape moveToPoint:CGPointMake(w / 2 - point, point)];
+    [shape addLineToPoint:CGPointMake(w / 2, 0)];
+    [shape addLineToPoint:CGPointMake(w / 2 + point, point)];
+    [shape closePath];
+    [[UIColor colorWithWhite:0 alpha:0.78f] setFill];
+    [shape fill];
+    [[UIColor colorWithWhite:1 alpha:0.12f] setFill];   // the gloss of the upper half
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(1, point + 1, w - 2, h / 2 - 1) cornerRadius:4] fill];
+    [[UIColor whiteColor] setFill];
+    [name drawInRect:CGRectMake(10, point + floorf((h - ts.height) / 2), ceilf(ts.width), ts.height) withFont:font];
+    UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return img;
+}
+
+// The bubbles over one picture shown filled into `size` (cut at the sides like the picture is).
+- (UIView *)tagLayerForTags:(NSArray *)tags image:(SHMediaImage *)image size:(CGSize)size
+{
+    UIView *layer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, size.width, size.height)];
+    layer.backgroundColor = [UIColor clearColor];
+    CGFloat iw = image.width > 0 ? image.width : size.width, ih = image.height > 0 ? image.height : size.height;
+    CGFloat scale = MAX(size.width / iw, size.height / ih);
+    CGFloat dw = iw * scale, dh = ih * scale, ox = (size.width - dw) / 2, oy = (size.height - dh) / 2;
+    for (SHUserTag *tag in tags) {
+        UIImage *bubble = [self tagBubbleImage:tag.user.username];
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+        [b setImage:bubble forState:UIControlStateNormal];
+        CGPoint p = CGPointMake(ox + (CGFloat)tag.x * dw, oy + (CGFloat)tag.y * dh);
+        CGFloat bx = MAX(4, MIN(size.width - bubble.size.width - 4, p.x - bubble.size.width / 2));
+        CGFloat by = MAX(4, MIN(size.height - bubble.size.height - 4, p.y));
+        b.frame = CGRectMake(floorf(bx), floorf(by), bubble.size.width, bubble.size.height);
+        b.tag = (NSInteger)_tagUsers.count;
+        b.accessibilityLabel = tag.user.username;
+        [_tagUsers addObject:tag.user];
+        [b addTarget:self action:@selector(tagTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [layer addSubview:b];
+    }
+    return layer;
+}
+
+- (void)photoTapped
+{
+    if (!_tagLayers.count) return;
+    BOOL show = [_tagLayers.firstObject isHidden];
+    for (UIView *layer in _tagLayers) {
+        layer.alpha = show ? 0 : 1;
+        layer.hidden = NO;
+    }
+    [UIView animateWithDuration:0.2 animations:^{
+        for (UIView *layer in self->_tagLayers) layer.alpha = show ? 1 : 0;
+    } completion:^(BOOL finished) {
+        for (UIView *layer in self->_tagLayers) layer.hidden = !show;
+    }];
+}
+
+- (void)tagTapped:(UIButton *)button
+{
+    if (button.tag < 0 || button.tag >= (NSInteger)_tagUsers.count) return;
+    SHUser *u = _tagUsers[(NSUInteger)button.tag];
+    SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:u.username pk:u.pk];
+    if (self.navigationController) [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)shareTapped
+{
+    [_player pause];
+    [SHShareViewController presentForPost:_post];
 }
 
 // shown at once, taken back if Instagram says no

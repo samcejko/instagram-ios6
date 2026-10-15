@@ -1,0 +1,4 @@
+/* What the system says when it asks for access (Info.plist) */
+"NSCameraUsageDescription" = "Gramify používá fotoaparát k pořizování fotek, které posíláš v Direct.";
+"NSMicrophoneUsageDescription" = "Gramify používá mikrofon k nahrávání hlasových zpráv.";
+"NSPhotoLibraryUsageDescription" = "Gramify otevírá tvoje fotky, abys je mohl(a) poslat v Direct.";
