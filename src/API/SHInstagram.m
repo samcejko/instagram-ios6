@@ -855,11 +855,33 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
                 if (r) [reels addObject:r];
             }
         }
-        if (reels.count == 0 && ids.count == 1) {   // reels_media answers {"reels":{}} for this account: ask per user
+        if (reels.count == 0 && ids.count == 1 && ![ids[0] hasPrefix:@"highlight:"]) {   // reels_media answers {"reels":{}} for this account: ask per user
             [self userStoryFeed:ids[0] completion:completion];
             return;
         }
         completion(reels, nil);
+    }];
+}
+
+// A profile's highlights (GET highlights/<pk>/highlights_tray/, as the app asks when a profile opens): title, cover
+// and count each, the stories themselves come from reels_media with the "highlight:…" id when one is opened.
++ (SHHTTPTask *)highlightsForUser:(NSString *)userPk completion:(SHStoriesCompletion)completion
+{
+    NSString *capabilities = @"[{\"name\":\"SUPPORTED_SDK_VERSIONS\",\"value\":\"108.0,109.0,110.0,111.0,112.0,113.0,114.0,115.0,116.0,117.0,118.0,119.0\"},"
+                              "{\"name\":\"FACE_TRACKER_VERSION\",\"value\":\"14\"},{\"name\":\"segmentation\",\"value\":\"segmentation_enabled\"},"
+                              "{\"name\":\"COMPRESSION\",\"value\":\"ETC2_COMPRESSION\"},{\"name\":\"world_tracker\",\"value\":\"world_tracker_enabled\"},"
+                              "{\"name\":\"gyroscope\",\"value\":\"gyroscope_enabled\"}]";
+    NSString *url = [NSString stringWithFormat:@"%@/highlights/%@/highlights_tray/?supported_capabilities_new=%@&phone_id=%@&battery_level=%d&is_charging=1&will_sound_on=0",
+                     SHApiBase, userPk ?: @"", [SHUtils urlEncode:capabilities], [SHUtils urlEncode:[SHSettings phoneId] ?: [SHSettings deviceId] ?: @""],
+                     70 + (int)arc4random_uniform(30)];
+    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        NSMutableArray *reels = [NSMutableArray array];
+        for (id entry in SHArr(SHDict(json)[@"tray"])) {
+            SHStoryReel *r = [SHStoryReel fromJSON:SHDict(entry)];
+            if (r.isHighlight) [reels addObject:r];
+        }
+        if (SHDebugLogging()) SHLog(@"HIGHLIGHTS %@ status=%ld n=%lu %@", userPk, (long)status, (unsigned long)reels.count, error.localizedDescription ?: @"");
+        completion(error ? nil : reels, error);
     }];
 }
 
@@ -1688,6 +1710,26 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
     }];
 }
 
+// POST direct_v2/visual_threads/<thread>/item_seen/ with item_ids as a list (a plain form): how the app reports a
+// "view once" picture opened.
++ (SHHTTPTask *)markVisualItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion
+{
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"item_ids": [NSString stringWithFormat:@"[%@]", itemId ?: @""],
+        @"_uuid": [SHSettings deviceId],
+        @"_uid": [SHSettings userId] ?: @"",
+    }];
+    if ([SHSettings csrfToken].length) fields[@"_csrftoken"] = [SHSettings csrfToken];
+    NSString *url = [NSString stringWithFormat:@"%@/direct_v2/visual_threads/%@/item_seen/", SHApiBase, threadId ?: @""];
+    return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
+        BOOL ok = !error && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"];
+        if (SHDebugLogging()) SHLog(@"DMVISUALSEEN status=%ld ok=%d %@", (long)status, ok, ok ? @"" : (error.localizedDescription ?: @""));
+        if (completion) completion(ok, error);
+    }];
+}
+
 #pragma mark - Direct: posts, photos and voice
 
 static BOOL SHDebugLogging(void)
@@ -1738,12 +1780,7 @@ static SHHTTPTask *SHDirectBroadcast(NSString *item, NSDictionary *fields, NSStr
         if (!ok) {
             // Instagram's own words when it has any; its HTTP 500 says just "None"
             NSString *text = [SHHTTP messageFromErrorJSON:json] ?: error.localizedDescription;
-            if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) {
-                BOOL media = [item isEqualToString:@"configure_photo"] || [item isEqualToString:@"share_voice"]
-                          || [item isEqualToString:@"voice_attachment"];
-                text = media ? L(@"Instagram didn't accept it. In a message request they haven't accepted yet, only text can be sent.")
-                             : L(@"The message didn't send.");
-            }
+            if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) text = L(@"The message didn't send.");
             failure = SHMakeError(status >= 400 ? status : (error ? error.code : SHErrorAPI), text);
         }
         completion(ok, thread, failure);
@@ -1755,42 +1792,72 @@ static NSString *SHUploadIdNow(void)
     return [NSString stringWithFormat:@"%lld", (long long)([[NSDate date] timeIntervalSince1970] * 1000)];
 }
 
-static NSString *SHUploadName(NSString *uploadId)
+// Photos and voice messages go into a chat the way the app sends them since 2025 (instagrapi does the same): the file
+// to rupload.facebook.com (messenger_image / messenger_audio), with only the few headers the app sends to Facebook's
+// hosts (the whole Instagram set makes the upload fail), and the media_id it answers goes out as attachment_fbid with
+// broadcast/photo_attachment or broadcast/voice_attachment. (broadcast/configure_photo answers 500 "None" since then,
+// broadcast/share_voice 404.)
+static NSMutableDictionary *SHMessengerUploadHeaders(NSString *typeHeader)
 {
-    return [NSString stringWithFormat:@"%@_0_%u%09u", uploadId, 1 + arc4random_uniform(9), arc4random_uniform(1000000000)];
+    NSString *uid = [SHSettings userId] ?: @"";
+    NSMutableDictionary *h = [NSMutableDictionary dictionary];
+    NSString *token = [SHSettings sessionToken];
+    if (token.length) h[@"authorization"] = [@"Bearer IGT:2:" stringByAppendingString:token];
+    h[@"ig-intended-user-id"] = uid;
+    h[@"ig-u-ds-user-id"] = uid;
+    h[@"accept-language"] = @"en-US";
+    h[@"priority"] = @"u=6, i";
+    h[@"user-agent"] = SHUserAgent();
+    h[@"x-fb-client-ip"] = @"True";
+    h[@"x-fb-friendly-name"] = @"undefined:media-upload";
+    h[@"x-fb-http-engine"] = @"Tigon/MNS/TCP";
+    h[@"x-fb-request-analytics-tags"] = [NSString stringWithFormat:@"{\"network_tags\":{\"product\":\"%@\",\"surface\":\"undefined\","
+                                         "\"request_category\":\"media_upload\",\"purpose\":\"none\",\"retry_attempt\":\"0\"}}", SHAppId];
+    h[@"x-fb-rmd"] = @"state=URL_ELIGIBLE";
+    h[@"x-fb-server-cluster"] = @"True";
+    h[@"x-tigon-is-retry"] = @"False";
+    h[@"x-ig-salt-ids"] = @"51052545";
+    h[typeHeader] = @"FILE_ATTACHMENT";   // image_type / audio_type
+    return h;
 }
 
-// rupload: the file itself, before it is sent (photo: rupload_igphoto, voice: rupload_igvideo). Answers the upload id.
-static SHHTTPTask *SHRupload(NSString *kind, NSData *data, NSDictionary *params, NSString *uploadId, NSString *entityType,
-                             void (^completion)(NSString *uploadId, NSError *error))
+// A short answer of the upload service as text for the debug log (it carries ids and errors, no session).
+static NSString *SHShortBody(NSData *body)
 {
-    NSString *name = SHUploadName(uploadId);
-    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"X-Instagram-Rupload-Params"] = SHJSONString(params);
-    h[[kind isEqualToString:@"igphoto"] ? @"X_FB_PHOTO_WATERFALL_ID" : @"X_FB_VIDEO_WATERFALL_ID"] = [[NSUUID UUID] UUIDString];
-    h[@"X-Entity-Type"] = entityType;
-    h[@"X-Entity-Name"] = name;
-    h[@"X-Entity-Length"] = [NSString stringWithFormat:@"%lu", (unsigned long)data.length];
-    h[@"Offset"] = @"0";
-    h[@"Content-Type"] = @"application/octet-stream";
-    NSString *url = [NSString stringWithFormat:@"https://i.instagram.com/rupload_%@/%@", kind, name];
-    return [SHHTTP request:@"POST" url:url headers:h body:data retries:0
-                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
-        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
+    if (!body.length) return @"-";
+    if (body.length > 400) return [NSString stringWithFormat:@"(%lu B)", (unsigned long)body.length];
+    return [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"(binary)";
+}
+
+// The file (from `offset` on, when an upload goes on) to rupload.facebook.com/messenger_<kind>/<entity>; answers the
+// media_id.
+static SHHTTPTask *SHMessengerUpload(NSString *kind, NSString *entity, NSData *data, NSString *entityType, NSString *typeHeader,
+                                     NSUInteger offset, void (^completion)(NSString *mediaId, NSError *error))
+{
+    NSMutableDictionary *h = SHMessengerUploadHeaders(typeHeader);
+    h[@"content-type"] = @"application/octet-stream";
+    h[@"offset"] = [NSString stringWithFormat:@"%lu", (unsigned long)offset];
+    h[@"x-entity-length"] = [NSString stringWithFormat:@"%lu", (unsigned long)data.length];
+    h[@"x-entity-name"] = entity;
+    h[@"x-entity-type"] = entityType;
+    NSData *body = offset > 0 && offset < data.length ? [data subdataWithRange:NSMakeRange(offset, data.length - offset)] : data;
+    NSString *url = [NSString stringWithFormat:@"https://rupload.facebook.com/messenger_%@/%@", kind, entity];
+    return [SHHTTP request:@"POST" url:url headers:h body:body retries:0
+                completion:^(NSInteger status, NSData *resp, NSDictionary *headers, NSError *error) {
+        NSDictionary *d = SHDict(resp.length ? [SHUtils JSONObjectFromData:resp] : nil);
+        NSString *mediaId = SHStr(d[@"media_id"]);
         if (SHDebugLogging())
-            SHLog(@"UPLOAD %@ %lu B status=%ld %@ %@", kind, (unsigned long)data.length, (long)status, SHStr(d[@"status"]) ?: @"-",
-                  SHStr(d[@"message"]) ?: error.localizedDescription ?: @"");
-        if (error || status >= 400 || ![SHStr(d[@"status"]) isEqualToString:@"ok"]) {
+            SHLog(@"UPLOAD messenger_%@ %lu B status=%ld media_id=%@ %@", kind, (unsigned long)data.length, (long)status,
+                  mediaId.length ? @"yes" : @"no", mediaId.length ? @"" : SHShortBody(resp));
+        if (!mediaId.length) {
             NSString *text = [SHHTTP messageFromErrorJSON:d] ?: error.localizedDescription;
             if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) text = L(@"The upload failed.");
             completion(nil, SHMakeError(status >= 400 ? status : (error ? error.code : SHErrorAPI), text));
             return;
         }
-        completion(SHStr(d[@"upload_id"]) ?: uploadId, nil);
+        completion(mediaId, nil);
     }];
 }
-
-static NSString * const SHRetryContext = @"{\"num_step_auto_retry\":0,\"num_reupload\":0,\"num_step_manual_retry\":0}";
 
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId orUser:(NSString *)userPk
                     completion:(void (^)(BOOL ok, NSString *threadId, NSError *error))completion
@@ -1809,106 +1876,58 @@ static NSString * const SHRetryContext = @"{\"num_step_auto_retry\":0,\"num_reup
     return SHDirectBroadcast(@"media_share", fields, threadId, userPk, completion);
 }
 
-// A photo into a chat: rupload_igphoto, then configure_photo.
+// A photo into a chat: the JPEG to messenger_image, then broadcast/photo_attachment.
 + (SHHTTPTask *)sendDirectPhoto:(NSData *)jpeg toThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
-    NSString *uploadId = SHUploadIdNow();
-    NSDictionary *params = @{ @"retry_context": SHRetryContext, @"media_type": @"1", @"xsharing_user_ids": @"[]", @"upload_id": uploadId,
-                              @"image_compression": @"{\"lib_name\":\"moz\",\"lib_version\":\"3.1.m\",\"quality\":\"80\"}" };
+    NSString *entity = [@"fb_uploader_" stringByAppendingString:SHUploadIdNow()];
     __block SHHTTPTask *task = nil;
-    task = SHRupload(@"igphoto", jpeg, params, uploadId, @"image/jpeg", ^(NSString *uploaded, NSError *error) {
-        if (!uploaded) { completion(NO, error); return; }
-        NSDictionary *fields = @{ @"upload_id": uploaded, @"allow_full_aspect_ratio": @"true", @"send_attribution": @"inbox" };
-        SHHTTPTask *inner = SHDirectBroadcast(@"configure_photo", fields, threadId, nil, ^(BOOL ok, NSString *thread, NSError *err) {
+    task = SHMessengerUpload(@"image", entity, jpeg, @"image/jpeg", @"image_type", 0, ^(NSString *mediaId, NSError *error) {
+        if (!mediaId) { completion(NO, error); return; }
+        NSDictionary *fields = @{ @"attachment_fbid": mediaId, @"send_attribution": @"inbox", @"allow_full_aspect_ratio": @"true",
+                                  @"is_x_transport_forward": @"false", @"is_shh_mode": @"0", @"btt_dual_send": @"false",
+                                  @"is_ae_dual_send": @"false" };
+        SHHTTPTask *send = SHDirectBroadcast(@"photo_attachment", fields, threadId, nil, ^(BOOL ok, NSString *thread, NSError *err) {
             completion(ok, err);
         });
-        task.cancelBlock = ^{ [inner cancel]; };
+        task.cancelBlock = ^{ [send cancel]; };
     });
     return task;
 }
 
-// The upload is finished before the voice message can be sent; Instagram may still be converting the audio and says
-// so (a 202 or "transcode"): asked again a few times, a second apart.
-static SHHTTPTask *SHUploadFinish(NSString *uploadId, NSInteger attempt, void (^completion)(BOOL ok, NSError *error))
-{
-    NSDictionary *device = @{ @"manufacturer": @"OnePlus", @"model": @"LE2123", @"android_version": @34, @"android_release": @"14" };
-    NSDictionary *params = @{ @"timezone_offset": [NSString stringWithFormat:@"%ld", (long)[[NSTimeZone localTimeZone] secondsFromGMT]],
-                              @"_csrftoken": [SHSettings csrfToken] ?: @"", @"source_type": @"4", @"_uid": [SHSettings userId] ?: @"",
-                              @"device_id": [SHSettings androidId], @"_uuid": [SHSettings deviceId], @"upload_id": uploadId, @"device": device };
-    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    h[@"retry_context"] = SHRetryContext;
-    __block SHHTTPTask *task = nil;
-    task = [SHHTTP request:@"POST" url:[SHApiBase stringByAppendingString:@"/media/upload_finish/"] headers:h body:SHSignedBodyData(params)
-                   retries:0 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
-        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
-        NSString *message = SHStr(d[@"message"]) ?: @"";
-        if (SHDebugLogging()) SHLog(@"UPLOAD finish %@ status=%ld %@ %@", uploadId, (long)status, SHStr(d[@"status"]) ?: @"-", message);
-        BOOL pending = status == 202 || [[message lowercaseString] rangeOfString:@"transcode"].location != NSNotFound;
-        if (pending && attempt < 5 && !error) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                if (task.isCancelled) return;
-                SHHTTPTask *again = SHUploadFinish(uploadId, attempt + 1, completion);
-                task.cancelBlock = ^{ [again cancel]; };
-            });
-            return;
-        }
-        BOOL ok = !error && status < 400 && [SHStr(d[@"status"]) isEqualToString:@"ok"];
-        completion(ok, ok ? nil : (error ?: SHMakeError(status >= 400 ? status : SHErrorAPI, [SHHTTP messageFromErrorJSON:d] ?: L(@"The upload failed."))));
-    }];
-    return task;
-}
-
-// A voice message. broadcast/share_voice (after rupload_igvideo + upload_finish) answers 404 since 2025 ("no longer
-// supported"); what the app does now, as reported in dilame/instagram-private-api#1832 (not confirmed there): the audio
-// goes to rupload.facebook.com/messenger_audio/<upload id>, whose answer carries "media_id", and that is sent as an
-// attachment with broadcast/voice_attachment, with the shape of the sound (levels 0-1, ten a second, comma-separated).
+// A voice message (AAC in an MP4 file): the app first asks messenger_audio where an upload of that name stands (the
+// offset), sends the rest, then broadcast/voice_attachment with the shape of the sound (levels 0-1, ten a second,
+// as a JSON list; only the bubble's drawing uses it).
 + (SHHTTPTask *)sendDirectVoice:(NSData *)audio duration:(NSTimeInterval)duration waveform:(NSArray *)waveform
                        toThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
     NSString *uploadId = SHUploadIdNow();
-    NSDictionary *params = @{ @"message_id": uploadId, @"upload_id": uploadId, @"xsharing_user_ids": @"[]",
-                              @"media_type": @11, @"is_direct_voice": @YES };
-    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"X-Instagram-Rupload-Params"] = SHJSONString(params);
-    h[@"X_FB_VIDEO_WATERFALL_ID"] = [[NSUUID UUID] UUIDString];
-    // (AAC in an MP4 file, as recorded; announced the way the reported working request did: "audio/mp4" makes the
-    // upload service answer ProcessingFailedError)
-    h[@"X-Entity-Type"] = @"audio/aac";
-    h[@"X-Entity-Name"] = [uploadId stringByAppendingString:@".m4a"];
-    h[@"X-Entity-Length"] = [NSString stringWithFormat:@"%lu", (unsigned long)audio.length];
-    h[@"Offset"] = @"0";
-    h[@"X-Auth-Type"] = @"instagram";
-    h[@"Content-Type"] = @"application/octet-stream";
+    NSString *entity = [NSString stringWithFormat:@"%@_0_%d", uploadId, (int)arc4random()];
     NSMutableArray *levels = [NSMutableArray array];
-    for (NSNumber *n in waveform) [levels addObject:[NSString stringWithFormat:@"%.3f", n.doubleValue]];
-    NSString *wave = levels.count ? [levels componentsJoinedByString:@","] : @"0.5";
+    for (NSNumber *n in waveform) [levels addObject:[NSString stringWithFormat:@"%.3f", MAX(0.05, MIN(1.0, n.doubleValue))]];
+    if (!levels.count) [levels addObject:@"0.5"];
+    NSString *wave = [NSString stringWithFormat:@"[%@]", [levels componentsJoinedByString:@","]];
+    NSString *url = [@"https://rupload.facebook.com/messenger_audio/" stringByAppendingString:entity];
     __block SHHTTPTask *task = nil;
-    task = [SHHTTP request:@"POST" url:[@"https://rupload.facebook.com/messenger_audio/" stringByAppendingString:uploadId]
-                   headers:h body:audio retries:0 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
-        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
-        NSString *attachment = SHStr(d[@"media_id"]) ?: SHStr(d[@"fbid"]) ?: SHStr(d[@"attachment_fbid"]);
-        if (SHDebugLogging()) {
-            // (the upload service's answer is a short error object, no session in it: shown whole when it is small)
-            NSString *raw = body.length && body.length < 600 ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] : nil;
-            SHLog(@"UPLOAD messenger_audio %lu B %.1f s status=%ld keys=%@ attachment=%@ %@ body=%@", (unsigned long)audio.length, duration,
-                  (long)status, [[d allKeys] componentsJoinedByString:@","], attachment.length ? @"yes" : @"no",
-                  SHStr(d[@"message"]) ?: error.localizedDescription ?: @"", attachment.length ? @"-" : (raw ?: @"-"));
-        }
-        if (!attachment.length) {
-            NSString *text = [SHHTTP messageFromErrorJSON:d] ?: error.localizedDescription;
-            if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) text = L(@"The upload failed.");
-            completion(NO, SHMakeError(status >= 400 ? status : (error ? error.code : SHErrorAPI), text));
+    task = [SHHTTP request:@"GET" url:url headers:SHMessengerUploadHeaders(@"audio_type") body:nil retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        if (SHDebugLogging()) SHLog(@"UPLOAD messenger_audio offset %.1f s status=%ld %@", duration, (long)status, SHShortBody(body));
+        if (error || status != 200) {
+            completion(NO, error ?: SHMakeError(status >= 400 ? status : SHErrorAPI, L(@"The upload failed.")));
             return;
         }
-        NSDictionary *fields = @{ @"upload_id": uploadId, @"attachment_fbid": attachment, @"waveform": wave,
-                                  @"waveform_sampling_frequency_hz": @"10", @"send_attribution": @"direct_inbox",
-                                  @"content_type": @"audio",
-                                  @"client_timestamp": [NSString stringWithFormat:@"%lld", (long long)([[NSDate date] timeIntervalSince1970] * 1000)] };
-        SHHTTPTask *send = SHDirectBroadcast(@"voice_attachment", fields, threadId, nil, ^(BOOL ok, NSString *thread, NSError *err) {
-            completion(ok, err);
+        NSInteger offset = SHInt(SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil)[@"offset"]);
+        if (offset < 0 || (NSUInteger)offset >= audio.length) offset = 0;
+        SHHTTPTask *upload = SHMessengerUpload(@"audio", entity, audio, @"audio/mp4", @"audio_type", (NSUInteger)offset,
+                                               ^(NSString *mediaId, NSError *err) {
+            if (!mediaId) { completion(NO, err); return; }
+            NSDictionary *fields = @{ @"attachment_fbid": mediaId, @"upload_id": uploadId, @"waveform": wave,
+                                      @"waveform_sampling_frequency_hz": @"10", @"send_attribution": @"inbox" };
+            SHHTTPTask *send = SHDirectBroadcast(@"voice_attachment", fields, threadId, nil, ^(BOOL ok, NSString *thread, NSError *e) {
+                completion(ok, e);
+            });
+            task.cancelBlock = ^{ [send cancel]; };
         });
-        task.cancelBlock = ^{ [send cancel]; };
+        task.cancelBlock = ^{ [upload cancel]; };
     }];
     return task;
 }

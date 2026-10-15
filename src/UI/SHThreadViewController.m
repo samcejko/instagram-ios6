@@ -1,6 +1,7 @@
 #import "SHThreadViewController.h"
 #import "SHProfileViewController.h"
 #import "SHPostDetailViewController.h"
+#import "SHStoryViewController.h"
 #import "SHTabIcons.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
@@ -194,8 +195,10 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
     BOOL isLike = SHIsLike(m);
     BOOL isVoice = !isLike && m.audioURL.length > 0;
     BOOL isMedia = !isLike && !isVoice && (m.previewURL.length > 0 || m.localImage);
-    // a text's own label takes the taps on its links; the bubble's tap is for voice, pictures and shared posts
-    _bubbleTap.enabled = isVoice || isMedia;
+    // a text's own label takes the taps on its links; the bubble's tap is for voice, pictures and shared posts, and
+    // for a "view once" picture of the other side's that can still be opened
+    BOOL openable = m.ephemeral && !outgoing && (m.ephemeralURL.length || m.videoURL.length);
+    _bubbleTap.enabled = isVoice || isMedia || openable;
     self.contentView.alpha = m.sending ? 0.55f : 1;
     CGFloat tail = [theme bubbleTailWidth];
     CGFloat inset = outgoing ? 0 : tail;   // the tail side of a bubble is not room for its content
@@ -743,7 +746,8 @@ static BOOL SHIsLocalMessage(SHDirectMessage *m) { return !m.pk.length || [m.pk 
 static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
 {
     return [a.pk isEqualToString:b.pk] && [(a.type ?: @"") isEqualToString:(b.type ?: @"")]
-        && [(a.text ?: @"") isEqualToString:(b.text ?: @"")];
+        && [(a.text ?: @"") isEqualToString:(b.text ?: @"")]
+        && [(a.placeholderText ?: @"") isEqualToString:(b.placeholderText ?: @"")];   // (a "view once" picture opened elsewhere)
 }
 
 // Instagram's copy of a message sent from here: one of mine of the same kind, from about then on, not shown before.
@@ -1380,8 +1384,42 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
     [self.navigationController pushViewController:vc animated:YES];
 }
 
+// A "view once" (or "replay") photo or video of the other side opens full screen like a story, and the sender learns
+// it was opened; a "once" one is offered only once.
+- (void)openEphemeral:(SHDirectMessage *)m
+{
+    BOOL once = [m.viewMode isEqualToString:@"once"];
+    if ([m.senderPk isEqualToString:_myId] || (!m.ephemeralURL.length && !m.videoURL.length)) return;
+    SHStoryItem *item = [[SHStoryItem alloc] init];
+    item.pk = m.pk;
+    item.mediaType = m.videoURL.length ? 2 : 1;
+    item.videoURL = m.videoURL;
+    SHMediaImage *img = [[SHMediaImage alloc] init];
+    img.url = m.ephemeralURL ?: @"";
+    item.image = img;
+    item.takenAt = m.timestamp;
+    SHStoryReel *reel = [[SHStoryReel alloc] init];
+    reel.user = _usersByPk[m.senderPk ?: @""] ?: [self otherUser];
+    reel.items = @[ item ];
+    reel.reelId = [@"dm:" stringByAppendingString:m.pk ?: @""];
+    reel.fromChat = YES;
+    SHStoryViewController *viewer = [[SHStoryViewController alloc] initWithReels:@[ reel ] startIndex:0];
+    viewer.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:viewer animated:YES completion:nil];
+
+    if (once) {
+        [SHDirectMessage noteEphemeralOpened:m.pk];
+        m.ephemeralURL = nil;
+        m.videoURL = nil;
+        m.placeholderText = m.mediaIsVideo ? L(@"Opened video") : L(@"Opened photo");
+        [_tableView reloadData];
+    }
+    [SHInstagram markVisualItemSeen:m.pk inThread:_thread.threadId completion:nil];
+}
+
 - (void)bubbleCell:(SHBubbleCell *)cell didTapMessage:(SHDirectMessage *)m
 {
+    if (m.ephemeral) { [self openEphemeral:m]; return; }
     if (m.audioURL.length) { [self playVoice:m]; return; }
     if (m.sharedPost) {
         [self.navigationController pushViewController:[[SHPostDetailViewController alloc] initWithPost:m.sharedPost] animated:YES];

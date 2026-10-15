@@ -208,8 +208,11 @@ static const CGFloat SHStoryAvatar = 34;
 
 - (void)showHeaderForReel:(SHStoryReel *)reel item:(SHStoryItem *)item
 {
-    [_avatarView setImageURL:reel.user.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:SHStoryAvatar]];
-    _usernameLabel.text = reel.user.username;
+    // a highlight shows its cover and its name, as in the app
+    BOOL highlight = reel.isHighlight && (reel.coverURL.length || reel.title.length);
+    [_avatarView setImageURL:highlight && reel.coverURL.length ? reel.coverURL : reel.user.profilePicURL
+                 placeholder:[[SHTheme shared] avatarPlaceholderWithSize:SHStoryAvatar]];
+    _usernameLabel.text = highlight && reel.title.length ? [SHUtils displayText:reel.title] : reel.user.username;
     _timeLabel.text = item.takenAt ? [SHUtils formatRelativeDate:item.takenAt] : @"";
     CGFloat x = 12 + SHStoryAvatar + 10, y = SHStoryTop + 12;
     CGFloat maxName = self.view.bounds.size.width - x - 140;
@@ -378,6 +381,7 @@ static const CGFloat SHStoryAvatar = 34;
 {
     if (!item || _closing) return;
     [self showMentionsForItem:item];
+    if (!reel.tracksSeen) return;   // (a highlight, a chat's photo: no ring, no view list)
     if (_pendingReel != reel) [self flushSeen];
     BOOL isNew = [item.takenAt timeIntervalSince1970] > reel.seenUpTo;
     [reel noteSeenItem:item];
@@ -408,7 +412,8 @@ static const CGFloat SHStoryAvatar = 34;
     [self updateSegmentsWithProgress:0];
     [_spinner startAnimating];
     [_fetchTask cancel];
-    _fetchTask = [SHInstagram storiesForUserIds:@[ reel.user.pk ?: @"" ] completion:^(NSArray *reels, NSError *error) {
+    NSString *reelId = reel.isHighlight ? reel.reelId : (reel.user.pk ?: @"");   // (a highlight is asked for by its own id)
+    _fetchTask = [SHInstagram storiesForUserIds:@[ reelId ?: @"" ] completion:^(NSArray *reels, NSError *error) {
         if (serial != self->_showSerial) return;
         SHStoryReel *fetched = [reels firstObject];
         if (fetched.items.count) {

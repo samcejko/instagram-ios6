@@ -2,6 +2,7 @@
 #import "SHModels.h"
 #import "SHImageLoader.h"
 #import "SHTheme.h"
+#import "SHUtils.h"
 #import "SHCommon.h"
 
 static const CGFloat SHStorySize = 56;   // the picture; the glossy ring goes around it
@@ -54,20 +55,23 @@ static const CGFloat SHStoryPad = 10;
         UIView *container = [[UIView alloc] initWithFrame:CGRectMake(x, 5, ringSize, self.bounds.size.height - 8)];
         container.tag = (NSInteger)i;
 
-        UIImageView *ring = [[UIImageView alloc] initWithImage:[theme storyRingImageWithSize:ringSize seen:reel.seen]];
+        // a highlight: its cover in a grey ring and its name under it (stories: the person, coloured until seen)
+        BOOL highlight = reel.isHighlight;
+        UIImageView *ring = [[UIImageView alloc] initWithImage:[theme storyRingImageWithSize:ringSize seen:highlight || reel.seen]];
         ring.frame = CGRectMake(0, 0, ringSize, ringSize);
         [container addSubview:ring];
 
         SHImageView *avatar = [[SHImageView alloc] initWithFrame:CGRectMake(5, 5, SHStorySize, SHStorySize)];
         [theme styleAvatar:avatar radius:SHStorySize / 2];
         avatar.maxPixels = 160;
-        [avatar setImageURL:reel.user.profilePicURL placeholder:[theme avatarPlaceholderWithSize:SHStorySize]];
+        [avatar setImageURL:highlight && reel.coverURL.length ? reel.coverURL : reel.user.profilePicURL
+                placeholder:[theme avatarPlaceholderWithSize:SHStorySize]];
         [container addSubview:avatar];
 
         UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(-6, ringSize + 2, ringSize + 12, 14)];
-        name.text = reel.user.username;
+        name.text = highlight ? [SHUtils displayText:reel.title ?: @""] : reel.user.username;
         name.font = [UIFont boldSystemFontOfSize:10];
-        name.textColor = reel.seen ? [theme secondaryTextColor] : [theme textColor];
+        name.textColor = reel.seen && !highlight ? [theme secondaryTextColor] : [theme textColor];
         name.backgroundColor = [UIColor clearColor];
         name.textAlignment = NSTextAlignmentCenter;
         name.lineBreakMode = NSLineBreakByTruncatingTail;

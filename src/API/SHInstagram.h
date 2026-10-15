@@ -89,6 +89,8 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 // A chat read up to this message (Instagram shows the sender "Seen", and the thread is no longer unread).
 + (SHHTTPTask *)markDirectItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion;
+// A "view once" photo or video of a chat opened (the sender sees "Opened").
++ (SHHTTPTask *)markVisualItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 // The same to a thread or, without one, to a person (Instagram finds or opens the one-to-one thread); answers the thread.
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId orUser:(NSString *)userPk
                     completion:(void (^)(BOOL ok, NSString *threadId, NSError *error))completion;
@@ -113,6 +115,8 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (SHHTTPTask *)searchHashtags:(NSString *)query completion:(void (^)(NSArray *tags, NSError *error))completion;
 
 + (SHHTTPTask *)storiesTrayWithCompletion:(SHStoriesCompletion)completion;
+// A profile's highlights: SHStoryReel with a title and a cover, the items fetched when one is opened.
++ (SHHTTPTask *)highlightsForUser:(NSString *)userPk completion:(SHStoriesCompletion)completion;
 + (SHHTTPTask *)storiesForUserIds:(NSArray *)userIds completion:(SHStoriesCompletion)completion;
 // Fetches the stories of the tray's circles that came without them (one request) and answers only the circles
 // that have a story to show.

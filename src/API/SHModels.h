@@ -86,9 +86,17 @@
 
 // One person's stories. "Seen" means every one of them has been looked at (the ring turns grey); how far the viewer
 // got is kept as the time the newest seen story was posted, by Instagram and on this device.
+// A highlight (stories kept on a profile, under a title and a cover) is a reel too; its id is "highlight:<number>".
 @interface SHStoryReel : NSObject
 @property (nonatomic, strong) SHUser *user;
 @property (nonatomic, strong) NSArray *items;
+@property (nonatomic, copy) NSString *reelId;            // the user's pk for stories, "highlight:…" for a highlight
+@property (nonatomic, readonly) BOOL isHighlight;
+@property (nonatomic, copy) NSString *title;             // a highlight's name
+@property (nonatomic, copy) NSString *coverURL;          // a highlight's round cover
+@property (nonatomic) NSInteger mediaCount;
+@property (nonatomic) BOOL fromChat;                     // a photo or video of a chat shown full screen, not stories
+@property (nonatomic, readonly) BOOL tracksSeen;         // a person's own stories (the ring, Instagram's view list)
 @property (nonatomic) BOOL seen;
 @property (nonatomic) NSTimeInterval latestReelMedia;   // when the newest story was posted (unix time)
 @property (nonatomic) NSTimeInterval seenUpTo;          // when the newest story already seen was posted
@@ -128,6 +136,14 @@
 @property (nonatomic, copy) NSString *videoURL;         // a video sent directly
 @property (nonatomic, strong) UIImage *localImage;      // a photo just sent from here, shown until the thread reloads
 @property (nonatomic) BOOL sending;                     // on its way (drawn faded)
+// A photo or video from the chat's camera ("raven_media") meant to be opened on purpose: view_mode "once" or
+// "replayable" ("permanent" ones are shown like any picture). The picture is there until it was seen.
+@property (nonatomic) BOOL ephemeral;
+@property (nonatomic, copy) NSString *viewMode;
+@property (nonatomic, copy) NSString *ephemeralURL;     // the picture to open (nil once seen or gone)
+@property (nonatomic) BOOL mediaIsVideo;
++ (BOOL)ephemeralOpened:(NSString *)pk;                // opened on this device already
++ (void)noteEphemeralOpened:(NSString *)pk;
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end
 

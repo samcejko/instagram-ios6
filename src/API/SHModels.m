@@ -1,4 +1,5 @@
 #import "SHModels.h"
+#import "SHSettings.h"
 #import "SHCommon.h"
 
 @implementation SHUser
@@ -239,6 +240,13 @@
         if (s) [items addObject:s];
     }
     r.items = items;
+    r.reelId = SHStr(d[@"id"]) ?: r.user.pk;
+    r.title = SHStr(d[@"title"]) ?: @"";
+    // a highlight's cover: a square crop of one of its pictures
+    NSDictionary *cover = SHDict(d[@"cover_media"]);
+    r.coverURL = SHStr(SHDict(cover[@"cropped_image_version"])[@"url"])
+              ?: SHStr([SHMediaImage candidateFromCandidates:SHArr(SHDict(cover[@"image_versions2"])[@"candidates"]) minWidth:150].url) ?: @"";
+    r.mediaCount = SHInt(d[@"media_count"]);
     // "seen" is the time the newest story already seen was posted; the reel is seen once that reaches its newest
     r.latestReelMedia = SHDbl(d[@"latest_reel_media"]);
     for (SHStoryItem *s in items) r.latestReelMedia = MAX(r.latestReelMedia, [s.takenAt timeIntervalSince1970]);
@@ -251,6 +259,10 @@
 {
     self.seen = self.latestReelMedia > 0 && self.seenUpTo >= self.latestReelMedia;
 }
+
+- (BOOL)isHighlight { return [self.reelId hasPrefix:@"highlight:"]; }
+
+- (BOOL)tracksSeen { return !self.isHighlight && !self.fromChat; }
 
 // user pk -> the post time of the newest story of theirs seen on this device; stories live a day, so entries older
 // than two days are dropped whenever the list is read
@@ -274,6 +286,7 @@ static NSMutableDictionary *SHSeenStore(void)
 
 - (void)noteSeenItem:(SHStoryItem *)item
 {
+    if (!self.tracksSeen) return;   // (a highlight's old stories, a chat's photo: not the person's ring)
     NSTimeInterval t = [item.takenAt timeIntervalSince1970];
     if (t <= self.seenUpTo) return;
     self.seenUpTo = t;
@@ -286,6 +299,7 @@ static NSMutableDictionary *SHSeenStore(void)
 
 - (void)applyRememberedSeen
 {
+    if (!self.tracksSeen) return;
     NSTimeInterval t = [SHSeenStore()[self.user.pk ?: @""] doubleValue];
     if (t <= self.seenUpTo) return;
     self.seenUpTo = t;
@@ -348,6 +362,23 @@ static NSMutableDictionary *SHSeenStore(void)
 
 @implementation SHDirectMessage
 
+// The "view once" pictures opened on this device (item ids, the last few hundred).
+static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
+
++ (BOOL)ephemeralOpened:(NSString *)pk
+{
+    return pk.length && [[[NSUserDefaults standardUserDefaults] arrayForKey:SHOpenedEphemeralKey] containsObject:pk];
+}
+
++ (void)noteEphemeralOpened:(NSString *)pk
+{
+    if (!pk.length || [self ephemeralOpened:pk]) return;
+    NSMutableArray *list = [[[NSUserDefaults standardUserDefaults] arrayForKey:SHOpenedEphemeralKey] mutableCopy] ?: [NSMutableArray array];
+    [list addObject:pk];
+    while (list.count > 300) [list removeObjectAtIndex:0];
+    [[NSUserDefaults standardUserDefaults] setObject:list forKey:SHOpenedEphemeralKey];
+}
+
 + (instancetype)fromJSON:(NSDictionary *)json
 {
     NSDictionary *d = SHDict(json);
@@ -389,6 +420,40 @@ static NSMutableDictionary *SHSeenStore(void)
         m.audioURL = SHStr(audio[@"audio_src"]);
         m.audioDuration = SHDbl(audio[@"duration"]) / 1000.0;   // milliseconds
         m.placeholderText = L(@"Voice message");
+    } else if ([m.type isEqualToString:@"raven_media"]) {
+        // A photo or video from the chat's camera. "permanent" ones stay in the chat like any picture; "once" and
+        // "replayable" ones are opened on purpose (the sender learns it), and once seen Instagram sends no picture.
+        NSDictionary *vm = SHDict(d[@"visual_media"]);
+        NSDictionary *media = SHDict(vm[@"media"]);
+        NSArray *candidates = SHArr(SHDict(media[@"image_versions2"])[@"candidates"]);
+        m.viewMode = SHStr(vm[@"view_mode"]) ?: @"";
+        m.videoURL = SHStr(SHDict([SHArr(media[@"video_versions"]) firstObject])[@"url"]);
+        BOOL video = m.videoURL.length || SHInt(media[@"media_type"]) == 2;
+        m.ephemeral = [m.viewMode isEqualToString:@"once"] || [m.viewMode isEqualToString:@"replayable"];
+        if (m.ephemeral) {
+            m.ephemeralURL = [SHMediaImage candidateFromCandidates:candidates minWidth:640].url;
+            // one opened here already ("once") is not offered again, also when Instagram still lists the picture
+            if ([m.viewMode isEqualToString:@"once"] && [SHDirectMessage ephemeralOpened:m.pk]) { m.ephemeralURL = nil; m.videoURL = nil; }
+            BOOL openable = m.ephemeralURL.length || m.videoURL.length;
+            if ([m.senderPk isEqualToString:[SHSettings userId] ?: @""]) m.placeholderText = video ? L(@"Video") : L(@"Photo");
+            else m.placeholderText = openable ? (video ? L(@"Tap to view the video") : L(@"Tap to view the photo"))
+                                              : (video ? L(@"Opened video") : L(@"Opened photo"));
+        } else {
+            m.previewURL = [SHMediaImage candidateFromCandidates:candidates minWidth:300].url ?: @"";
+            m.placeholderText = video ? L(@"Video") : L(@"Photo");
+        }
+        if (!m.videoURL.length) m.videoURL = nil;
+        m.mediaIsVideo = video;
+        // (debug builds: what such an item carries, once per item)
+        static NSMutableSet *logged;
+        if (!logged) logged = [NSMutableSet set];
+        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        if (m.pk.length && ![logged containsObject:m.pk] && [[NSFileManager defaultManager] fileExistsAtPath:[docs stringByAppendingPathComponent:@"debug"]]) {
+            [logged addObject:m.pk];
+            SHLog(@"DMITEM raven view_mode=%@ image=%d video=%d seen_count=%@ seen_users=%lu media_keys=%@", m.viewMode,
+                  candidates.count > 0, m.videoURL.length > 0, SHStr(vm[@"seen_count"]) ?: @"-", (unsigned long)SHArr(vm[@"seen_user_ids"]).count,
+                  [[media allKeys] componentsJoinedByString:@","]);
+        }
     } else if ([m.type isEqualToString:@"animated_media"]) {
         NSDictionary *images = SHDict(SHDict(d[@"animated_media"])[@"images"]);
         m.previewURL = SHStr(SHDict(images[@"fixed_height"])[@"url"]) ?: @"";

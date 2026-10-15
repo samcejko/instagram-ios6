@@ -4,6 +4,8 @@
 #import "SHUserListViewController.h"
 #import "SHPostDetailViewController.h"
 #import "SHSettingsViewController.h"
+#import "SHStoryViewController.h"
+#import "SHStoryBarView.h"
 #import "SHLinkLabel.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
@@ -14,7 +16,7 @@
 #import "SHLinkRouter.h"
 #import "SHCommon.h"
 
-@interface SHProfileViewController () <UITableViewDataSource, UITableViewDelegate, SHGridRowDelegate>
+@interface SHProfileViewController () <UITableViewDataSource, UITableViewDelegate, SHGridRowDelegate, SHStoryBarDelegate>
 @property (nonatomic, copy) NSString *username;
 @property (nonatomic, copy) NSString *pk;
 @property (nonatomic, strong) SHUser *user;
@@ -29,10 +31,14 @@
 @property (nonatomic) BOOL changingFollow;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
+@property (nonatomic, strong) NSArray *highlights;            // SHStoryReel (nil until loaded)
+@property (nonatomic, strong) SHHTTPTask *highlightsTask;
+@property (nonatomic, strong) SHStoryBarView *highlightsBar;
 @end
 
 static NSString * const SHProfileGridId = @"ProfileGridRow";
 static const CGFloat SHProfileAvatar = 84;
+static const CGFloat SHHighlightsBarH = 96;
 
 @implementation SHProfileViewController
 
@@ -88,7 +94,7 @@ static const CGFloat SHProfileAvatar = 84;
     [self loadProfile];
 }
 
-- (void)dealloc { [_task cancel]; [_postsTask cancel]; [_friendshipTask cancel]; }
+- (void)dealloc { [_task cancel]; [_postsTask cancel]; [_friendshipTask cancel]; [_highlightsTask cancel]; }
 
 - (void)loadProfile
 {
@@ -108,6 +114,7 @@ static const CGFloat SHProfileAvatar = 84;
         [self buildHeader];
         [self loadPosts:NO];
         [self loadFriendship];
+        [self loadHighlights];
     };
     if (_isCurrentUser && !_pk.length && !_username.length) {
         _task = [SHInstagram currentUserWithCompletion:gotUser];
@@ -131,7 +138,34 @@ static const CGFloat SHProfileAvatar = 84;
         self->_user.friendshipFollowing = following;
         self->_user.friendshipRequested = requested;
         [self buildHeader];
+        [self loadHighlights];   // (a private account's, now that it is followed)
     }];
+}
+
+// The highlights of the profile: circles between the profile and its grid, once (a private account's only when it
+// is followed). A tap plays them like stories.
+- (void)loadHighlights
+{
+    if (_highlights || _highlightsTask || !_pk.length) return;
+    BOOL me = _isCurrentUser || [_pk isEqualToString:[SHSettings userId]];
+    if (_user.isPrivate && !me && !_user.friendshipFollowing) return;
+    __weak SHProfileViewController *weakSelf = self;
+    _highlightsTask = [SHInstagram highlightsForUser:_pk completion:^(NSArray *reels, NSError *error) {
+        SHProfileViewController *s = weakSelf;
+        if (!s) return;
+        s->_highlightsTask = nil;
+        if (error) return;
+        s->_highlights = reels ?: @[];
+        if (s->_highlights.count) [s buildHeader];
+    }];
+}
+
+- (void)storyBar:(SHStoryBarView *)bar didSelectReel:(SHStoryReel *)reel atIndex:(NSUInteger)index
+{
+    // (the picture at the top of the viewer only closes it: this is the profile already)
+    SHStoryViewController *vc = [[SHStoryViewController alloc] initWithReels:_highlights startIndex:index];
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:vc animated:YES completion:nil];
 }
 
 // One of the three counts in the glossy box: the number above, what it counts under it.
@@ -295,12 +329,25 @@ static const CGFloat SHProfileAvatar = 84;
     }
     y += 10;
 
-    // an etched groove between the header and the grid
-    UIView *groove = [self etchedDividerAtX:0 height:0];
-    groove.frame = CGRectMake(0, y - 2, w, 2);
-    for (UIView *line in groove.subviews) line.frame = CGRectMake(0, line == groove.subviews.firstObject ? 0 : 1, w, 1);
-    groove.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [_headerView addSubview:groove];
+    if (_highlights.count) {
+        // the highlights on their own shelf between the profile and the grid (it brings its etched groove along)
+        if (!_highlightsBar || fabs(_highlightsBar.bounds.size.width - w) > 0.5) {
+            _highlightsBar = [[SHStoryBarView alloc] initWithFrame:CGRectMake(0, 0, w, SHHighlightsBarH)];
+            _highlightsBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            _highlightsBar.delegate = self;
+        }
+        _highlightsBar.frame = CGRectMake(0, y - 4, w, SHHighlightsBarH);
+        if (_highlightsBar.reels != _highlights) [_highlightsBar setReels:_highlights];
+        [_headerView addSubview:_highlightsBar];
+        y += SHHighlightsBarH - 4;
+    } else {
+        // an etched groove between the header and the grid
+        UIView *groove = [self etchedDividerAtX:0 height:0];
+        groove.frame = CGRectMake(0, y - 2, w, 2);
+        for (UIView *line in groove.subviews) line.frame = CGRectMake(0, line == groove.subviews.firstObject ? 0 : 1, w, 1);
+        groove.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [_headerView addSubview:groove];
+    }
 
     _headerView.frame = CGRectMake(0, 0, w, y);
     _tableView.tableHeaderView = _headerView;
