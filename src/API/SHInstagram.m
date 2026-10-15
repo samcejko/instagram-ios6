@@ -1773,9 +1773,13 @@ static SHHTTPTask *SHUploadFinish(NSString *uploadId, NSInteger attempt, void (^
                    headers:h body:audio retries:0 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         NSString *attachment = SHStr(d[@"media_id"]) ?: SHStr(d[@"fbid"]) ?: SHStr(d[@"attachment_fbid"]);
-        if (SHDebugLogging())
-            SHLog(@"UPLOAD messenger_audio %lu B %.1f s status=%ld keys=%@ attachment=%@ %@", (unsigned long)audio.length, duration, (long)status,
-                  [[d allKeys] componentsJoinedByString:@","], attachment.length ? @"yes" : @"no", SHStr(d[@"message"]) ?: error.localizedDescription ?: @"");
+        if (SHDebugLogging()) {
+            // (the upload service's answer is a short error object, no session in it: shown whole when it is small)
+            NSString *raw = body.length && body.length < 600 ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] : nil;
+            SHLog(@"UPLOAD messenger_audio %lu B %.1f s status=%ld keys=%@ attachment=%@ %@ body=%@", (unsigned long)audio.length, duration,
+                  (long)status, [[d allKeys] componentsJoinedByString:@","], attachment.length ? @"yes" : @"no",
+                  SHStr(d[@"message"]) ?: error.localizedDescription ?: @"", attachment.length ? @"-" : (raw ?: @"-"));
+        }
         if (!attachment.length) {
             NSString *text = [SHHTTP messageFromErrorJSON:d] ?: error.localizedDescription;
             if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) text = L(@"The upload failed.");
