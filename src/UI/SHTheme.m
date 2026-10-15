@@ -905,9 +905,14 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
 
 - (void)applyToTableView:(UITableView *)tableView
 {
-    tableView.backgroundView = nil;
-    // (grouped, or the inset grouped style iOS 13+ shows grouped tables in)
-    tableView.backgroundColor = tableView.style != UITableViewStylePlain ? [self backgroundColor] : [self cardColor];
+    // An empty plain UITableView draws white on iOS 6 no matter the backgroundColor, so give it a solid
+    // backgroundView in the theme colour; it fills the table even with no rows (fixes the white flash on
+    // empty screens like Activity or an empty feed).
+    UIView *bg = [[UIView alloc] initWithFrame:tableView.bounds];
+    bg.backgroundColor = [self backgroundColor];
+    bg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tableView.backgroundView = bg;
+    tableView.backgroundColor = [self backgroundColor];
     tableView.separatorColor = [self separatorColor];
     tableView.indicatorStyle = self.dark ? UIScrollViewIndicatorStyleWhite : UIScrollViewIndicatorStyleDefault;
     SHModernSetTableViewDark(tableView, [self isDark]);

@@ -53,7 +53,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-    _tableView.backgroundColor = [[SHTheme shared] backgroundColor];
+    [[SHTheme shared] applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 240, self.view.bounds.size.width - 40, 60)];

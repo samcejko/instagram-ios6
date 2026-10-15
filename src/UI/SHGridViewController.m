@@ -41,7 +41,7 @@ static NSString * const SHGridCellId = @"GridRow";
     _tableView.dataSource = self;
     _tableView.delegate = self;
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
-    _tableView.backgroundColor = [[SHTheme shared] backgroundColor];
+    [[SHTheme shared] applyToTableView:_tableView];
     [self.view addSubview:_tableView];
 
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 30, 0)];
