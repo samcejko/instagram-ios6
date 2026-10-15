@@ -470,16 +470,38 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
         else m.placeholderText = m.shareTitle.length ? [NSString stringWithFormat:L(@"Shared a post by %@"), m.shareTitle] : L(@"Shared a post");
         if (!m.previewURL.length && !m.targetURL.length) m.placeholderText = SHStr(x[@"title_text"]) ?: m.placeholderText;
     } else if ([m.type isEqualToString:@"video_call_event"]) {
-        // a call in the chat's history: said in the user's language, Instagram's English words only as the last resort
+        // A call in the chat's history, as a line of its own: said in the user's language (Instagram's English words
+        // only as the last resort), audio or video, missed, started or ended, with how long it took when told.
         NSDictionary *call = SHDict(d[@"video_call_event"]);
         NSString *action = [SHStr(call[@"action"]) lowercaseString] ?: @"";
-        if ([action rangeOfString:@"miss"].location != NSNotFound) m.placeholderText = L(@"Missed call");
-        else if ([action rangeOfString:@"end"].location != NSNotFound) m.placeholderText = L(@"Call ended");
+        NSString *words = [[SHStr(call[@"description"]) ?: @"" lowercaseString] stringByAppendingFormat:@" %@", action];
+        BOOL audio = SHBool(call[@"thread_has_audio_only_call"]) || SHBool(call[@"is_audio_only"]) || SHBool(d[@"is_audio_only"])
+                  || [words rangeOfString:@"audio"].location != NSNotFound || [words rangeOfString:@"voice"].location != NSNotFound;
+        BOOL missed = [words rangeOfString:@"miss"].location != NSNotFound || [words rangeOfString:@"unanswered"].location != NSNotFound
+                   || [words rangeOfString:@"declin"].location != NSNotFound;
+        m.systemRow = YES;
+        m.missedCall = missed;
+        if (missed) m.placeholderText = audio ? L(@"Missed call") : L(@"Missed video call");
+        else if ([action rangeOfString:@"end"].location != NSNotFound || [action rangeOfString:@"left"].location != NSNotFound)
+            m.placeholderText = audio ? L(@"Call ended") : L(@"Video call ended");
         else if ([action rangeOfString:@"start"].location != NSNotFound || [action rangeOfString:@"join"].location != NSNotFound)
-            m.placeholderText = L(@"Call started");
-        else m.placeholderText = SHStr(call[@"description"]) ?: L(@"Call");
+            m.placeholderText = audio ? L(@"Call started") : L(@"Video call started");
+        else m.placeholderText = SHStr(call[@"description"]) ?: (audio ? L(@"Call") : L(@"Video call"));
+        NSTimeInterval seconds = SHDbl(call[@"call_duration"]) ?: SHDbl(call[@"duration"]);
+        if (seconds > 1e5) seconds /= 1000;   // (milliseconds)
+        if (seconds >= 1 && !missed)
+            m.placeholderText = [NSString stringWithFormat:@"%@, %d:%02d", m.placeholderText, (int)seconds / 60, (int)seconds % 60];
+        // (debug builds: what a call carries, once per item, so its other forms can be taught)
+        static NSMutableSet *loggedCalls;
+        if (!loggedCalls) loggedCalls = [NSMutableSet set];
+        NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        if (m.pk.length && ![loggedCalls containsObject:m.pk] && [[NSFileManager defaultManager] fileExistsAtPath:[docs stringByAppendingPathComponent:@"debug"]]) {
+            [loggedCalls addObject:m.pk];
+            SHLog(@"DMITEM call action=%@ desc=%@ keys=%@", action, SHStr(call[@"description"]) ?: @"-", [[call allKeys] componentsJoinedByString:@","]);
+        }
     } else if ([m.type isEqualToString:@"action_log"]) {
         m.placeholderText = SHStr(SHDict(d[@"action_log"])[@"description"]) ?: @"";
+        m.systemRow = m.placeholderText.length > 0;
     } else {
         m.placeholderText = SHStr(d[@"text"]) ?: L(@"Unsupported message");
         // (debug builds: which kind it was and what it carries, so the next form Instagram invents can be taught)

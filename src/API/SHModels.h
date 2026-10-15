@@ -142,6 +142,10 @@
 @property (nonatomic, copy) NSString *viewMode;
 @property (nonatomic, copy) NSString *ephemeralURL;     // the picture to open (nil once seen or gone)
 @property (nonatomic) BOOL mediaIsVideo;
+// A line of the chat's history rather than a message (a call, "liked a message"): drawn centred, as iOS 6 Messages
+// drew its times. A missed call is drawn red.
+@property (nonatomic) BOOL systemRow;
+@property (nonatomic) BOOL missedCall;
 + (BOOL)ephemeralOpened:(NSString *)pk;                // opened on this device already
 + (void)noteEphemeralOpened:(NSString *)pk;
 + (instancetype)fromJSON:(NSDictionary *)json;

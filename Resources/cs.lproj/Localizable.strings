@@ -220,3 +220,7 @@
 "Call started" = "Hovor začal";
 "Call ended" = "Hovor skončil";
 "Missed call" = "Zmeškaný hovor";
+"Video call" = "Videohovor";
+"Video call started" = "Videohovor začal";
+"Video call ended" = "Videohovor skončil";
+"Missed video call" = "Zmeškaný videohovor";

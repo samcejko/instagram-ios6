@@ -66,6 +66,7 @@ static const CGFloat SHBarH          = 48.0;
 @property (nonatomic, strong) UIImageView *voiceFill;
 @property (nonatomic, strong) UIImageView *heartView;
 @property (nonatomic, strong) UILabel *timeLabel;
+@property (nonatomic, strong) UILabel *systemLabel;    // a call or other line of the history, centred
 + (CGFloat)heightForMessage:(SHDirectMessage *)m width:(CGFloat)width;
 - (void)configureWithMessage:(SHDirectMessage *)m outgoing:(BOOL)outgoing sender:(SHUser *)sender showAvatar:(BOOL)showAvatar
                        width:(CGFloat)width playing:(BOOL)playing progress:(CGFloat)progress timeText:(NSString *)timeText;
@@ -100,6 +101,7 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
 
 + (CGFloat)heightForMessage:(SHDirectMessage *)m width:(CGFloat)width
 {
+    if (m.systemRow) return SHRowGap + 20 + SHRowGap;
     return SHRowGap + [self bubbleSizeForMessage:m width:width].height + 2 + SHTimeH + SHRowGap;
 }
 
@@ -171,6 +173,15 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
         _timeLabel.backgroundColor = [UIColor clearColor];
         [theme embossLabel:_timeLabel];
         [self.contentView addSubview:_timeLabel];
+
+        _systemLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        _systemLabel.font = [UIFont boldSystemFontOfSize:12];
+        _systemLabel.textAlignment = NSTextAlignmentCenter;
+        _systemLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        _systemLabel.backgroundColor = [UIColor clearColor];
+        [theme embossLabel:_systemLabel];
+        _systemLabel.hidden = YES;
+        [self.contentView addSubview:_systemLabel];
     }
     return self;
 }
@@ -192,6 +203,20 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
     _message = m;
     _sender = sender;
     SHTheme *theme = [SHTheme shared];
+
+    // a call (or another line of the history): centred grey words with the time, no bubble; a missed call in red
+    _systemLabel.hidden = !m.systemRow;
+    _bubble.hidden = _timeLabel.hidden = m.systemRow;
+    if (m.systemRow) {
+        _avatar.hidden = YES;
+        self.contentView.alpha = 1;
+        NSString *words = [SHUtils displayText:m.placeholderText ?: @""];
+        _systemLabel.text = timeText.length ? [NSString stringWithFormat:@"%@  ·  %@", words, timeText] : words;
+        _systemLabel.textColor = m.missedCall ? [UIColor colorWithRed:0.86f green:0.3f blue:0.27f alpha:1] : [theme secondaryTextColor];
+        _systemLabel.frame = CGRectMake(SHEdge, SHRowGap, width - SHEdge * 2, 20);
+        return;
+    }
+
     BOOL isLike = SHIsLike(m);
     BOOL isVoice = !isLike && m.audioURL.length > 0;
     BOOL isMedia = !isLike && !isVoice && (m.previewURL.length > 0 || m.localImage);
@@ -810,7 +835,7 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
     // "Seen" under my last message once the other side has read that far (one-to-one chats, as the app)
     NSString *seenPk = nil;
     SHDirectMessage *last = [merged lastObject];
-    if (last && !SHIsLocalMessage(last) && [last.senderPk isEqualToString:_myId] && _thread.users.count == 1) {
+    if (last && !SHIsLocalMessage(last) && !last.systemRow && [last.senderPk isEqualToString:_myId] && _thread.users.count == 1) {
         NSDate *theirs = _lastSeenAt[[[_thread.users firstObject] pk] ?: @""];
         if (theirs && last.timestamp && [theirs compare:last.timestamp] != NSOrderedAscending) seenPk = last.pk;
     }
@@ -1479,7 +1504,7 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
     SHDirectMessage *m = _messages[i];
     BOOL outgoing = m.senderPk.length && [m.senderPk isEqualToString:_myId];
     // the picture sits by the last bubble of a run from the same sender, as in the real app
-    BOOL lastOfRun = i + 1 >= _messages.count || ![[_messages[i + 1] senderPk] isEqualToString:m.senderPk];
+    BOOL lastOfRun = i + 1 >= _messages.count || ![[_messages[i + 1] senderPk] isEqualToString:m.senderPk] || [_messages[i + 1] systemRow];
     BOOL playing = [_playingPk isEqualToString:m.pk];
     NSString *timeText = [self timeTextFor:m];
     if (_seenPk && [m.pk isEqualToString:_seenPk]) timeText = [NSString stringWithFormat:@"%@  %@", timeText, L(@"Seen")];

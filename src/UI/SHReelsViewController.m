@@ -10,6 +10,7 @@
 #import "SHImageLoader.h"
 #import "SHMediaProxy.h"
 #import "SHLinkRouter.h"
+#import "SHModern.h"
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
@@ -43,6 +44,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 @property (nonatomic, strong) UIButton *commentButton;
 @property (nonatomic, strong) UIButton *shareButton;
 @property (nonatomic, strong) UIButton *postButton;
+@property (nonatomic) CGFloat bottomInset;   // the home bar of a phone without a button (kept clear)
 - (void)showPost:(SHPost *)post;
 - (void)attachPlayer:(AVPlayer *)player;
 - (void)detachPlayer;
@@ -142,16 +144,24 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 
 - (void)dealloc { [self detachPlayer]; }
 
+- (void)setBottomInset:(CGFloat)bottomInset
+{
+    if (_bottomInset == bottomInset) return;
+    _bottomInset = bottomInset;
+    [self setNeedsLayout];
+}
+
 - (void)layoutSubviews
 {
     [super layoutSubviews];
     CGRect b = self.bounds;
-    CGFloat w = b.size.width, h = b.size.height;
+    CGFloat w = b.size.width, fullH = b.size.height;
     _cover.frame = b;
     _playerLayer.frame = b;
-    _shade.frame = CGRectMake(0, h - 200, w, 200);
-    _spinner.center = CGPointMake(w / 2, h / 2);
-    _pausedMark.frame = CGRectMake(floorf((w - 80) / 2), floorf((h - 80) / 2), 80, 80);
+    _shade.frame = CGRectMake(0, fullH - 200 - _bottomInset, w, 200 + _bottomInset);
+    _spinner.center = CGPointMake(w / 2, fullH / 2);
+    _pausedMark.frame = CGRectMake(floorf((w - 80) / 2), floorf((fullH - 80) / 2), 80, 80);
+    CGFloat h = fullH - _bottomInset;   // the controls sit above the home bar
 
     CGFloat right = w - 14 - 50;
     _postButton.frame = CGRectMake(right, h - 90, 50, 50);
@@ -261,6 +271,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
         _posts = [NSMutableArray array];
         _pages = [NSMutableDictionary dictionary];
         self.wantsFullScreenLayout = YES;
+        self.title = L(@"Reels");   // (what the back button of a screen opened from here says)
     }
     return self;
 }
@@ -354,10 +365,17 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     [super viewDidLayoutSubviews];
     CGSize s = self.view.bounds.size;
     _scroll.contentSize = CGSizeMake(s.width, s.height * MAX(1, (NSInteger)_posts.count));
-    for (NSNumber *k in _pages) [_pages[k] setFrame:CGRectMake(0, s.height * k.integerValue, s.width, s.height)];
+    // (phones with a notch: the close button and the bottom row keep clear of the sensor housing and the home bar)
+    UIEdgeInsets safe = SHSafeAreaInsets(self.view);
+    for (NSNumber *k in _pages) {
+        SHReelPage *page = _pages[k];
+        page.bottomInset = safe.bottom;
+        page.frame = CGRectMake(0, s.height * k.integerValue, s.width, s.height);
+    }
     if (!_scroll.dragging && !_scroll.decelerating) _scroll.contentOffset = CGPointMake(0, s.height * _current);
-    _titleLabel.frame = CGRectMake(60, 26, s.width - 120, 24);
-    _closeButton.frame = CGRectMake(8, 18, 44, 44);
+    CGFloat top = MAX(18, safe.top);
+    _titleLabel.frame = CGRectMake(60, top + 8, s.width - 120, 24);
+    _closeButton.frame = CGRectMake(MAX(8, safe.left + 4), top, 44, 44);
     _spinner.center = CGPointMake(s.width / 2, s.height / 2);
     _messageLabel.frame = CGRectMake(30, s.height / 2 - 50, s.width - 60, 100);
 }
@@ -441,6 +459,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
         SHPost *p = [self postAt:i];
         if (!p || _pages[@(i)]) continue;
         SHReelPage *page = [[SHReelPage alloc] initWithFrame:CGRectMake(0, s.height * i, s.width, s.height)];
+        page.bottomInset = SHSafeAreaInsets(self.view).bottom;
         page.delegate = self;
         [page showPost:p];
         [_scroll addSubview:page];
@@ -531,19 +550,28 @@ static void *SHReelReadyContext = &SHReelReadyContext;
         if (willLike) [SHInstagram likePost:post.pk completion:done];
         else [SHInstagram unlikePost:post.pk completion:done];
     } else if ([action isEqualToString:@"comment"]) {
-        [_player pause];
-        [SHLinkRouter presentInNavigation:[[SHCommentsViewController alloc] initWithPost:post]];
+        [self presentOver:[[SHCommentsViewController alloc] initWithPost:post]];
     } else if ([action isEqualToString:@"post"]) {
-        [_player pause];
-        [SHLinkRouter presentInNavigation:[[SHPostDetailViewController alloc] initWithPost:post]];
+        [self presentOver:[[SHPostDetailViewController alloc] initWithPost:post]];
     } else if ([action isEqualToString:@"user"]) {
         if (!post.user.username.length && !post.user.pk.length) return;
-        [_player pause];
-        [SHLinkRouter presentInNavigation:[[SHProfileViewController alloc] initWithUsername:post.user.username pk:post.user.pk]];
+        [self presentOver:[[SHProfileViewController alloc] initWithUsername:post.user.username pk:post.user.pk]];
     } else if ([action isEqualToString:@"share"]) {
         [_player pause];
         [SHShareViewController presentForPost:post];
     }
+}
+
+// The comments, the post or the creator's profile over the reels, with a back button ("< Reels"); the video waits
+// and plays on when that closes.
+- (void)presentOver:(UIViewController *)controller
+{
+    [_player pause];
+    __weak SHReelsViewController *weakSelf = self;
+    [SHLinkRouter presentInNavigation:controller onClose:^{
+        SHReelsViewController *s = weakSelf;
+        if (s && s.visible && !s.userPaused && s.view.window) [s.player play];
+    }];
 }
 
 // A link in the caption: the video stops, the profile, tag or post opens over the player (closing it plays on).

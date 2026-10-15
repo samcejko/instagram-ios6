@@ -37,6 +37,49 @@ static NSMutableArray *g_choices;
 
 @end
 
+// The first page of a navigation presented over the screen, never looked at: it gives the screen above it the bar's
+// real back button ("< Reels"), and going back to it closes the whole navigation.
+@interface SHBackAnchorController : UIViewController
+@end
+
+@implementation SHBackAnchorController
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    self.view.backgroundColor = [[SHTheme shared] linenColor];
+}
+@end
+
+// A navigation presented over the screen: back from its first screen closes it, and its owner hears when it is gone
+// (also when a screen in it closes it with its own Done button).
+@interface SHModalNavigationController : UINavigationController <UINavigationControllerDelegate>
+@property (nonatomic, copy) void (^onClose)(void);
+@end
+
+@implementation SHModalNavigationController
+
+- (void)navigationController:(UINavigationController *)nav didShowViewController:(UIViewController *)vc animated:(BOOL)animated
+{
+    if ([vc isKindOfClass:[SHBackAnchorController class]] && !self.isBeingDismissed && self.presentingViewController)
+        [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)viewDidDisappear:(BOOL)animated
+{
+    [super viewDidDisappear:animated];
+    if (!self.isBeingDismissed || !self.onClose) return;
+    void (^closed)(void) = self.onClose;
+    self.onClose = nil;
+    closed();
+}
+
+- (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orient
+{
+    return SHIsPad() || orient == UIInterfaceOrientationPortrait;
+}
+
+@end
+
 @implementation SHLinkRouter
 
 // The controller the user is looking at: through modal presentations, the selected tab and its navigation stack,
@@ -53,12 +96,22 @@ static NSMutableArray *g_choices;
     return top;
 }
 
-+ (void)presentInNavigation:(UIViewController *)controller
++ (void)presentInNavigation:(UIViewController *)controller { [self presentInNavigation:controller onClose:nil]; }
+
++ (void)presentInNavigation:(UIViewController *)controller onClose:(void (^)(void))onClose
 {
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:controller];
+    UIViewController *top = [self topController];
+    // the back button says where it goes: the screen underneath (the system's "Back" when it has no title)
+    SHBackAnchorController *anchor = [[SHBackAnchorController alloc] init];
+    NSString *under = top.navigationItem.title.length ? top.navigationItem.title : top.title;
+    if (under.length) anchor.title = under;
+    SHModalNavigationController *nav = [[SHModalNavigationController alloc] initWithRootViewController:anchor];
+    [nav pushViewController:controller animated:NO];
+    nav.delegate = nav;
+    nav.onClose = onClose;
     [[SHTheme shared] applyToNavigationBar:nav.navigationBar];
     if (SHIsPad()) nav.modalPresentationStyle = UIModalPresentationFormSheet;
-    [[self topController] presentViewController:nav animated:YES completion:nil];
+    [top presentViewController:nav animated:YES completion:nil];
 }
 
 + (BOOL)openLink:(NSString *)link

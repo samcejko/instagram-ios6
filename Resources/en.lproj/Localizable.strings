@@ -220,3 +220,7 @@
 "Call started" = "Call started";
 "Call ended" = "Call ended";
 "Missed call" = "Missed call";
+"Video call" = "Video call";
+"Video call started" = "Video call started";
+"Video call ended" = "Video call ended";
+"Missed video call" = "Missed video call";

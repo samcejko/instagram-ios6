@@ -10,5 +10,8 @@
 + (void)openWebLink:(id)link from:(UIViewController *)controller anchor:(UIView *)anchor;
 + (void)openWebLinks:(NSArray *)links from:(UIViewController *)controller anchor:(UIView *)anchor;
 + (UIViewController *)topController;
+// Over the screen, in a navigation of its own whose first screen has the bar's back button (it closes the whole
+// navigation); `onClose` runs once it is gone.
 + (void)presentInNavigation:(UIViewController *)controller;
++ (void)presentInNavigation:(UIViewController *)controller onClose:(void (^)(void))onClose;
 @end
