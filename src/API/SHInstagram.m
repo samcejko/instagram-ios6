@@ -1759,7 +1759,9 @@ static SHHTTPTask *SHUploadFinish(NSString *uploadId, NSInteger attempt, void (^
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"X-Instagram-Rupload-Params"] = SHJSONString(params);
     h[@"X_FB_VIDEO_WATERFALL_ID"] = [[NSUUID UUID] UUIDString];
-    h[@"X-Entity-Type"] = @"audio/mp4";   // (AAC in an MP4 file, as recorded)
+    // (AAC in an MP4 file, as recorded; announced the way the reported working request did: "audio/mp4" makes the
+    // upload service answer ProcessingFailedError)
+    h[@"X-Entity-Type"] = @"audio/aac";
     h[@"X-Entity-Name"] = [uploadId stringByAppendingString:@".m4a"];
     h[@"X-Entity-Length"] = [NSString stringWithFormat:@"%lu", (unsigned long)audio.length];
     h[@"Offset"] = @"0";
