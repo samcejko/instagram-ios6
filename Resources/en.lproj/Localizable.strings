@@ -79,6 +79,7 @@
 
 /* Feed / explore */
 "Suggested for you" = "Suggested for you";
+"Couldn't load the feed." = "Couldn't load the feed.";
 "Reels" = "Reels";
 "Couldn't load the story." = "Couldn't load the story.";
 "This story is no longer available." = "This story is no longer available.";
@@ -94,6 +95,7 @@
 "Shared a post" = "Shared a post";
 "Shared a story" = "Shared a story";
 "Voice message" = "Voice message";
+"Couldn't play the voice message." = "Couldn't play the voice message.";
 "Unsupported message" = "Unsupported message";
 
 /* Challenge / checkpoint */

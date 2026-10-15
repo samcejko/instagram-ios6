@@ -1103,8 +1103,9 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
         NSMutableSet *seen = [NSMutableSet set];
         if (!error && status < 400) SHCollectMedia(d[@"items"] ?: d, posts, seen);
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
-            SHLog(@"REELS status=%ld parsed=%lu msg=%@ keys=%@", (long)status, (unsigned long)posts.count, SHStr(d[@"message"]) ?: @"-",
-                  [[d allKeys] componentsJoinedByString:@","]);
+            SHLog(@"REELS status=%ld parsed=%lu items=%lu firstItemKeys=%@ msg=%@ keys=%@", (long)status, (unsigned long)posts.count,
+                  (unsigned long)SHArr(d[@"items"]).count, [[SHDict([SHArr(d[@"items"]) firstObject]) allKeys] componentsJoinedByString:@","],
+                  SHStr(d[@"message"]) ?: @"-", [[d allKeys] componentsJoinedByString:@","]);
         if (posts.count) {
             NSDictionary *paging = SHDict(d[@"paging_info"]);
             completion(posts, SHStr(paging[@"max_id"]) ?: SHStr(d[@"next_max_id"]), nil);

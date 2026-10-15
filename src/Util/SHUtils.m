@@ -72,6 +72,9 @@
         formatter = [[NSDateFormatter alloc] init];
         formatter.dateStyle = NSDateFormatterMediumStyle;
         formatter.timeStyle = NSDateFormatterNoStyle;
+        // dates in the language of the UI, not of the device's region format ("Aug 15" in a Czech app otherwise)
+        NSString *lang = [[[NSBundle mainBundle] preferredLocalizations] firstObject];
+        if (lang.length) formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:lang];
     });
     return [formatter stringFromDate:date];
 }

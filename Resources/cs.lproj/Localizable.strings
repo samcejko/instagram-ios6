@@ -79,6 +79,7 @@
 
 /* Feed / explore */
 "Suggested for you" = "Navrhované pro vás";
+"Couldn't load the feed." = "Feed se nepodařilo načíst.";
 "Reels" = "Reels";
 "Couldn't load the story." = "Příběh se nepodařilo načíst.";
 "This story is no longer available." = "Tento příběh už není dostupný.";
@@ -94,6 +95,7 @@
 "Shared a post" = "Sdílel(a) příspěvek";
 "Shared a story" = "Sdílel(a) příběh";
 "Voice message" = "Hlasová zpráva";
+"Couldn't play the voice message." = "Hlasovou zprávu se nepodařilo přehrát.";
 "Unsupported message" = "Nepodporovaná zpráva";
 
 /* Challenge / checkpoint */

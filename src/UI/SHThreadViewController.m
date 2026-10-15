@@ -332,7 +332,8 @@ static const CGFloat SHBarH          = 48.0;
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_task cancel];
-    [_voicePlayer pause];
+    _playingPk = nil;   // no row reloads from a dying controller
+    [self stopVoice];
 }
 
 - (void)viewWillDisappear:(BOOL)animated
@@ -441,10 +442,13 @@ static const CGFloat SHBarH          = 48.0;
 
 #pragma mark - Voice messages
 
+static void *SHVoiceStatusContext = &SHVoiceStatusContext;
+
 - (void)stopVoice
 {
     [_voicePlayer pause];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
+    if (_voicePlayer) [_voicePlayer.currentItem removeObserver:self forKeyPath:@"status" context:SHVoiceStatusContext];
     _voicePlayer = nil;
     NSString *was = _playingPk;
     _playingPk = nil;
@@ -459,15 +463,31 @@ static const CGFloat SHBarH          = 48.0;
     NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:m.audioURL]];
     if (!proxied.length) return;
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
+    [[AVAudioSession sharedInstance] setActive:YES error:nil];
     AVPlayerItem *item = [AVPlayerItem playerItemWithURL:[NSURL URLWithString:proxied]];
     _voicePlayer = [AVPlayer playerWithPlayerItem:item];
+    [item addObserver:self forKeyPath:@"status" options:0 context:SHVoiceStatusContext];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceFinished:) name:AVPlayerItemDidPlayToEndTimeNotification object:item];
     _playingPk = m.pk;
     [_voicePlayer play];
     [self reloadRowForPk:m.pk];
+    SHLog(@"Voice: playing %@ via %@", m.pk, proxied);
 }
 
 - (void)voiceFinished:(NSNotification *)note { [self stopVoice]; }
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (context != SHVoiceStatusContext) { [super observeValueForKeyPath:keyPath ofObject:object change:change context:context]; return; }
+    AVPlayerItem *item = object;
+    if (item.status == AVPlayerItemStatusFailed) {
+        SHLog(@"Voice: playback failed: %@", item.error.localizedDescription);
+        [self stopVoice];
+        [SHUtils alertWithTitle:L(@"Voice message") message:L(@"Couldn't play the voice message.")];
+    } else if (item.status == AVPlayerItemStatusReadyToPlay) {
+        SHLog(@"Voice: ready, %.1f s", CMTimeGetSeconds(item.duration));
+    }
+}
 
 - (void)reloadRowForPk:(NSString *)pk
 {

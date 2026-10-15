@@ -154,7 +154,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
                                        frame:CGRectMake(statsX + statsW * 2, pad + 6, statsW, 44) action:@selector(showFollowing)]];
 
     CGFloat y = pad + 80;
-    NSString *displayName = _user.fullName.length ? _user.fullName : _user.username;
+    NSString *displayName = [SHUtils displayText:_user.fullName.length ? _user.fullName : _user.username];
     if (_user.isVerified) displayName = [displayName stringByAppendingString:@" ✓"];
     if (displayName.length) {
         UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(pad, y, w - pad * 2, 20)];

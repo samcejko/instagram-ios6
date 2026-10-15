@@ -34,6 +34,9 @@ static NSString * const SHFeedCellId = @"FeedCell";
 @property (nonatomic) BOOL loadingSuggested;
 @property (nonatomic, strong) SHHTTPTask *suggestedTask;
 @property (nonatomic, strong) SHHTTPTask *storyTask;
+@property (nonatomic, strong) UIActivityIndicatorView *spinner;   // under the story bar while the list is still empty
+@property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic) BOOL failed;
 @end
 
 @implementation SHFeedViewController
@@ -69,31 +72,65 @@ static NSString * const SHFeedCellId = @"FeedCell";
     _tableView.backgroundColor = [[SHTheme shared] backgroundColor];
     [self.view addSubview:_tableView];
 
+    // While nothing is listed yet the screen says so instead of staying blank under the story bar.
+    CGFloat storyH = _storyBar.bounds.size.height;
+    _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:[[SHTheme shared] isDark] ? UIActivityIndicatorViewStyleWhite : UIActivityIndicatorViewStyleGray];
+    _spinner.center = CGPointMake(self.view.bounds.size.width / 2, storyH + 60);
+    _spinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    _spinner.hidesWhenStopped = YES;
+    [self.view addSubview:_spinner];
+    _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, storyH + 44, self.view.bounds.size.width - 40, 40)];
+    _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.numberOfLines = 2;
+    _statusLabel.font = [UIFont systemFontOfSize:15];
+    _statusLabel.textColor = [[SHTheme shared] secondaryTextColor];
+    _statusLabel.backgroundColor = [UIColor clearColor];
+    _statusLabel.hidden = YES;
+    [self.view addSubview:_statusLabel];
+
     [self loadFeed:NO];
     [self loadStories];
+}
+
+- (void)updateStatus
+{
+    BOOL empty = _posts.count == 0 && _suggested.count == 0;
+    BOOL busy = _loading || _loadingSuggested;
+    if (empty && busy) [_spinner startAnimating]; else [_spinner stopAnimating];
+    _statusLabel.text = _failed ? L(@"Couldn't load the feed.") : L(@"Nothing here yet.");
+    _statusLabel.hidden = !(empty && !busy);
 }
 
 - (void)loadFeed:(BOOL)more
 {
     if (_loading) return;
     _loading = YES;
-    if (!more) _autoPages = 0;
+    if (!more) { _autoPages = 0; _failed = NO; }
+    [self updateStatus];
     [_feedTask cancel];
     _feedTask = [SHInstagram timelineFeedWithMaxId:more ? _nextMaxId : nil completion:^(NSArray *posts, NSString *nextMaxId, NSError *error) {
         self->_loading = NO;
-        if (error) { SHLog(@"Feed error: %@", error.localizedDescription); return; }
-        if (!more) { [self->_posts removeAllObjects]; [self->_suggested removeAllObjects]; self->_suggestedMaxId = nil; }
+        if (error) {
+            SHLog(@"Feed error: %@", error.localizedDescription);
+            self->_failed = self->_posts.count == 0;
+            if (self->_suggested.count == 0) [self loadSuggested:NO];   // suggestions still give something to look at
+            [self updateStatus];
+            return;
+        }
+        if (!more) [self->_posts removeAllObjects];
         [self->_posts addObjectsFromArray:posts];
         self->_nextMaxId = nextMaxId;
         [self->_tableView reloadData];
-        // The timeline opens with "Suggested for you" demarcators and no media on the first page(s); keep paging
-        // until some real posts arrive (capped). When it stays dry, fill in suggested posts like the real app.
+        // A quiet timeline opens with "Suggested for you" demarcators and no media on its first page(s). The
+        // suggested posts are fetched at once, so the screen fills while a few more pages are tried for real posts
+        // (capped), instead of after them. A refresh renews the suggestions too.
+        if (self->_posts.count < 3 && (self->_suggested.count == 0 || !more)) [self loadSuggested:NO];
         if (self->_posts.count == 0 && nextMaxId.length && self->_autoPages < 4) {
             self->_autoPages++;
             [self loadFeed:YES];
-        } else if (self->_posts.count < 3 && self->_suggested.count == 0) {
-            [self loadSuggested:NO];
         }
+        [self updateStatus];
     }];
 }
 
@@ -102,14 +139,16 @@ static NSString * const SHFeedCellId = @"FeedCell";
     if (_loadingSuggested) return;
     if (more && !_suggestedMaxId.length) return;
     _loadingSuggested = YES;
+    [self updateStatus];
     [_suggestedTask cancel];
     _suggestedTask = [SHInstagram exploreWithMaxId:more ? _suggestedMaxId : nil completion:^(NSArray *posts, NSString *nextMaxId, NSError *error) {
         self->_loadingSuggested = NO;
-        if (error) { SHLog(@"Suggested error: %@", error.localizedDescription); return; }
+        if (error) { SHLog(@"Suggested error: %@", error.localizedDescription); [self updateStatus]; return; }
         if (!more) [self->_suggested removeAllObjects];
         for (SHPost *p in posts) if (p.image.url.length) [self->_suggested addObject:p];
         self->_suggestedMaxId = nextMaxId;
         [self->_tableView reloadData];
+        [self updateStatus];
     }];
 }
 

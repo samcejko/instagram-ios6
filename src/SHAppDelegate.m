@@ -13,6 +13,7 @@
 #import "SHModern.h"
 #import "SHCommon.h"
 #import <QuartzCore/QuartzCore.h>
+#include <objc/runtime.h>
 #include <signal.h>
 
 @implementation SHAppDelegate
@@ -173,7 +174,37 @@
     SHLog(@"snapshot %ldx%ld -> %@ (%lu bytes)", (long)size.width, (long)size.height, path, (unsigned long)png.length);
 }
 
-// A best-effort synthetic tap for headless testing: hit-tests the point and triggers the control or table row under it.
+// Fires the single-tap recognizers of a view the way a finger would, through UIKit's private target list
+// (UIGestureRecognizer._targets of UIGestureRecognizerTarget {_target, _action}); story circles, grid thumbs and
+// chat bubbles are reached this way. Debug builds only; a missing ivar just means nothing fires.
+static BOOL SHDebugFireTapRecognizers(UIView *v)
+{
+    BOOL fired = NO;
+    Ivar targetsIvar = class_getInstanceVariable([UIGestureRecognizer class], "_targets");
+    if (!targetsIvar) return NO;
+    for (UIGestureRecognizer *gr in v.gestureRecognizers) {
+        if (![gr isKindOfClass:[UITapGestureRecognizer class]] || !gr.enabled) continue;
+        if ([(UITapGestureRecognizer *)gr numberOfTapsRequired] != 1) continue;
+        NSArray *targets = object_getIvar(gr, targetsIvar);
+        for (id entry in targets) {
+            Ivar tIvar = class_getInstanceVariable([entry class], "_target");
+            Ivar aIvar = class_getInstanceVariable([entry class], "_action");
+            if (!tIvar || !aIvar) continue;
+            id target = object_getIvar(entry, tIvar);
+            SEL action = *(SEL *)((char *)(__bridge void *)entry + ivar_getOffset(aIvar));   // a SEL, not an object: read raw
+            if (!target || !action || ![target respondsToSelector:action]) continue;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [target performSelector:action withObject:gr];
+#pragma clang diagnostic pop
+            fired = YES;
+        }
+    }
+    return fired;
+}
+
+// A best-effort synthetic tap for headless testing: hit-tests the point and triggers the tap recognizer, control
+// or table row under it, nearest view first.
 - (void)pressAtPoint:(CGPoint)pt
 {
     UIWindow *win = [UIApplication sharedApplication].keyWindow;
@@ -181,6 +212,10 @@
     SHLog(@"press (%.0f,%.0f) -> %@", pt.x, pt.y, NSStringFromClass([hit class]));
     UIView *v = hit;
     while (v) {
+        if (SHDebugFireTapRecognizers(v)) {
+            SHLog(@"press -> tap recognizer of %@", NSStringFromClass([v class]));
+            return;
+        }
         if ([v isKindOfClass:[UIControl class]]) {
             [(UIControl *)v sendActionsForControlEvents:UIControlEventTouchUpInside];
             return;
