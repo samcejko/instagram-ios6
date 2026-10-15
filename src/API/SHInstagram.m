@@ -18,8 +18,12 @@
 
 static NSString * const SHApiBase      = @"https://i.instagram.com/api/v1";
 static NSString * const SHAppId        = @"567067343352427";
-static NSString * const SHAppVersion   = @"269.0.0.18.75";
-static NSString * const SHVersionCode  = @"314665256";
+// The spoofed app version must stay recent or Instagram refuses the login with error_type "needs_upgrade"
+// ("Your version of Instagram is out of date"). These are instagrapi's current default Android profile
+// (449.0.0.52.84, Android 14/API 34); bump them together when the server starts asking for an upgrade again.
+static NSString * const SHAppVersion   = @"449.0.0.52.84";
+static NSString * const SHVersionCode  = @"1079242191";
+static NSString * const SHBloksVersion = @"799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b";
 static NSString * const SHSignatureKey = @"SIGNATURE";
 
 #pragma mark - User-Agent and headers
@@ -27,7 +31,7 @@ static NSString * const SHSignatureKey = @"SIGNATURE";
 static NSString *SHUserAgent(void)
 {
     return [NSString stringWithFormat:
-        @"Instagram %@ Android (26/8.0.0; 640dpi; 1440x2560; samsung; SM-G965F; star2qltecs; samsungexynos9810; en_US; %@)",
+        @"Instagram %@ Android (34/14; 640dpi; 1440x3120; OnePlus; LE2123; OnePlus9Pro; qcom; en_US; %@)",
         SHAppVersion, SHVersionCode];
 }
 
@@ -40,6 +44,7 @@ static NSDictionary *SHCommonHeaders(void)
     h[@"X-IG-Android-ID"]       = [SHSettings androidId];
     h[@"X-IG-Connection-Type"]  = @"WIFI";
     h[@"X-IG-Capabilities"]     = @"3brTvx0=";
+    h[@"X-Bloks-Version-Id"]    = SHBloksVersion;
     h[@"Accept-Language"]       = @"en-US";
     h[@"Accept"]                = @"application/json";
     return h;
