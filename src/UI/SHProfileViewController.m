@@ -161,6 +161,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         name.text = displayName;
         name.font = [UIFont boldSystemFontOfSize:14];
         name.textColor = [[SHTheme shared] textColor];
+        name.backgroundColor = [UIColor clearColor];
         [_headerView addSubview:name];
         y += 20;
     }
@@ -169,6 +170,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         bio.text = [SHUtils displayText:_user.biography];
         bio.font = [UIFont systemFontOfSize:13];
         bio.textColor = [[SHTheme shared] textColor];
+        bio.backgroundColor = [UIColor clearColor];
         bio.numberOfLines = 0;
         CGSize sz = [bio sizeThatFits:CGSizeMake(w - pad * 2, 200)];
         bio.frame = CGRectMake(pad, y, w - pad * 2, sz.height);
@@ -180,6 +182,7 @@ static NSString * const SHProfileGridId = @"ProfileGridRow";
         lock.text = [@"\U0001F512 " stringByAppendingString:L(@"This account is private")];
         lock.font = [UIFont systemFontOfSize:12];
         lock.textColor = [[SHTheme shared] secondaryTextColor];
+        lock.backgroundColor = [UIColor clearColor];
         [_headerView addSubview:lock];
         y += 18;
     }

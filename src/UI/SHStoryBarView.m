@@ -59,6 +59,7 @@ static const CGFloat SHStoryPad = 8;
         name.text = reel.user.username;
         name.font = [UIFont systemFontOfSize:10];
         name.textColor = [[SHTheme shared] textColor];
+        name.backgroundColor = [UIColor clearColor];
         name.textAlignment = NSTextAlignmentCenter;
         name.lineBreakMode = NSLineBreakByTruncatingTail;
         [container addSubview:name];

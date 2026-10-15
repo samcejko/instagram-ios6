@@ -115,12 +115,14 @@
         cell.detailTextLabel.font = [UIFont systemFontOfSize:11];
         cell.detailTextLabel.textColor = [[SHTheme shared] secondaryTextColor];
     }
+    [[SHTheme shared] styleCell:cell];
     SHComment *c = _comments[(NSUInteger)indexPath.row];
+    UIColor *tc = [[SHTheme shared] textColor];
     NSMutableAttributedString *text = [[NSMutableAttributedString alloc] init];
     [text appendAttributedString:[[NSAttributedString alloc] initWithString:[c.user.username stringByAppendingString:@" "]
-        attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:13] }]];
+        attributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:13], NSForegroundColorAttributeName: tc }]];
     [text appendAttributedString:[[NSAttributedString alloc] initWithString:[SHUtils displayText:c.text]
-        attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13] }]];
+        attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13], NSForegroundColorAttributeName: tc }]];
     cell.textLabel.attributedText = text;
     cell.detailTextLabel.text = c.createdAt ? [SHUtils formatRelativeDate:c.createdAt] : @"";
     return cell;

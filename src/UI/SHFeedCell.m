@@ -82,6 +82,9 @@ static const CGFloat SHIconSize = 26;
         _timeLabel.font = [UIFont systemFontOfSize:11];
         _timeLabel.textColor = [[SHTheme shared] secondaryTextColor];
         [self.contentView addSubview:_timeLabel];
+
+        // iOS 6 UILabels default to an opaque white background; clear them so text sits on the dark card.
+        for (UILabel *l in @[ _usernameLabel, _likesLabel, _captionLabel, _timeLabel ]) l.backgroundColor = [UIColor clearColor];
     }
     return self;
 }

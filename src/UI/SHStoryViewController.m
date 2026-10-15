@@ -59,12 +59,14 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     _usernameLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, top + 8, self.view.bounds.size.width - 60, 20)];
     _usernameLabel.font = [UIFont boldSystemFontOfSize:14];
     _usernameLabel.textColor = [UIColor whiteColor];
+    _usernameLabel.backgroundColor = [UIColor clearColor];
     _usernameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.view addSubview:_usernameLabel];
 
     _timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, top + 28, self.view.bounds.size.width - 60, 16)];
     _timeLabel.font = [UIFont systemFontOfSize:11];
     _timeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.7];
+    _timeLabel.backgroundColor = [UIColor clearColor];
     _timeLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.view addSubview:_timeLabel];
 

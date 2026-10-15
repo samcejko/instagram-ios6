@@ -50,6 +50,7 @@ static NSString * const SHGridCellId = @"GridRow";
     _statusLabel.textAlignment = NSTextAlignmentCenter;
     _statusLabel.font = [UIFont systemFontOfSize:14];
     _statusLabel.textColor = [[SHTheme shared] secondaryTextColor];
+    _statusLabel.backgroundColor = [UIColor clearColor];
     _statusLabel.hidden = YES;
     [self.view addSubview:_statusLabel];
 

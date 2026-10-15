@@ -90,6 +90,7 @@
     mark.text = glyph;
     mark.font = [UIFont boldSystemFontOfSize:12];
     mark.textColor = [UIColor whiteColor];
+    mark.backgroundColor = [UIColor clearColor];
     mark.shadowColor = [UIColor colorWithWhite:0 alpha:0.6];
     mark.shadowOffset = CGSizeMake(0, 0.5);
     mark.textAlignment = NSTextAlignmentRight;

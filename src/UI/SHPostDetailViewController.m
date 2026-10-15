@@ -126,6 +126,7 @@
     _likesLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, y + 34, w - 24, 18)];
     _likesLabel.font = [UIFont boldSystemFontOfSize:14];
     _likesLabel.textColor = [[SHTheme shared] textColor];
+    _likesLabel.backgroundColor = [UIColor clearColor];
     _likesLabel.userInteractionEnabled = YES;
     [_likesLabel addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(showLikers)]];
     [self updateLikeUI];
@@ -137,6 +138,7 @@
         caption.numberOfLines = 0;
         caption.font = [UIFont systemFontOfSize:14];
         caption.textColor = [[SHTheme shared] textColor];
+        caption.backgroundColor = [UIColor clearColor];
         NSString *user = _post.user.username.length ? [_post.user.username stringByAppendingString:@"  "] : @"";
         caption.text = [user stringByAppendingString:[SHUtils displayText:_post.captionText]];
         CGSize sz = [caption sizeThatFits:CGSizeMake(w - 24, 9999)];
@@ -149,6 +151,7 @@
         UILabel *date = [[UILabel alloc] initWithFrame:CGRectMake(12, y, w - 24, 16)];
         date.font = [UIFont systemFontOfSize:11];
         date.textColor = [[SHTheme shared] secondaryTextColor];
+        date.backgroundColor = [UIColor clearColor];
         date.text = [[SHUtils formatRelativeDate:_post.takenAt] uppercaseString];
         [_scrollView addSubview:date];
         y += 22;
