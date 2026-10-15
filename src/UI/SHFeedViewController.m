@@ -26,6 +26,7 @@ static NSString * const SHFeedCellId = @"FeedCell";
 @property (nonatomic, strong) SHHTTPTask *feedTask;
 @property (nonatomic, strong) SHHTTPTask *actionTask;
 @property (nonatomic) BOOL loading;
+@property (nonatomic) NSInteger autoPages;
 @end
 
 @implementation SHFeedViewController
@@ -68,6 +69,7 @@ static NSString * const SHFeedCellId = @"FeedCell";
 {
     if (_loading) return;
     _loading = YES;
+    if (!more) _autoPages = 0;
     [_feedTask cancel];
     _feedTask = [SHInstagram timelineFeedWithMaxId:more ? _nextMaxId : nil completion:^(NSArray *posts, NSString *nextMaxId, NSError *error) {
         self->_loading = NO;
@@ -76,6 +78,12 @@ static NSString * const SHFeedCellId = @"FeedCell";
         [self->_posts addObjectsFromArray:posts];
         self->_nextMaxId = nextMaxId;
         [self->_tableView reloadData];
+        // The timeline opens with "Suggested for you" demarcators and no media on the first page(s); keep paging
+        // until some real posts arrive (capped) so the feed is never left blank when more is available.
+        if (self->_posts.count == 0 && nextMaxId.length && self->_autoPages < 6) {
+            self->_autoPages++;
+            [self loadFeed:YES];
+        }
     }];
 }
 
