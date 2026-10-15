@@ -132,6 +132,26 @@
         [self pressAtPoint:pt];
         return YES;
     }
+    if ([target isEqualToString:@"back"]) {   // the back button of a navigation bar is not a control: pop directly
+        UIViewController *top = [self topController];
+        [top.navigationController popViewControllerAnimated:YES];
+        return YES;
+    }
+    if ([target isEqualToString:@"close"]) {  // dismiss whatever is presented modally
+        UIViewController *top = self.window.rootViewController;
+        while (top.presentedViewController) top = top.presentedViewController;
+        [top.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+        return YES;
+    }
+    if ([target isEqualToString:@"scroll"]) { // scroll the first scroll view of the top controller to an offset
+        UIViewController *top = [self topController];
+        UIScrollView *sv = [top.view isKindOfClass:[UIScrollView class]] ? (UIScrollView *)top.view : nil;
+        for (UIView *v in top.view.subviews) if (!sv && [v isKindOfClass:[UIScrollView class]]) sv = (UIScrollView *)v;
+        CGFloat y = [params[@"y"] floatValue];
+        [sv setContentOffset:CGPointMake(0, MIN(y, MAX(0, sv.contentSize.height - sv.bounds.size.height))) animated:NO];
+        SHLog(@"scroll -> %@ y=%.0f of %.0f", NSStringFromClass([sv class]), sv.contentOffset.y, sv.contentSize.height);
+        return YES;
+    }
     if ([target isEqualToString:@"lang"]) {
         NSString *set = params[@"set"] ?: @"system";
         NSUserDefaults *d = [NSUserDefaults standardUserDefaults];

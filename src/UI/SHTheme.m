@@ -126,7 +126,7 @@ static UIImage *SHDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
 - (UIColor *)textColor { return [self primaryTextColor]; }
 - (UIColor *)secondaryTextColor { return self.dark ? RGB(150, 150, 158) : RGB(112, 112, 120); }
 - (UIColor *)separatorColor { return self.dark ? RGB(55, 55, 60) : RGB(200, 200, 206); }
-- (UIColor *)accentColor { return self.dark ? RGB(254, 44, 85) : RGB(220, 20, 70); }
+- (UIColor *)accentColor { return self.dark ? RGB(0, 149, 246) : RGB(0, 120, 210); }   // Instagram blue
 - (UIColor *)liveColor { return RGB(224, 32, 32); }
 - (UIColor *)linkColor { return self.dark ? RGB(120, 175, 245) : RGB(30, 90, 200); }
 - (UIColor *)chatBackgroundColor { return self.dark ? RGB(24, 24, 27) : RGB(250, 250, 252); }
@@ -221,9 +221,10 @@ static UIImage *SHDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
 {
     NSString *key = [NSString stringWithFormat:@"accent-%d-%d", (int)highlighted, (int)disabled];
     return [self cachedImage:key builder:^UIImage *{
+        // the blue glossy button (Follow, Send, Post), like the iOS 6 "Done" keyboard button
         if (disabled) return SHRoundedGradientImage(RGB(190, 190, 196), RGB(160, 160, 168), RGB(140, 140, 148), 7, YES);
-        if (highlighted) return SHRoundedGradientImage(RGB(175, 45, 45), RGB(125, 22, 22), RGB(95, 15, 15), 7, YES);
-        return SHRoundedGradientImage(RGB(236, 90, 85), RGB(186, 32, 32), RGB(140, 22, 22), 7, YES);
+        if (highlighted) return SHRoundedGradientImage(RGB(60, 120, 200), RGB(25, 85, 165), RGB(15, 60, 130), 7, YES);
+        return SHRoundedGradientImage(RGB(110, 180, 250), RGB(30, 130, 235), RGB(10, 95, 195), 7, YES);
     }];
 }
 

@@ -648,6 +648,9 @@ static NSString *SHExtractBloksError(NSString *body)
                    headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
+            SHLog(@"STORIES ids=%@ status=%ld error=%@ keys=%@", [ids componentsJoinedByString:@","], (long)status, error.localizedDescription ?: @"-",
+                  [[SHDict(json) allKeys] componentsJoinedByString:@","]);
         if (error) { completion(nil, error); return; }
         if (status >= 400) { completion(nil, SHMakeError(status, [SHHTTP messageFromErrorJSON:json] ?: L(@"Couldn't load the story."))); return; }
         NSDictionary *d = SHDict(json);

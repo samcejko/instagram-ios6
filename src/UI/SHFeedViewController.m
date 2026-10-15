@@ -254,26 +254,11 @@ static NSString * const SHFeedCellId = @"FeedCell";
 
 - (void)storyBar:(SHStoryBarView *)bar didSelectReel:(SHStoryReel *)reel atIndex:(NSUInteger)index
 {
-    // The tray already carries the items of the first reels; only a reel that came without them is fetched, and
-    // only that one, so a tap opens at once instead of after a round trip for everybody's stories.
-    NSArray *tray = _storyBar.reels;
-    void (^open)(NSArray *) = ^(NSArray *reels) {
-        SHStoryViewController *vc = [[SHStoryViewController alloc] initWithReels:reels startIndex:index];
-        vc.modalPresentationStyle = UIModalPresentationFullScreen;
-        [self presentViewController:vc animated:YES completion:nil];
-    };
-    if (reel.items.count) { open(tray); return; }
-    [_storyTask cancel];
-    _storyTask = [SHInstagram storiesForUserIds:@[ reel.user.pk ?: @"" ] completion:^(NSArray *reels, NSError *error) {
-        SHStoryReel *fetched = [reels firstObject];
-        if (error || !fetched.items.count) {
-            [SHUtils alertWithTitle:L(@"Stories") message:error.localizedDescription ?: L(@"This story is no longer available.")];
-            return;
-        }
-        NSMutableArray *merged = [tray mutableCopy];
-        if (index < merged.count) merged[index] = fetched;
-        open(merged);
-    }];
+    // The tray carries the items of the first reels only; the viewer fetches the others as it reaches them, so a
+    // tap opens at once and swiping on through the tray keeps working.
+    SHStoryViewController *vc = [[SHStoryViewController alloc] initWithReels:_storyBar.reels startIndex:index];
+    vc.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:vc animated:YES completion:nil];
 }
 
 #pragma mark - Actions

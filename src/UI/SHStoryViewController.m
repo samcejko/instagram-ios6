@@ -1,5 +1,6 @@
 #import "SHStoryViewController.h"
 #import "SHModels.h"
+#import "SHInstagram.h"
 #import "SHImageLoader.h"
 #import "SHMediaProxy.h"
 #import "SHTheme.h"
@@ -23,6 +24,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) id imageToken;
 @property (nonatomic) NSUInteger showSerial;
+@property (nonatomic, strong) SHHTTPTask *fetchTask;   // the items of a tray reel that came without them
 @end
 
 @implementation SHStoryViewController
@@ -115,6 +117,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     [super viewWillDisappear:animated];
     [_timer invalidate];
     [_player stop];
+    [_fetchTask cancel];
 }
 
 - (SHStoryReel *)currentReel
@@ -134,7 +137,39 @@ static const NSTimeInterval SHStoryDuration = 5.0;
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_timer invalidate];
+    [_fetchTask cancel];
     [[SHImageLoader shared] cancelToken:_imageToken];
+}
+
+// The tray carries the items of its first reels only. A reel reached without them is fetched here, into the
+// tray's own object, so the next opening is instant; one that has nothing to show (expired) is skipped.
+- (void)fetchCurrentReel:(SHStoryReel *)reel
+{
+    NSUInteger serial = ++_showSerial;
+    _imageView.image = nil;
+    _usernameLabel.text = reel.user.username;
+    _timeLabel.text = @"";
+    _progressFill.frame = CGRectMake(0, 0, 0, 2);
+    [_spinner startAnimating];
+    [_fetchTask cancel];
+    _fetchTask = [SHInstagram storiesForUserIds:@[ reel.user.pk ?: @"" ] completion:^(NSArray *reels, NSError *error) {
+        if (serial != self->_showSerial) return;
+        SHStoryReel *fetched = [reels firstObject];
+        if (fetched.items.count) {
+            reel.items = fetched.items;
+            [self showCurrentItem];
+            return;
+        }
+        [self->_spinner stopAnimating];
+        if (self->_reelIndex + 1 < self->_reels.count) {
+            self->_reelIndex++;
+            self->_itemIndex = 0;
+            [self showCurrentItem];
+        } else {
+            if (error) [SHUtils alertWithTitle:L(@"Stories") message:error.localizedDescription];
+            [self closeTapped];
+        }
+    }];
 }
 
 - (void)showCurrentItem
@@ -149,8 +184,13 @@ static const NSTimeInterval SHStoryDuration = 5.0;
     _player = nil;
 
     SHStoryReel *reel = [self currentReel];
+    if (!reel) { [self closeTapped]; return; }
+    if (!reel.items.count) { [self fetchCurrentReel:reel]; return; }
     SHStoryItem *item = [self currentItem];
-    if (!reel || !item) { [self closeTapped]; return; }
+    if (!item) { [self advanceItem]; return; }
+    if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
+        SHLog(@"Story: reel %lu/%lu item %lu/%lu type=%ld", (unsigned long)_reelIndex + 1, (unsigned long)_reels.count,
+              (unsigned long)_itemIndex + 1, (unsigned long)reel.items.count, (long)item.mediaType);
 
     _usernameLabel.text = reel.user.username;
     _timeLabel.text = item.takenAt ? [SHUtils formatRelativeDate:item.takenAt] : @"";
@@ -181,6 +221,7 @@ static const NSTimeInterval SHStoryDuration = 5.0;
         _imageToken = [[SHImageLoader shared] loadImage:item.image.url maxPixels:1024 completion:^(UIImage *image) {
             if (serial != self->_showSerial) return;   // moved on already
             [self->_spinner stopAnimating];
+            if (!image) { [self advanceItem]; return; }   // nothing to look at for five seconds: move on
             self->_imageView.image = image;
             [self startTimerWithDuration:SHStoryDuration];
         }];
