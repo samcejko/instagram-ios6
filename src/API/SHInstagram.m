@@ -121,14 +121,14 @@ static NSString *SHEncryptPassword(NSString *password, NSString *pubKeyBase64, N
     mbedtls_ctr_drbg_random(&ctr_drbg, iv, 12);
 
     mbedtls_rsa_context *rsa = mbedtls_pk_rsa(pk);
-    // Instagram decrypts this with RSA-OAEP using SHA-1 for both the hash and MGF1 (the default of
-    // PKCS1_OAEP in pycryptodome and of RSA_PKCS1_OAEP_PADDING in Node, which every working client uses).
-    // Using SHA-256 here makes the server's decrypt fail and the login is reported as a wrong password.
-    mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V21, MBEDTLS_MD_SHA1);
+    // Instagram wraps the AES session key with RSA **PKCS#1 v1.5**, not OAEP (instagrapi uses PKCS1_v1_5.new).
+    // The padded block is the same 256 bytes either way, so the output *looks* right, but with OAEP the server
+    // unpads to garbage, recovers the wrong AES key and reports a correct password as incorrect.
+    mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V15, MBEDTLS_MD_NONE);
     size_t rsaLen = mbedtls_rsa_get_len(rsa);
     unsigned char *rsaOut = malloc(rsaLen);
-    ret = mbedtls_rsa_rsaes_oaep_encrypt(rsa, mbedtls_ctr_drbg_random, &ctr_drbg,
-                                          NULL, 0, 32, aesKey, rsaOut);
+    ret = mbedtls_rsa_rsaes_pkcs1_v15_encrypt(rsa, mbedtls_ctr_drbg_random, &ctr_drbg,
+                                              32, aesKey, rsaOut);
     mbedtls_pk_free(&pk);
     if (ret != 0) { free(rsaOut); mbedtls_ctr_drbg_free(&ctr_drbg); mbedtls_entropy_free(&entropy); return nil; }
 
