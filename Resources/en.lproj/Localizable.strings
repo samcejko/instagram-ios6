@@ -100,6 +100,7 @@
 "Like" = "Like";
 "Couldn't play the voice message." = "Couldn't play the voice message.";
 "Unsupported message" = "Unsupported message";
+"Seen" = "Seen";
 
 /* Challenge / checkpoint */
 "Verify it's you" = "Verify it's you";

@@ -87,6 +87,8 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (SHHTTPTask *)directInboxWithCursor:(NSString *)cursor completion:(SHThreadsCompletion)completion;
 + (SHHTTPTask *)directThread:(NSString *)threadId cursor:(NSString *)cursor completion:(SHThreadCompletion)completion;
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
+// A chat read up to this message (Instagram shows the sender "Seen", and the thread is no longer unread).
++ (SHHTTPTask *)markDirectItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 // The same to a thread or, without one, to a person (Instagram finds or opens the one-to-one thread); answers the thread.
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId orUser:(NSString *)userPk
                     completion:(void (^)(BOOL ok, NSString *threadId, NSError *error))completion;

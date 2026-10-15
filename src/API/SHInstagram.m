@@ -1,4 +1,5 @@
 #import "SHInstagram.h"
+#import "SHDirectMonitor.h"
 #import "SHSettings.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
@@ -17,6 +18,7 @@
 @end
 
 static BOOL SHDebugLogging(void);   // (defined with the Direct helpers further down)
+static NSString *SHMutationToken(void);
 
 static NSString * const SHApiBase      = @"https://i.instagram.com/api/v1";
 static NSString * const SHAppId        = @"567067343352427";
@@ -1563,6 +1565,7 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
             // the message requests waiting (they are not in this list): counted by the same answer, no request more
             g_pendingMessageRequests = SHInt(SHDict(json)[@"pending_requests_total"]);
             if (SHDebugLogging()) SHLog(@"INBOX threads=%lu pending_requests_total=%ld", (unsigned long)threads.count, (long)g_pendingMessageRequests);
+            [[SHDirectMonitor shared] noteInboxThreads:threads];   // the Direct tab's badge
         }
         completion(threads, next, nil);
     }];
@@ -1658,6 +1661,30 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
     return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(NO, error); return; }
         completion([SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+    }];
+}
+
+// POST direct_v2/threads/<thread>/items/<item>/seen/ with a plain form, as the app marks a chat read.
++ (SHHTTPTask *)markDirectItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion
+{
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *token = SHMutationToken();
+    NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"action": @"mark_seen",
+        @"thread_id": threadId ?: @"",
+        @"item_id": itemId ?: @"",
+        @"client_context": token,
+        @"offline_threading_id": token,
+        @"use_unified_inbox": @"true",
+        @"_uuid": [SHSettings deviceId],
+    }];
+    if ([SHSettings csrfToken].length) fields[@"_csrftoken"] = [SHSettings csrfToken];
+    NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/%@/items/%@/seen/", SHApiBase, threadId ?: @"", itemId ?: @""];
+    return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
+        BOOL ok = !error && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"];
+        if (SHDebugLogging()) SHLog(@"DMSEEN status=%ld ok=%d %@", (long)status, ok, ok ? @"" : (error.localizedDescription ?: @""));
+        if (completion) completion(ok, ok ? nil : (error ?: SHMakeError(SHErrorAPI, [SHHTTP messageFromErrorJSON:json] ?: L(@"Something went wrong."))));
     }];
 }
 

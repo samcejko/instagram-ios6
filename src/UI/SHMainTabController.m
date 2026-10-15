@@ -6,11 +6,16 @@
 #import "SHProfileViewController.h"
 #import "SHTabIcons.h"
 #import "SHInstagram.h"
+#import "SHDirectMonitor.h"
+#import "SHPoller.h"
 #import "SHSettings.h"
 #import "SHTheme.h"
 #import "SHCommon.h"
 
-@implementation SHMainTabController
+@implementation SHMainTabController {
+    UIViewController *_inbox;
+    SHPoller *_directPoller;   // the Direct tab's badge while the app is used elsewhere
+}
 
 - (UINavigationController *)wrap:(UIViewController *)vc title:(NSString *)title image:(UIImage *)image
 {
@@ -53,6 +58,43 @@
         [self wrap:me title:L(@"Profile") image:[SHTabIcons profile]],
     ];
     [[SHTheme shared] applyToTabBar:self.tabBar];
+
+    // The number of unread chats on the Direct tab, as the app has it. Every inbox loaded counts; this asks for one
+    // now and then only while the Direct tab itself is not on screen (it asks on its own then).
+    _inbox = inbox;
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(directUnreadChanged)
+                                                 name:SHDirectUnreadDidChangeNotification object:nil];
+    [self directUnreadChanged];
+    __weak SHMainTabController *weakSelf = self;
+    _directPoller = [[SHPoller alloc] initWithMinInterval:60 maxInterval:120 block:^(void (^done)(BOOL changed)) {
+        SHMainTabController *s = weakSelf;
+        SHDirectMonitor *monitor = [SHDirectMonitor shared];
+        if (!s || [s inboxOnScreen] || monitor.secondsSinceInbox < 50) { done(NO); return; }
+        NSUInteger before = monitor.unreadCount;
+        [SHInstagram directInboxWithCursor:nil completion:^(NSArray *threads, NSString *cursor, NSError *error) {
+            done(monitor.unreadCount != before);
+        }];
+    }];
+    [_directPoller startAfter:6];   // (after the feed's own first requests)
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_directPoller stop];
+    [[SHDirectMonitor shared] reset];   // (logged out: the next account starts from nothing)
+}
+
+- (BOOL)inboxOnScreen
+{
+    UINavigationController *nav = (UINavigationController *)self.selectedViewController;
+    return [nav isKindOfClass:[UINavigationController class]] && nav.topViewController == _inbox;
+}
+
+- (void)directUnreadChanged
+{
+    NSUInteger n = [SHDirectMonitor shared].unreadCount;
+    _inbox.tabBarItem.badgeValue = n ? [NSString stringWithFormat:@"%lu", (unsigned long)n] : nil;
 }
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orient

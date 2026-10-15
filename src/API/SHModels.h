@@ -140,5 +140,6 @@
 @property (nonatomic, copy) NSString *lastText;         // a preview line for the inbox
 @property (nonatomic, strong) NSDate *lastActivity;
 @property (nonatomic) BOOL unread;
+@property (nonatomic, strong) NSDictionary *lastSeenAt;   // user pk -> when they last read the thread (NSDate), me too
 + (instancetype)fromJSON:(NSDictionary *)json;
 @end

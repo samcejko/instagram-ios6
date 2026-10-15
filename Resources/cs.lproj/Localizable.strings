@@ -100,6 +100,7 @@
 "Like" = "To se mi líbí";
 "Couldn't play the voice message." = "Hlasovou zprávu se nepodařilo přehrát.";
 "Unsupported message" = "Nepodporovaná zpráva";
+"Seen" = "Zobrazeno";
 
 /* Challenge / checkpoint */
 "Verify it's you" = "Ověřte, že jste to vy";

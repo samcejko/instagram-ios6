@@ -465,6 +465,16 @@ static NSMutableDictionary *SHSeenStore(void)
     t.lastText = last.text.length ? last.text : (last.placeholderText ?: @"");
     t.lastActivity = last.timestamp;
     t.unread = SHInt(d[@"read_state"]) != 0;
+
+    // how far each one has read: {"<pk>": {"item_id": …, "timestamp": "<microseconds>"}}
+    NSMutableDictionary *seen = [NSMutableDictionary dictionary];
+    NSDictionary *lastSeen = SHDict(d[@"last_seen_at"]);
+    for (id pk in lastSeen) {
+        NSTimeInterval ts = SHDbl(SHDict(lastSeen[pk])[@"timestamp"]);
+        if (ts > 1e14) ts /= 1e6;
+        if (ts > 0 && SHStr(pk).length) seen[SHStr(pk)] = [NSDate dateWithTimeIntervalSince1970:ts];
+    }
+    t.lastSeenAt = seen;
     return t;
 }
 

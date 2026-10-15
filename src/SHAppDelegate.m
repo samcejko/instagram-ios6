@@ -12,6 +12,7 @@
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHModern.h"
+#import "SHPoller.h"
 #import "SHCommon.h"
 #import <QuartzCore/QuartzCore.h>
 #include <objc/runtime.h>
@@ -46,7 +47,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     [SHTLSSocket warmUp];
     [[SHImageLoader shared] pruneDisk];
 
-    self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+    self.window = [[SHActivityWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];   // (notes touches: polling)
     self.window.backgroundColor = [UIColor blackColor];
 
     if ([SHSettings isLoggedIn]) {
@@ -85,6 +86,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
 
 - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
 {
+    SHNoteUserActivity();   // (a link opened here, or a debug command, is using the app)
     NSString *s = url.absoluteString ?: @"";
     NSString *lower = [s lowercaseString];
     if ([lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"]) return [SHLinkRouter openLink:s];

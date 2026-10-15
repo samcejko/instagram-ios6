@@ -2,6 +2,8 @@
 #import "SHThreadViewController.h"
 #import "SHProfileViewController.h"
 #import "SHInstagram.h"
+#import "SHDirectMonitor.h"
+#import "SHPoller.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
 #import "SHTheme.h"
@@ -72,6 +74,9 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic) BOOL pending;   // the message requests instead of the inbox
+@property (nonatomic, strong) SHPoller *poller;      // new messages while the list is on screen
+@property (nonatomic) BOOL loadedMore;               // pages further down are in
+@property (nonatomic, copy) NSString *signature;     // what the rows showed last (to redraw only on a change)
 @end
 
 @implementation SHInboxViewController
@@ -125,7 +130,38 @@ static NSString * const SHThreadCellId = @"ThreadCell";
             [self->_spinner stopAnimating];
             [self->_tableView reloadData];
         }];
+        // and while the list is on screen, again now and then (new chats, new messages, what was read)
+        __weak SHInboxViewController *weakSelf = self;
+        _poller = [[SHPoller alloc] initWithMinInterval:15 maxInterval:60 block:^(void (^done)(BOOL changed)) {
+            SHInboxViewController *s = weakSelf;
+            if (!s || s->_loading) { done(NO); return; }
+            NSString *before = s->_signature;
+            [s load:NO then:^{ done(![(before ?: @"") isEqualToString:(weakSelf.signature ?: @"")]); }];
+        }];
     }
+}
+
+- (void)viewDidAppear:(BOOL)animated
+{
+    [super viewDidAppear:animated];
+    [_poller start];
+}
+
+- (void)viewWillDisappear:(BOOL)animated
+{
+    [super viewWillDisappear:animated];
+    [_poller stop];
+}
+
+// The rows as they would look: ids, previews, times, unread.
+- (NSString *)signatureOfThreads
+{
+    NSMutableString *s = [NSMutableString string];
+    SHDirectMonitor *monitor = [SHDirectMonitor shared];
+    for (SHDirectThread *t in _threads)
+        [s appendFormat:@"%@|%@|%.0f|%d;", t.threadId, t.lastText ?: @"", [t.lastActivity timeIntervalSince1970], [monitor threadIsUnread:t]];
+    [s appendFormat:@"requests=%ld", (long)(_pending ? 0 : [SHInstagram pendingMessageRequestCount])];
+    return s;
 }
 
 // "Message requests (n)" over the conversations while some wait (the count comes with the inbox).
@@ -165,34 +201,62 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 {
     [super viewWillAppear:animated];
     [self load:NO];   // refresh each time the tab is shown
+    [_poller noteFresh];
 }
 
-- (void)dealloc { [_task cancel]; }
-
-- (void)load:(BOOL)more
+- (void)dealloc
 {
-    if (_loading) return;
-    if (more && !_cursor.length) return;
+    [_poller stop];
+    [_task cancel];
+}
+
+- (void)load:(BOOL)more { [self load:more then:nil]; }
+
+- (void)load:(BOOL)more then:(void (^)(void))then
+{
+    if (_loading || (more && !_cursor.length)) { if (then) then(); return; }
     _loading = YES;
     if (_threads.count == 0) [_spinner startAnimating];
     [_task cancel];
+    __weak SHInboxViewController *weakSelf = self;
     SHThreadsCompletion done = ^(NSArray *threads, NSString *cursor, NSError *error) {
-        self->_loading = NO;
-        [self->_spinner stopAnimating];
+        SHInboxViewController *s = weakSelf;
+        if (!s) { if (then) then(); return; }
+        s->_loading = NO;
+        [s->_spinner stopAnimating];
         if (error) {
-            if (self->_threads.count == 0) { self->_statusLabel.text = error.localizedDescription; self->_statusLabel.hidden = NO; }
+            if (s->_threads.count == 0) { s->_statusLabel.text = error.localizedDescription; s->_statusLabel.hidden = NO; }
+            if (then) then();
             return;
         }
-        if (!more) { [self->_threads removeAllObjects]; self->_fresh = YES; }
-        [self->_threads addObjectsFromArray:threads];
-        self->_cursor = self->_pending ? nil : cursor;
-        self->_statusLabel.hidden = self->_threads.count > 0;
-        if (self->_threads.count == 0) {
-            self->_statusLabel.text = self->_pending ? L(@"No requests.") : L(@"No messages yet.");
-            self->_statusLabel.hidden = NO;
+        NSMutableSet *ids = [NSMutableSet set];
+        for (SHDirectThread *t in threads) if (t.threadId.length) [ids addObject:t.threadId];
+        if (!more) {
+            // the first page anew; once pages further down are in, those stay under it (less what moved up)
+            NSMutableArray *rest = [NSMutableArray array];
+            if (s->_loadedMore) for (SHDirectThread *t in s->_threads) if (![ids containsObject:t.threadId]) [rest addObject:t];
+            [s->_threads setArray:threads];
+            [s->_threads addObjectsFromArray:rest];
+            s->_fresh = YES;
+        } else {
+            NSMutableSet *have = [NSMutableSet set];
+            for (SHDirectThread *t in s->_threads) if (t.threadId.length) [have addObject:t.threadId];
+            for (SHDirectThread *t in threads) if (![have containsObject:t.threadId]) [s->_threads addObject:t];
+            s->_loadedMore = YES;
         }
-        [self updateRequestsRow];
-        [self->_tableView reloadData];
+        s->_cursor = s->_pending ? nil : cursor;
+        s->_statusLabel.hidden = s->_threads.count > 0;
+        if (s->_threads.count == 0) {
+            s->_statusLabel.text = s->_pending ? L(@"No requests.") : L(@"No messages yet.");
+            s->_statusLabel.hidden = NO;
+        }
+        NSString *signature = [s signatureOfThreads];
+        if (![signature isEqualToString:(s->_signature ?: @"")]) {   // (a poll that found nothing new redraws nothing)
+            s->_signature = signature;
+            [s updateRequestsRow];
+            [s->_tableView reloadData];
+        }
+        if (then) then();
     };
     if (_pending) _task = [SHInstagram pendingDirectInboxWithCompletion:done];
     else _task = [SHInstagram directInboxWithCursor:more ? _cursor : nil completion:done];
@@ -216,8 +280,9 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     };
     cell.titleLabel.text = [SHUtils displayText:t.title];
     cell.previewLabel.text = [SHUtils displayText:t.lastText ?: @""];
-    cell.unreadDot.hidden = !t.unread;
-    cell.previewLabel.textColor = t.unread ? [[SHTheme shared] textColor] : [[SHTheme shared] secondaryTextColor];
+    BOOL unread = [[SHDirectMonitor shared] threadIsUnread:t];   // (also off at once for a chat just read here)
+    cell.unreadDot.hidden = !unread;
+    cell.previewLabel.textColor = unread ? [[SHTheme shared] textColor] : [[SHTheme shared] secondaryTextColor];
     [cell setNeedsLayout];
     return cell;
 }

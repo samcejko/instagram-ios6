@@ -12,6 +12,8 @@
 #import "SHLinkRouter.h"
 #import "SHLinkLabel.h"
 #import "SHShareViewController.h"
+#import "SHDirectMonitor.h"
+#import "SHPoller.h"
 #import "SHCommon.h"
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -468,6 +470,13 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 @property (nonatomic, strong) UIActionSheet *photoSheet;     // "Take Photo / Choose Existing" while it is up
 @property (nonatomic) CGFloat keyboardOverlap;
 @property (nonatomic, strong) UIView *requestBar;            // a message request: Accept / Delete over the bar
+@property (nonatomic, strong) SHPoller *poller;              // new messages while the chat is open
+@property (nonatomic) BOOL refreshing;
+@property (nonatomic) BOOL loadedOnce;
+@property (nonatomic) BOOL loadedOlder;                      // older pages are in (their cursor goes on from there)
+@property (nonatomic, strong) NSDictionary *lastSeenAt;      // user pk -> how far they have read (NSDate)
+@property (nonatomic, copy) NSString *seenMarkedPk;          // the newest message of theirs told to Instagram as read
+@property (nonatomic, copy) NSString *seenPk;                // my last message, once the other side has read it
 @end
 
 @implementation SHThreadViewController
@@ -640,13 +649,30 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     [self setMessagesNewestFirst:_thread.messages];
     [self refresh];
 
+    // then new messages while the chat is open: asked for every few seconds, less often while nothing comes
+    __weak SHThreadViewController *weakSelf = self;
+    _poller = [[SHPoller alloc] initWithMinInterval:5 maxInterval:30 block:^(void (^done)(BOOL changed)) {
+        SHThreadViewController *s = weakSelf;
+        if (s) [s refreshThen:done];
+        else done(NO);
+    }];
+    [_poller noteFresh];
+
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillHideNotification object:nil];
+}
+
+- (void)viewDidAppear:(BOOL)animated
+{
+    [super viewDidAppear:animated];
+    [_poller start];
+    [self markSeenIfNeeded];
 }
 
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_poller stop];
     [_task cancel];
     _playingPk = nil;   // no row reloads from a dying controller
     [self stopVoice];
@@ -657,6 +683,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
+    [_poller stop];
     [self stopVoice];
     if (!self.presentedViewController) {   // (not when the camera is what covers the chat)
         [self closeTransientUI];
@@ -689,16 +716,135 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     [self scrollToBottom:NO];
 }
 
-- (void)refresh
+- (void)refresh { [self refreshThen:nil]; }
+
+// The newest page again: the first load, a poll, after sending. `done` hears whether anything changed.
+- (void)refreshThen:(void (^)(BOOL changed))done
 {
-    if (!_thread.threadId.length) return;
-    [_task cancel];
+    if (!_thread.threadId.length || _refreshing) { if (done) done(NO); return; }
+    _refreshing = YES;
+    __weak SHThreadViewController *weakSelf = self;
     _task = [SHInstagram directThread:_thread.threadId cursor:nil completion:^(SHDirectThread *thread, NSString *cursor, NSError *error) {
-        if (error) { if (self->_messages.count == 0) [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription]; return; }
-        if (!thread) return;
-        [self indexUsers:thread.users];
-        self->_olderCursor = cursor;
-        [self setMessagesNewestFirst:thread.messages];
+        SHThreadViewController *s = weakSelf;
+        if (!s) { if (done) done(NO); return; }
+        s->_refreshing = NO;
+        if (error || !thread) {
+            if (error && !done && s->_messages.count == 0) [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription];
+            if (done) done(NO);
+            return;
+        }
+        BOOL changed = [s applyNewestPage:thread cursor:cursor];
+        if (done) done(changed);
+    }];
+}
+
+static BOOL SHIsLocalMessage(SHDirectMessage *m) { return !m.pk.length || [m.pk hasPrefix:@"local-"]; }
+
+static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
+{
+    return [a.pk isEqualToString:b.pk] && [(a.type ?: @"") isEqualToString:(b.type ?: @"")]
+        && [(a.text ?: @"") isEqualToString:(b.text ?: @"")];
+}
+
+// Instagram's copy of a message sent from here: one of mine of the same kind, from about then on, not shown before.
+- (SHDirectMessage *)serverCopyOf:(SHDirectMessage *)local inPage:(NSArray *)page shown:(NSSet *)shown used:(NSMutableSet *)used
+{
+    NSDate *since = [local.timestamp dateByAddingTimeInterval:-120];   // (this device's clock against Instagram's)
+    for (SHDirectMessage *m in page) {
+        if (![m.senderPk isEqualToString:_myId] || [shown containsObject:m.pk] || [used containsObject:m.pk]) continue;
+        if (since && m.timestamp && [m.timestamp compare:since] == NSOrderedAscending) continue;
+        BOOL match = local.text.length ? [m.text isEqualToString:local.text]
+                   : local.localImage ? (m.previewURL.length > 0 && !m.audioURL.length)
+                   : [m.type isEqualToString:local.type];
+        if (match) { [used addObject:m.pk]; return m; }
+    }
+    return nil;
+}
+
+- (BOOL)isNearBottom
+{
+    CGFloat visibleBottom = _tableView.contentOffset.y + _tableView.bounds.size.height - _tableView.contentInset.bottom;
+    return visibleBottom >= _tableView.contentSize.height - 60;
+}
+
+// The newest page from Instagram in place of what was shown: messages older than it stay above it, messages sent
+// from here that it does not list yet stay at the end, and unchanged ones are kept as they were (pictures stay
+// loaded). The view follows new messages only when it was at the end. Answers whether anything changed.
+- (BOOL)applyNewestPage:(SHDirectThread *)thread cursor:(NSString *)cursor
+{
+    [self indexUsers:thread.users];
+    if (!_loadedOlder) _olderCursor = cursor;
+    if (thread.lastSeenAt.count) _lastSeenAt = thread.lastSeenAt;
+
+    NSArray *page = [[thread.messages reverseObjectEnumerator] allObjects];   // oldest first
+    NSMutableSet *pagePks = [NSMutableSet set];
+    for (SHDirectMessage *m in page) if (m.pk.length) [pagePks addObject:m.pk];
+    NSMutableDictionary *shown = [NSMutableDictionary dictionary];
+    for (SHDirectMessage *m in _messages) if (!SHIsLocalMessage(m)) shown[m.pk] = m;
+    NSDate *pageStart = [[page firstObject] timestamp];
+
+    NSMutableArray *merged = [NSMutableArray array];
+    for (SHDirectMessage *m in _messages) {
+        if (SHIsLocalMessage(m) || [pagePks containsObject:m.pk]) continue;
+        if (pageStart && m.timestamp && [m.timestamp compare:pageStart] == NSOrderedAscending) [merged addObject:m];
+    }
+    for (SHDirectMessage *m in page) {
+        SHDirectMessage *old = shown[m.pk ?: @""];
+        [merged addObject:(old && SHSameMessage(old, m)) ? old : m];
+    }
+    NSSet *shownPks = [NSSet setWithArray:[shown allKeys]];
+    NSMutableSet *used = [NSMutableSet set];
+    for (SHDirectMessage *m in _messages) {
+        if (!SHIsLocalMessage(m)) continue;
+        SHDirectMessage *copy = [self serverCopyOf:m inPage:page shown:shownPks used:used];
+        if (copy) { if (m.localImage && !copy.localImage) copy.localImage = m.localImage; continue; }   // (no flash)
+        if (!m.sending && m.timestamp && -[m.timestamp timeIntervalSinceNow] > 120) continue;   // (it never showed up)
+        [merged addObject:m];
+    }
+
+    // "Seen" under my last message once the other side has read that far (one-to-one chats, as the app)
+    NSString *seenPk = nil;
+    SHDirectMessage *last = [merged lastObject];
+    if (last && !SHIsLocalMessage(last) && [last.senderPk isEqualToString:_myId] && _thread.users.count == 1) {
+        NSDate *theirs = _lastSeenAt[[[_thread.users firstObject] pk] ?: @""];
+        if (theirs && last.timestamp && [theirs compare:last.timestamp] != NSOrderedAscending) seenPk = last.pk;
+    }
+
+    BOOL firstLoad = !_loadedOnce;
+    _loadedOnce = YES;
+    BOOL same = merged.count == _messages.count && [(seenPk ?: @"") isEqualToString:(_seenPk ?: @"")];
+    for (NSUInteger i = 0; same && i < merged.count; i++) same = merged[i] == _messages[i];
+    if (!same) {
+        BOOL follow = firstLoad || [self isNearBottom];
+        if (!firstLoad) SHLog(@"DM thread updated: %lu messages (was %lu)%@", (unsigned long)merged.count, (unsigned long)_messages.count, seenPk ? @", seen" : @"");
+        [_messages setArray:merged];
+        _seenPk = seenPk;
+        [_tableView reloadData];
+        if (follow) [self scrollToBottom:!firstLoad];
+    }
+    [self markSeenIfNeeded];
+    return !same;
+}
+
+// The newest message from the other side counts as read once the chat shows it (Instagram tells them "Seen"). A
+// message request is read without that until it is accepted, as in the app.
+- (void)markSeenIfNeeded
+{
+    if (_pendingRequest || !_loadedOnce || !self.isViewLoaded || !self.view.window) return;
+    if ([UIApplication sharedApplication].applicationState != UIApplicationStateActive) return;
+    SHDirectMessage *newest = nil;
+    for (SHDirectMessage *m in [_messages reverseObjectEnumerator]) if (!SHIsLocalMessage(m)) { newest = m; break; }
+    if (!newest.pk.length || [newest.senderPk isEqualToString:_myId] || [_seenMarkedPk isEqualToString:newest.pk]) return;
+    _seenMarkedPk = newest.pk;
+    NSString *threadId = _thread.threadId;
+    NSDate *upTo = newest.timestamp;
+    NSDate *mine = _lastSeenAt[_myId ?: @""];
+    if (mine && upTo && [mine compare:upTo] != NSOrderedAscending) {   // read already (here before, or elsewhere)
+        [[SHDirectMonitor shared] noteThreadRead:threadId upTo:upTo];
+        return;
+    }
+    [SHInstagram markDirectItemSeen:newest.pk inThread:threadId completion:^(BOOL ok, NSError *error) {
+        if (ok) [[SHDirectMonitor shared] noteThreadRead:threadId upTo:upTo];
     }];
 }
 
@@ -711,7 +857,13 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
         if (error || !thread.messages.count) { self->_olderCursor = nil; return; }
         [self indexUsers:thread.users];
         self->_olderCursor = cursor;
-        NSArray *older = [[thread.messages reverseObjectEnumerator] allObjects];
+        self->_loadedOlder = YES;
+        // (a poll may have kept some of these already)
+        NSMutableSet *have = [NSMutableSet set];
+        for (SHDirectMessage *m in self->_messages) if (m.pk.length) [have addObject:m.pk];
+        NSMutableArray *older = [NSMutableArray array];
+        for (SHDirectMessage *m in [thread.messages reverseObjectEnumerator]) if (!m.pk.length || ![have containsObject:m.pk]) [older addObject:m];
+        if (!older.count) return;
         // keep the view where it was: remember the content height, insert on top, restore the offset
         CGFloat before = self->_tableView.contentSize.height;
         [self->_messages insertObjects:older atIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, older.count)]];
@@ -778,13 +930,13 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     local.text = text;
     local.senderPk = _myId;
     local.timestamp = [NSDate date];
-    [_messages addObject:local];
-    [_tableView reloadData];
-    [self scrollToBottom:YES];
+    local.sending = YES;
+    [self appendLocal:local];
     _inputField.text = @"";
 
     [SHInstagram sendDirectText:text toThread:_thread.threadId completion:^(BOOL ok, NSError *error) {
-        if (!ok) [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription ?: L(@"The message didn't send.")];
+        if (!ok && !self->_inputField.text.length) self->_inputField.text = text;   // (back in the field to try again)
+        [self localMessage:local sent:ok error:error];
     }];
 }
 
@@ -854,6 +1006,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
             self->_requestBar = nil;
             self->_pendingRequest = NO;
             [SHShareViewController flashMessage:L(@"Accepted")];
+            [self markSeenIfNeeded];   // (only now do they learn it was read)
         } else {
             [self.navigationController popViewControllerAnimated:YES];
         }
@@ -914,6 +1067,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
         return;
     }
     [_tableView reloadData];
+    [_poller speedUp];   // (an answer may come soon)
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self refresh]; });
 }
 
@@ -1288,8 +1442,10 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
     // the picture sits by the last bubble of a run from the same sender, as in the real app
     BOOL lastOfRun = i + 1 >= _messages.count || ![[_messages[i + 1] senderPk] isEqualToString:m.senderPk];
     BOOL playing = [_playingPk isEqualToString:m.pk];
+    NSString *timeText = [self timeTextFor:m];
+    if (_seenPk && [m.pk isEqualToString:_seenPk]) timeText = [NSString stringWithFormat:@"%@  %@", timeText, L(@"Seen")];
     [cell configureWithMessage:m outgoing:outgoing sender:_usersByPk[m.senderPk ?: @""] showAvatar:lastOfRun
-                         width:tableView.bounds.size.width playing:playing progress:playing ? _voiceProgress : 0 timeText:[self timeTextFor:m]];
+                         width:tableView.bounds.size.width playing:playing progress:playing ? _voiceProgress : 0 timeText:timeText];
     return cell;
 }
 
