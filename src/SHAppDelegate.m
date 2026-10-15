@@ -23,6 +23,9 @@
 {
     signal(SIGPIPE, SIG_IGN);
     [SHSettings registerDefaults];
+    // iOS 6 UILabels default to an opaque (white) background, which shows as boxes behind text on the dark theme.
+    // Make the default transparent app-wide; labels that need a fill (chat bubbles) set their colour explicitly.
+    [[UILabel appearance] setBackgroundColor:[UIColor clearColor]];
     SHLog(@"Gramify %@ starting on %@ (iOS %@)", [SHUtils appVersion], [SHUtils deviceModel],
           [UIDevice currentDevice].systemVersion);
     SHModernSetUp([[SHTheme shared] barStyle]);

@@ -38,6 +38,7 @@
     title.text = @"Gramify";
     title.font = [UIFont boldSystemFontOfSize:28];
     title.textColor = [[SHTheme shared] textColor];
+    title.backgroundColor = [UIColor clearColor];
     title.textAlignment = NSTextAlignmentCenter;
     title.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     [_scrollView addSubview:title];
@@ -47,6 +48,7 @@
     subtitle.text = L(@"Sign in with your Instagram account");
     subtitle.font = [UIFont systemFontOfSize:14];
     subtitle.textColor = [[SHTheme shared] secondaryTextColor];
+    subtitle.backgroundColor = [UIColor clearColor];
     subtitle.textAlignment = NSTextAlignmentCenter;
     subtitle.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     [_scrollView addSubview:subtitle];
