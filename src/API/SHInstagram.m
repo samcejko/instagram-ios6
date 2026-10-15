@@ -425,7 +425,6 @@ static NSString *SHExtractBloksError(NSString *body)
                 // password or the token value.
                 if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
                     NSString *dbg = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
-                    [dbg writeToFile:[[SHUtils documentsPath] stringByAppendingPathComponent:@"caalogin.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
                     NSMutableArray *hdrNames = [NSMutableArray array];
                     for (NSString *k in headers) [hdrNames addObject:[k lowercaseString]];
                     NSString *lc = [dbg lowercaseString];
@@ -570,8 +569,6 @@ static NSString *SHExtractBloksError(NSString *body)
                 (long)status, SHStr(d[@"status"]) ?: @"-", SHStr(d[@"message"]) ?: @"-",
                 (unsigned long)items.count, (unsigned long)posts.count, SHStr(d[@"next_max_id"]) ?: @"-",
                 [[d allKeys] componentsJoinedByString:@","]);
-            NSData *dump = [SHUtils JSONDataFromObject:json];
-            if (dump.length < 400000) [dump writeToFile:[[SHUtils documentsPath] stringByAppendingPathComponent:@"feed.json"] atomically:YES];
         }
         completion(posts, SHStr(d[@"next_max_id"]), nil);
     }];

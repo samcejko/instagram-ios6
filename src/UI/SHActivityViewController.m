@@ -110,6 +110,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
         [self->_stories setArray:stories];
         self->_statusLabel.hidden = self->_stories.count > 0;
         if (self->_stories.count == 0) { self->_statusLabel.text = L(@"No recent activity."); self->_statusLabel.hidden = NO; }
+        self->_tableView.hidden = self->_stories.count == 0;   // show the dark view + message when empty
         [self->_tableView reloadData];
     }];
 }

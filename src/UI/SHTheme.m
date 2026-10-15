@@ -913,6 +913,9 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
     bg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     tableView.backgroundView = bg;
     tableView.backgroundColor = [self backgroundColor];
+    // A zero-row plain table with no header/footer paints white on iOS 6; an empty footer makes it honour the
+    // background and also hides the trailing separator lines.
+    if (!tableView.tableFooterView) tableView.tableFooterView = [[UIView alloc] initWithFrame:CGRectZero];
     tableView.separatorColor = [self separatorColor];
     tableView.indicatorStyle = self.dark ? UIScrollViewIndicatorStyleWhite : UIScrollViewIndicatorStyleDefault;
     SHModernSetTableViewDark(tableView, [self isDark]);
