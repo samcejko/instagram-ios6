@@ -1626,7 +1626,8 @@ static SHHTTPTask *SHDirectBroadcast(NSString *item, NSDictionary *fields, NSStr
             // Instagram's own words when it has any; its HTTP 500 says just "None"
             NSString *text = [SHHTTP messageFromErrorJSON:json] ?: error.localizedDescription;
             if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) {
-                BOOL media = [item isEqualToString:@"configure_photo"] || [item isEqualToString:@"share_voice"];
+                BOOL media = [item isEqualToString:@"configure_photo"] || [item isEqualToString:@"share_voice"]
+                          || [item isEqualToString:@"voice_attachment"];
                 text = media ? L(@"Instagram didn't accept it. In a message request they haven't accepted yet, only text can be sent.")
                              : L(@"The message didn't send.");
             }
@@ -1745,29 +1746,51 @@ static SHHTTPTask *SHUploadFinish(NSString *uploadId, NSInteger attempt, void (^
     return task;
 }
 
-// A voice message: the AAC recording (rupload_igvideo, media type 11), the upload finished, then share_voice with
-// the shape of the sound (levels 0-1, ten a second) that the chat draws.
+// A voice message. broadcast/share_voice (after rupload_igvideo + upload_finish) answers 404 since 2025 ("no longer
+// supported"); what the app does now, as reported in dilame/instagram-private-api#1832 (not confirmed there): the audio
+// goes to rupload.facebook.com/messenger_audio/<upload id>, whose answer carries "media_id", and that is sent as an
+// attachment with broadcast/voice_attachment, with the shape of the sound (levels 0-1, ten a second, comma-separated).
 + (SHHTTPTask *)sendDirectVoice:(NSData *)audio duration:(NSTimeInterval)duration waveform:(NSArray *)waveform
                        toThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
     NSString *uploadId = SHUploadIdNow();
-    NSDictionary *params = @{ @"retry_context": SHRetryContext, @"media_type": @"11", @"xsharing_user_ids": @"[]", @"upload_id": uploadId,
-                              @"upload_media_duration_ms": [NSString stringWithFormat:@"%lld", (long long)(duration * 1000)],
-                              @"is_direct_voice": @"1" };
-    NSString *wave = SHJSONString(waveform.count ? waveform : @[ @0.5 ]);
+    NSDictionary *params = @{ @"message_id": uploadId, @"upload_id": uploadId, @"xsharing_user_ids": @"[]",
+                              @"media_type": @11, @"is_direct_voice": @YES };
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"X-Instagram-Rupload-Params"] = SHJSONString(params);
+    h[@"X_FB_VIDEO_WATERFALL_ID"] = [[NSUUID UUID] UUIDString];
+    h[@"X-Entity-Type"] = @"audio/mp4";   // (AAC in an MP4 file, as recorded)
+    h[@"X-Entity-Name"] = [uploadId stringByAppendingString:@".m4a"];
+    h[@"X-Entity-Length"] = [NSString stringWithFormat:@"%lu", (unsigned long)audio.length];
+    h[@"Offset"] = @"0";
+    h[@"X-Auth-Type"] = @"instagram";
+    h[@"Content-Type"] = @"application/octet-stream";
+    NSMutableArray *levels = [NSMutableArray array];
+    for (NSNumber *n in waveform) [levels addObject:[NSString stringWithFormat:@"%.3f", n.doubleValue]];
+    NSString *wave = levels.count ? [levels componentsJoinedByString:@","] : @"0.5";
     __block SHHTTPTask *task = nil;
-    task = SHRupload(@"igvideo", audio, params, uploadId, @"video/mp4", ^(NSString *uploaded, NSError *error) {
-        if (!uploaded) { completion(NO, error); return; }
-        SHHTTPTask *finish = SHUploadFinish(uploaded, 0, ^(BOOL finished, NSError *finishError) {
-            if (!finished) SHLog(@"Voice: upload_finish said no (%@), sending anyway", finishError.localizedDescription ?: @"-");
-            NSDictionary *fields = @{ @"upload_id": uploaded, @"waveform": wave, @"waveform_sampling_frequency_hz": @"10" };
-            SHHTTPTask *send = SHDirectBroadcast(@"share_voice", fields, threadId, nil, ^(BOOL ok, NSString *thread, NSError *err) {
-                completion(ok, err);
-            });
-            task.cancelBlock = ^{ [send cancel]; };
+    task = [SHHTTP request:@"POST" url:[@"https://rupload.facebook.com/messenger_audio/" stringByAppendingString:uploadId]
+                   headers:h body:audio retries:0 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
+        NSString *attachment = SHStr(d[@"media_id"]) ?: SHStr(d[@"fbid"]) ?: SHStr(d[@"attachment_fbid"]);
+        if (SHDebugLogging())
+            SHLog(@"UPLOAD messenger_audio %lu B %.1f s status=%ld keys=%@ attachment=%@ %@", (unsigned long)audio.length, duration, (long)status,
+                  [[d allKeys] componentsJoinedByString:@","], attachment.length ? @"yes" : @"no", SHStr(d[@"message"]) ?: error.localizedDescription ?: @"");
+        if (!attachment.length) {
+            NSString *text = [SHHTTP messageFromErrorJSON:d] ?: error.localizedDescription;
+            if (!text.length || [[text lowercaseString] isEqualToString:@"none"]) text = L(@"The upload failed.");
+            completion(NO, SHMakeError(status >= 400 ? status : (error ? error.code : SHErrorAPI), text));
+            return;
+        }
+        NSDictionary *fields = @{ @"upload_id": uploadId, @"attachment_fbid": attachment, @"waveform": wave,
+                                  @"waveform_sampling_frequency_hz": @"10", @"send_attribution": @"direct_inbox",
+                                  @"content_type": @"audio",
+                                  @"client_timestamp": [NSString stringWithFormat:@"%lld", (long long)([[NSDate date] timeIntervalSince1970] * 1000)] };
+        SHHTTPTask *send = SHDirectBroadcast(@"voice_attachment", fields, threadId, nil, ^(BOOL ok, NSString *thread, NSError *err) {
+            completion(ok, err);
         });
-        task.cancelBlock = ^{ [finish cancel]; };
-    });
+        task.cancelBlock = ^{ [send cancel]; };
+    }];
     return task;
 }
 

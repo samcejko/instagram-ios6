@@ -31,6 +31,7 @@ static const CGFloat SHDetailHeaderH = 50;
 @property (nonatomic, strong) NSMutableArray *tagUsers;    // SHUser, by the bubble's tag
 @property (nonatomic, strong) UIView *contentView;         // everything in the scroll view, built for one width
 @property (nonatomic) CGFloat builtWidth;
+@property (nonatomic) BOOL videoStarted;                   // the play button was used (it is not built again)
 @end
 
 @implementation SHPostDetailViewController
@@ -157,7 +158,7 @@ static const CGFloat SHDetailHeaderH = 50;
         poster.maxPixels = 1024;
         [poster setImageURL:_post.image.url placeholder:nil];
         [_contentView addSubview:poster];
-        BOOL started = _player != nil && _player.playbackState != MPMoviePlaybackStateStopped;
+        BOOL started = _player != nil && _videoStarted;   // (a player not started yet does not report "stopped")
         if (!_player) {   // (laid out again: the same player goes on where it was)
             NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:_post.videoURL]];
             _player = [[MPMoviePlayerController alloc] initWithContentURL:[NSURL URLWithString:proxied]];
@@ -315,6 +316,7 @@ static const CGFloat SHDetailHeaderH = 50;
 - (void)playTapped:(UIButton *)button
 {
     button.hidden = YES;
+    _videoStarted = YES;
     [_player play];
 }
 
