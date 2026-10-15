@@ -38,10 +38,17 @@ static NSMutableArray *g_choices;
 
 @implementation SHLinkRouter
 
+// The controller the user is looking at: through modal presentations, the selected tab and its navigation stack,
+// so that a profile or post opened from a link is pushed where the user is instead of presented without a way back.
 + (UIViewController *)topController
 {
     UIViewController *top = [UIApplication sharedApplication].keyWindow.rootViewController;
-    while (top.presentedViewController) top = top.presentedViewController;
+    for (;;) {
+        if (top.presentedViewController) top = top.presentedViewController;
+        else if ([top isKindOfClass:[UITabBarController class]]) top = [(UITabBarController *)top selectedViewController];
+        else if ([top isKindOfClass:[UINavigationController class]]) top = [(UINavigationController *)top topViewController];
+        else break;
+    }
     return top;
 }
 

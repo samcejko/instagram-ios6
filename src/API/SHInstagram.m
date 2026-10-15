@@ -626,10 +626,14 @@ static NSString *SHExtractBloksError(NSString *body)
         if (error) { completion(nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *reels = [NSMutableArray array];
+        NSUInteger withItems = 0;
         for (NSDictionary *tray in SHArr(d[@"tray"])) {
             SHStoryReel *r = [SHStoryReel fromJSON:tray];
-            if (r && r.user) [reels addObject:r];
+            if (r && r.user) { [reels addObject:r]; if (r.items.count) withItems++; }
         }
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
+            SHLog(@"TRAY status=%ld reels=%lu withItems=%lu firstKeys=%@", (long)status, (unsigned long)reels.count, (unsigned long)withItems,
+                  [[SHDict([SHArr(d[@"tray"]) firstObject]) allKeys] componentsJoinedByString:@","]);
         completion(reels, nil);
     }];
 }
@@ -648,9 +652,15 @@ static NSString *SHExtractBloksError(NSString *body)
                    headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
-        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
-            SHLog(@"STORIES ids=%@ status=%ld error=%@ keys=%@", [ids componentsJoinedByString:@","], (long)status, error.localizedDescription ?: @"-",
-                  [[SHDict(json) allKeys] componentsJoinedByString:@","]);
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
+            id reelsNode = SHDict(json)[@"reels_media"] ?: SHDict(json)[@"reels"];
+            id firstReel = [reelsNode isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)reelsNode allValues].firstObject
+                         : [reelsNode isKindOfClass:[NSArray class]] ? [(NSArray *)reelsNode firstObject] : nil;
+            SHLog(@"STORIES ids=%@ status=%ld error=%@ keys=%@ reels=%@ n=%lu firstReelKeys=%@ items=%lu", [ids componentsJoinedByString:@","],
+                  (long)status, error.localizedDescription ?: @"-", [[SHDict(json) allKeys] componentsJoinedByString:@","],
+                  NSStringFromClass([reelsNode class]), (unsigned long)[reelsNode count],
+                  [[SHDict(firstReel) allKeys] componentsJoinedByString:@","], (unsigned long)SHArr(SHDict(firstReel)[@"items"]).count);
+        }
         if (error) { completion(nil, error); return; }
         if (status >= 400) { completion(nil, SHMakeError(status, [SHHTTP messageFromErrorJSON:json] ?: L(@"Couldn't load the story."))); return; }
         NSDictionary *d = SHDict(json);

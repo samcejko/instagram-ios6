@@ -61,8 +61,12 @@
 - (UIViewController *)topController
 {
     UIViewController *top = self.window.rootViewController;
-    while (top.presentedViewController) top = top.presentedViewController;
-    if ([top isKindOfClass:[UINavigationController class]]) top = [(UINavigationController *)top topViewController];
+    for (;;) {
+        if (top.presentedViewController) top = top.presentedViewController;
+        else if ([top isKindOfClass:[UITabBarController class]]) top = [(UITabBarController *)top selectedViewController];
+        else if ([top isKindOfClass:[UINavigationController class]]) top = [(UINavigationController *)top topViewController];
+        else break;
+    }
     return top;
 }
 
