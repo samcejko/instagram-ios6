@@ -180,7 +180,15 @@ static void SHSaveTokensFromHeaders(NSDictionary *headers)
         if ([lower isEqualToString:@"ig-set-authorization"]) {
             NSString *val = headers[key];
             if ([val hasPrefix:@"Bearer IGT:2:"]) {
-                [SHSettings setSessionToken:[val substringFromIndex:@"Bearer IGT:2:".length]];
+                NSString *token = [val substringFromIndex:@"Bearer IGT:2:".length];
+                if (token.length) {
+                    [SHSettings setSessionToken:token];
+                    // The token is base64(JSON) with ds_user_id/sessionid; pull the user id so the account loads
+                    // without a separate request (the CAA login response carries no logged_in_user object).
+                    NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:token]]);
+                    NSString *uid = SHStr(claims[@"ds_user_id"]);
+                    if (uid.length) [SHSettings setUserId:uid];
+                }
             }
         }
         if ([lower isEqualToString:@"x-ig-set-www-claim"]) {
@@ -208,9 +216,120 @@ static NSString *SHExtractCSRF(NSDictionary *headers)
     return nil;
 }
 
+// Best-effort pull of a string value for `key` out of a bloks/JSON blob, handling both "key":"val" and the
+// backslash-escaped \"key\":\"val\" bloks encodes. nil when not found.
+static NSString *SHExtractJSONString(NSString *body, NSString *key)
+{
+    if (!body.length || !key.length) return nil;
+    NSArray *patterns = @[ [NSString stringWithFormat:@"\"%@\":\"", key], [NSString stringWithFormat:@"\\\"%@\\\":\\\"", key] ];
+    for (NSString *pat in patterns) {
+        NSRange r = [body rangeOfString:pat];
+        if (r.location == NSNotFound) continue;
+        NSUInteger i = r.location + r.length;
+        NSMutableString *out = [NSMutableString string];
+        while (i < body.length) {
+            unichar c = [body characterAtIndex:i];
+            if (c == '\\') { i += 2; continue; }
+            if (c == '"') break;
+            [out appendFormat:@"%C", c];
+            i++;
+        }
+        if (out.length) return out;
+    }
+    return nil;
+}
+
+// A readable reason out of a bloks login response (the body is a UI-flow blob; string matching is what the
+// reference libraries use too). nil when nothing recognisable is found.
+static NSString *SHExtractBloksError(NSString *body)
+{
+    if (!body.length) return nil;
+    if ([body rangeOfString:@"password you entered is incorrect" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [body rangeOfString:@"incorrect password" options:NSCaseInsensitiveSearch].location != NSNotFound)
+        return L(@"The password you entered is incorrect.");
+    if ([body rangeOfString:@"find your account" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [body rangeOfString:@"doesn't belong" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [body rangeOfString:@"No account found" options:NSCaseInsensitiveSearch].location != NSNotFound)
+        return L(@"That username doesn't belong to an account.");
+    if ([body rangeOfString:@"out of date" options:NSCaseInsensitiveSearch].location != NSNotFound)
+        return L(@"Your version of Instagram is out of date.");
+    return nil;
+}
+
 #pragma mark - Login
 
 @implementation SHInstagram
+
+// Modern CAA / bloks login request. Instagram deprecated the plain /accounts/login/ endpoint (it answers
+// "needs_upgrade"); this is the flow the current app uses. The session token still comes back in the
+// ig-set-authorization response header, so the (un-signed) bloks body only needs scanning for errors/2FA/challenge.
++ (SHHTTPTask *)caaSendLoginRequest:(NSString *)username encPassword:(NSString *)encPassword
+                         completion:(SHHTTPCompletion)completion
+{
+    NSString *deviceId = [SHSettings androidId];
+    NSString *guid = [SHSettings deviceId];
+    NSDictionary *clientInput = @{
+        @"secure_family_device_id": @"",
+        @"has_whatsapp_installed": @0,
+        @"password": encPassword ?: @"",
+        @"sso_enabled": @(YES),
+        @"device_id": deviceId,
+        @"login_attempt_count": @0,
+        @"login_source": @"Login",
+        @"is_platform_login": @0,
+        @"fb_ig_device_id": @[],
+        @"device_emails": @[],
+        @"try_num": @1,
+        @"lois_settings": @{ @"lois_token": @"", @"lara_override": @"" },
+        @"event_flow": @"login_manual",
+        @"event_step": @"home_page",
+        @"headers_infra_flow_id": @"",
+        @"openid_tokens": @{},
+        @"contact_point": username ?: @"",
+        @"encrypted_msisdn": @"",
+        @"accounts_list": @[],
+    };
+    NSDictionary *serverParams = @{
+        @"should_trigger_override_login_2fa_action": @0,
+        @"is_from_logged_out": @0,
+        @"should_trigger_override_login_success_action": @0,
+        @"login_credential_type": @"none",
+        @"server_login_source": @"login",
+        @"waterfall_id": [[NSUUID UUID] UUIDString],
+        @"login_source": @"Login",
+        @"is_platform_login": @0,
+        @"INTERNAL__latency_qpl_marker_id": @36707139,
+        @"is_from_landing_page": @0,
+        @"password_text_input_id": [guid stringByAppendingString:@":1"],
+        @"is_from_empty_password": @0,
+        @"is_from_msplit_fallback": @0,
+        @"ar_event_source": @"login_home_page",
+        @"qe_device_id": guid,
+        @"username_text_input_id": [guid stringByAppendingString:@":0"],
+        @"device_id": deviceId,
+        @"reg_flow_source": @"login_home_native_integration_point",
+        @"is_caa_perf_enabled": @1,
+        @"credential_type": @"password",
+        @"is_from_password_entry_page": @0,
+        @"caller": @"gslr",
+        @"family_device_id": guid,
+        @"is_from_assistive_id": @0,
+        @"access_flow_version": @"LOGIN_FLOW_V2",
+        @"is_from_logged_in_switcher": @0,
+    };
+    NSString *paramsJSON = [[NSString alloc] initWithData:[SHUtils JSONDataFromObject:@{ @"client_input_params": clientInput, @"server_params": serverParams }] encoding:NSUTF8StringEncoding];
+    NSString *bkJSON = [[NSString alloc] initWithData:[SHUtils JSONDataFromObject:@{ @"bloks_version": SHBloksVersion, @"styles_id": @"instagram" }] encoding:NSUTF8StringEncoding];
+
+    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *csrf = [SHSettings csrfToken];
+    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+
+    NSString *bodyStr = [NSString stringWithFormat:@"params=%@&bk_client_context=%@&bloks_versioning_id=%@",
+        [SHUtils urlEncode:paramsJSON], [SHUtils urlEncode:bkJSON], SHBloksVersion];
+    NSString *url = [SHApiBase stringByAppendingString:@"/bloks/apps/com.bloks.www.bloks.caa.login.async.send_login_request/"];
+    return [SHHTTP request:@"POST" url:url headers:h body:[bodyStr dataUsingEncoding:NSUTF8StringEncoding] retries:0 completion:completion];
+}
 
 + (SHHTTPTask *)fetchEncryptionKeyWithCompletion:(void (^)(NSString *pubKey, NSInteger keyId, NSError *error))completion
 {
@@ -257,76 +376,36 @@ static NSString *SHExtractCSRF(NSDictionary *headers)
             encPassword = [NSString stringWithFormat:@"#PWD_INSTAGRAM:0:%lld:%@", (long long)now, password];
         }
 
-        NSDictionary *params = @{
-            @"jazoest": SHJazoest([SHSettings phoneId]),
-            @"country_codes": @"[{\"country_code\":\"1\",\"source\":[\"default\"]}]",
-            @"phone_id": [SHSettings phoneId],
-            @"enc_password": encPassword,
-            @"username": username,
-            @"adid": [[NSUUID UUID] UUIDString],
-            @"guid": [SHSettings deviceId],
-            @"device_id": [SHSettings androidId],
-            @"google_tokens": @"[]",
-            @"login_attempt_count": @"0",
-        };
-        NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-        h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-        NSString *csrf = [SHSettings csrfToken];
-        if (csrf.length) h[@"X-CSRFToken"] = csrf;
-
-        SHHTTPTask *inner = [SHHTTP request:@"POST"
-            url:[SHApiBase stringByAppendingString:@"/accounts/login/"]
-            headers:h body:SHSignedBodyData(params) retries:0
+        SHHTTPTask *inner = [self caaSendLoginRequest:username encPassword:encPassword
             completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *loginErr) {
                 NSString *newCsrf = SHExtractCSRF(headers);
                 if (newCsrf) [SHSettings setCsrfToken:newCsrf];
-                SHSaveTokensFromHeaders(headers);
+                SHSaveTokensFromHeaders(headers);   // the token (and ds_user_id) arrive here on success
 
-                id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
-                NSDictionary *d = SHDict(json);
+                if ([SHSettings isLoggedIn]) {
+                    [SHSettings setUsername:username];
+                    [SHSettings save];
+                    completion(nil, nil, nil);      // signed in; the feed/profile load the account from the token
+                    return;
+                }
 
-                if (SHBool(d[@"two_factor_required"])) {
-                    NSDictionary *info = SHDict(d[@"two_factor_info"]);
-                    NSString *tfId = SHStr(info[@"two_factor_identifier"]) ?: @"";
+                NSString *bodyStr = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
+                if ([bodyStr rangeOfString:@"two_factor" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                    [bodyStr rangeOfString:@"two_step_verification" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                    NSString *tfId = SHExtractJSONString(bodyStr, @"two_factor_identifier") ?: @"";
+                    [SHSettings setUsername:username];
                     completion(nil, tfId, nil);
                     return;
                 }
-                NSString *message = SHStr(d[@"message"]);
-                if ([message isEqualToString:@"challenge_required"]) {
-                    // A fresh device almost always triggers this: Instagram wants an e-mail/SMS code before the
-                    // account may sign in. Remember where to continue and let the UI run the challenge flow.
-                    NSDictionary *challenge = SHDict(d[@"challenge"]);
-                    NSString *path = SHStr(challenge[@"api_path"]);
-                    if (!path.length) {
-                        NSString *url = SHStr(challenge[@"url"]);
-                        NSRange r = [url rangeOfString:@"/challenge/"];
-                        if (r.location != NSNotFound) path = [url substringFromIndex:r.location];
-                    }
-                    [self setChallengePath:path];
-                    NSError *err = SHMakeError(SHErrorChallenge,
-                        L(@"Instagram needs to verify it's you. A code will be sent to your e-mail or phone."));
-                    completion(nil, nil, err);
+                if ([bodyStr rangeOfString:@"challenge" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                    NSString *path = SHExtractJSONString(bodyStr, @"api_path");
+                    if (path.length) [self setChallengePath:path];
+                    completion(nil, nil, SHMakeError(SHErrorChallenge,
+                        L(@"Instagram needs to verify it's you. A code will be sent to your e-mail or phone.")));
                     return;
                 }
-                if (loginErr || !SHBool(d[@"authenticated"])) {
-                    NSString *msg = message;
-                    if ([message isEqualToString:@"checkpoint_required"])
-                        msg = L(@"Instagram asked for a security check. Open the Instagram app or instagram.com once, approve this login, then try again.");
-                    else if (SHStr(d[@"error_type"]) && [SHStr(d[@"error_type"]) isEqualToString:@"bad_password"])
-                        msg = L(@"The password you entered is incorrect.");
-                    else if (SHStr(d[@"error_type"]) && [SHStr(d[@"error_type"]) isEqualToString:@"invalid_user"])
-                        msg = L(@"That username doesn't belong to an account.");
-                    if (!msg.length) msg = loginErr.localizedDescription ?: L(@"Login failed.");
-                    completion(nil, nil, SHMakeError(status ?: SHErrorAPI, msg));
-                    return;
-                }
-                SHUser *user = [SHUser fromJSON:SHDict(d[@"logged_in_user"])];
-                if (user) {
-                    [SHSettings setUserId:user.pk];
-                    [SHSettings setUsername:user.username];
-                    [SHSettings save];
-                }
-                completion(user, nil, nil);
+                NSString *msg = SHExtractBloksError(bodyStr) ?: (loginErr.localizedDescription ?: L(@"Login failed."));
+                completion(nil, nil, SHMakeError(status ?: SHErrorAPI, msg));
             }];
         task.cancelBlock = ^{ [inner cancel]; };
     }];
@@ -749,29 +828,19 @@ static NSString *g_challengePath = nil;
         if (error || !pubKey.length) { completion([NSString stringWithFormat:@"key fetch failed: %@", error.localizedDescription ?: @"?"]); return; }
         NSString *encPassword = SHEncryptPassword(@"selftest-not-a-credential", pubKey, keyId);
         if (!encPassword.length) { completion(@"enc_password nil (crypto failed)"); return; }
-        NSDictionary *params = @{
-            @"jazoest": SHJazoest([SHSettings phoneId]),
-            @"country_codes": @"[{\"country_code\":\"1\",\"source\":[\"default\"]}]",
-            @"phone_id": [SHSettings phoneId],
-            @"enc_password": encPassword,
-            @"username": @"gramify_fmt_probe_000",   // deliberately not a real account
-            @"adid": [[NSUUID UUID] UUIDString],
-            @"guid": [SHSettings deviceId],
-            @"device_id": [SHSettings androidId],
-            @"google_tokens": @"[]",
-            @"login_attempt_count": @"0",
-        };
-        NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-        h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-        NSString *csrf = [SHSettings csrfToken];
-        if (csrf.length) h[@"X-CSRFToken"] = csrf;
-        [SHHTTP request:@"POST" url:[SHApiBase stringByAppendingString:@"/accounts/login/"]
-            headers:h body:SHSignedBodyData(params) retries:0
+        // Probe the modern CAA endpoint with a non-existent username: shows whether the bloks login format is
+        // accepted (no more needs_upgrade). A JSON error reply still parses; otherwise we snapshot the bloks body.
+        [self caaSendLoginRequest:@"gramify_fmt_probe_000" encPassword:encPassword
             completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *err) {
-                NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
-                completion([NSString stringWithFormat:@"HTTP %ld status=%@ error_type=%@ msg=\"%@\"",
-                    (long)status, SHStr(d[@"status"]) ?: @"?", SHStr(d[@"error_type"]) ?: @"-",
-                    SHStr(d[@"message"]) ?: @"-"]);
+                NSString *bodyStr = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
+                NSDictionary *d = SHDict([SHUtils JSONObjectFromData:body]);
+                BOOL needsUpgrade = [bodyStr rangeOfString:@"out of date" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                    [SHStr(d[@"error_type"]) isEqualToString:@"needs_upgrade"];
+                NSString *bloks = SHExtractBloksError(bodyStr);
+                NSString *snippet = bodyStr.length > 160 ? [bodyStr substringToIndex:160] : bodyStr;
+                completion([NSString stringWithFormat:@"CAA HTTP %ld needs_upgrade=%@ error_type=%@ bloksErr=%@ body=%@",
+                    (long)status, needsUpgrade ? @"YES" : @"no", SHStr(d[@"error_type"]) ?: @"-",
+                    bloks ?: @"-", snippet]);
             }];
     }];
 }
