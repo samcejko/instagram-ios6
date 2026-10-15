@@ -155,7 +155,7 @@ static const CGFloat SHProfileAvatar = 84;
     UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, 30, frame.size.width, 16)];
     sub.text = title;
     sub.font = [UIFont boldSystemFontOfSize:11];
-    sub.textColor = [theme secondaryTextColor];
+    sub.textColor = theme.isDark ? [UIColor colorWithWhite:0.78 alpha:1] : [theme secondaryTextColor];   // (readable on the gloss)
     sub.textAlignment = NSTextAlignmentCenter;
     sub.backgroundColor = [UIColor clearColor];
     [theme embossLabel:sub];

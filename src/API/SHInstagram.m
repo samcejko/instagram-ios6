@@ -749,7 +749,10 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
                       SHDbl(tray[@"expiring_at"]) > 0 ? (SHDbl(tray[@"expiring_at"]) - now) / 3600 : -1,
                       SHStr(tray[@"seen"]) ?: @"-", SHStr(tray[@"has_besties_media"]) ?: @"-", SHStr(tray[@"is_nux"]) ?: @"-");
             }
-            // a reel that has already run out, or one of a kind that is not somebody's story, has nothing to show
+            // Not every circle is a story: for an account that follows few people Instagram fills the tray with
+            // accounts it suggests following ("suggested_user": no story, nothing to open). Only reels stay; also
+            // none that already ran out.
+            if ([SHStr(tray[@"reel_type"]) isEqualToString:@"suggested_user"]) continue;
             if (SHDbl(tray[@"expiring_at"]) > 0 && SHDbl(tray[@"expiring_at"]) < now) continue;
             if (SHDbl(tray[@"latest_reel_media"]) > 0 && now - SHDbl(tray[@"latest_reel_media"]) > 26 * 3600) continue;
             if (r && r.user) { [reels addObject:r]; if (r.items.count) withItems++; }
@@ -1409,12 +1412,23 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         NSMutableArray *posts = [NSMutableArray array];
         if (!error && status < 400) {
+            // the reels come in "items" or, in the newer layout, in "items_with_ads" between the ads (left out)
             NSMutableArray *all = [NSMutableArray array];
-            SHCollectMedia(d[@"items"] ?: d, all, [NSMutableSet set]);
+            NSMutableSet *seen = [NSMutableSet set];
+            for (NSString *key in @[ @"items", @"items_with_ads" ]) {
+                for (id entry in SHArr(d[key])) {
+                    NSDictionary *e = SHDict(entry);
+                    NSDictionary *media = SHDict(e[@"media"]);
+                    if (e[@"ad"] || e[@"ad_id"] || media[@"ad_id"] || media[@"ad_action"] || e[@"dr_ad_type"]) continue;
+                    SHCollectMedia(e, all, seen);
+                }
+            }
             for (SHPost *p in all) if (p.videoURL.length || p.mediaType == 2) [posts addObject:p];
         }
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
-            SHLog(@"REELS %@ status=%ld items=%lu videos=%lu msg=%@", endpoint, (long)status, (unsigned long)SHArr(d[@"items"]).count,
+            SHLog(@"REELS %@ status=%ld items=%lu with_ads=%lu firstKeys=%@ videos=%lu msg=%@", endpoint, (long)status,
+                  (unsigned long)SHArr(d[@"items"]).count, (unsigned long)SHArr(d[@"items_with_ads"]).count,
+                  [[SHDict([SHArr(d[@"items_with_ads"]) firstObject]) allKeys] componentsJoinedByString:@","],
                   (unsigned long)posts.count, SHStr(d[@"message"]) ?: @"-");
         if (posts.count) {
             NSDictionary *paging = SHDict(d[@"paging_info"]);

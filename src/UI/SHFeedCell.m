@@ -47,10 +47,17 @@ static CGFloat SHPhotoHeight(SHPost *post, CGFloat width)
     return floorf(h);
 }
 
+// The caption as one flowing paragraph (its line breaks would waste the three lines a feed post has for it).
 static NSString *SHCaptionText(SHPost *post)
 {
     if (!post.captionText.length) return nil;
-    return [NSString stringWithFormat:@"%@ %@", post.user.username ?: @"", [SHUtils displayText:post.captionText]];
+    NSArray *lines = [[SHUtils displayText:post.captionText] componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    NSMutableArray *kept = [NSMutableArray array];
+    for (NSString *line in lines) {
+        NSString *t = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (t.length) [kept addObject:t];
+    }
+    return [NSString stringWithFormat:@"%@ %@", post.user.username ?: @"", [kept componentsJoinedByString:@" "]];
 }
 
 static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)

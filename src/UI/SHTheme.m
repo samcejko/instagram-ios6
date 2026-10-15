@@ -860,35 +860,44 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
 
 #pragma mark - iOS 6 surfaces
 
-// The woven linen of iOS 6: every row and every column of the tile is a thread a shade lighter or darker than the
-// base, with slubs scattered over it. Each thread runs across the whole tile, so it repeats without a seam.
+// The woven linen of iOS 6: short threads, each a shade lighter or darker than the base, run along every row and
+// down every column, the warp fainter than the weft, with slubs scattered over them. Threads are short (3-14
+// points) so that no line runs across the screen, and the tile repeats without a seam or a visible grid.
 - (UIColor *)linenColor
 {
-    UIImage *tile = [self cachedImage:@"linen" builder:^UIImage *{
+    UIImage *tile = [self cachedImage:@"linen2" builder:^UIImage *{
         const int side = 128;
         return SHDrawImage(CGSizeMake(side, side), ^(CGContextRef ctx) {
-            [(self.dark ? RGB(30, 31, 34) : RGB(216, 219, 225)) setFill];
+            [(self.dark ? RGB(31, 32, 35) : RGB(216, 219, 225)) setFill];
             CGContextFillRect(ctx, CGRectMake(0, 0, side, side));
             uint32_t seed = 0x2545F491u;
-            for (int i = 0; i < side; i++) {
-                for (int pass = 0; pass < 2; pass++) {
-                    seed = seed * 1664525u + 1013904223u;
-                    BOOL light = (seed >> 10) & 1;
-                    CGFloat alpha = ((seed >> 12) % 100) / (self.dark ? 1500.0 : 1200.0);
-                    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:light ? 1 : 0 alpha:alpha].CGColor);
-                    CGContextFillRect(ctx, pass == 0 ? CGRectMake(0, i, side, 1) : CGRectMake(i, 0, 1, side));
+            for (int pass = 0; pass < 2; pass++) {
+                CGFloat strength = pass == 0 ? (self.dark ? 0.055 : 0.07) : (self.dark ? 0.035 : 0.045);   // weft, then warp
+                for (int line = 0; line < side; line++) {
+                    int along = 0;
+                    while (along < side) {
+                        seed = seed * 1664525u + 1013904223u;
+                        int length = 3 + (int)((seed >> 8) % 12);
+                        if (along + length > side) length = side - along;
+                        seed = seed * 1664525u + 1013904223u;
+                        BOOL light = (seed >> 10) & 1;
+                        CGFloat alpha = strength * (((seed >> 12) % 100) / 100.0);
+                        CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:light ? 1 : 0 alpha:alpha].CGColor);
+                        CGContextFillRect(ctx, pass == 0 ? CGRectMake(along, line, length, 1) : CGRectMake(line, along, 1, length));
+                        along += length;
+                    }
                 }
             }
-            for (int i = 0; i < 1600; i++) {
+            for (int i = 0; i < 2400; i++) {
                 seed = seed * 1664525u + 1013904223u;
                 CGFloat x = (seed >> 8) % side;
                 seed = seed * 1664525u + 1013904223u;
                 CGFloat y = (seed >> 8) % side;
                 seed = seed * 1664525u + 1013904223u;
                 BOOL light = (seed >> 9) & 1;
-                CGFloat alpha = 0.03 + ((seed >> 12) % 100) / 2200.0;
+                CGFloat alpha = 0.02 + ((seed >> 12) % 100) / 2500.0;
                 CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:light ? 1 : 0 alpha:alpha].CGColor);
-                CGContextFillRect(ctx, CGRectMake(x, y, ((seed >> 20) & 1) ? 2 : 1, 1));
+                CGContextFillRect(ctx, CGRectMake(x, y, 1, 1));
             }
         });
     }];

@@ -215,6 +215,9 @@ static const NSTimeInterval SHStoryDuration = 5.0;
                                                      name:MPMoviePlayerPlaybackStateDidChangeNotification object:_player];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playbackFinished:)
                                                      name:MPMoviePlayerPlaybackDidFinishNotification object:_player];
+        // (shouldAutoplay alone does not start the loading: without these the spinner turned forever)
+        [_player prepareToPlay];
+        [_player play];
     } else {
         _imageView.image = nil;
         [_spinner startAnimating];
