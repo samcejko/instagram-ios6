@@ -558,11 +558,20 @@ static NSString *SHExtractBloksError(NSString *body)
                  completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
+        NSArray *items = SHArr(d[@"feed_items"]) ?: SHArr(d[@"items"]);
         NSMutableArray *posts = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(d[@"feed_items"]) ?: SHArr(d[@"items"])) {
+        for (NSDictionary *item in items) {
             NSDictionary *mediaNode = SHDict(item[@"media_or_ad"]) ?: item;
             SHPost *p = [SHPost fromJSON:mediaNode];
             if (p && p.pk.length) [posts addObject:p];
+        }
+        if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
+            SHLog(@"FEED status=%ld dictStatus=%@ msg=%@ feed_items=%lu parsed=%lu next=%@ keys=%@",
+                (long)status, SHStr(d[@"status"]) ?: @"-", SHStr(d[@"message"]) ?: @"-",
+                (unsigned long)items.count, (unsigned long)posts.count, SHStr(d[@"next_max_id"]) ?: @"-",
+                [[d allKeys] componentsJoinedByString:@","]);
+            NSData *dump = [SHUtils JSONDataFromObject:json];
+            if (dump.length < 400000) [dump writeToFile:[[SHUtils documentsPath] stringByAppendingPathComponent:@"feed.json"] atomically:YES];
         }
         completion(posts, SHStr(d[@"next_max_id"]), nil);
     }];
