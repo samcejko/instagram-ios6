@@ -28,6 +28,7 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 // with challenge_required (SHHTTPChallengeRequiredNotification keeps the challenge path here once registered).
 + (void)registerChallengeObserver;
 + (BOOL)hasPendingChallenge;
++ (NSDictionary *)challengeStepData;   // step_data of the current step: masked "email"/"phone_number", "contact_point"
 + (SHHTTPTask *)challengeFetchWithCompletion:(SHChallengeCompletion)completion;      // GET: learn the current step
 + (SHHTTPTask *)challengeSelectMethod:(NSInteger)choice completion:(SHChallengeCompletion)completion;  // 1=email, 0=SMS
 + (SHHTTPTask *)challengeSubmitCode:(NSString *)code completion:(SHLoginCompletion)completion;

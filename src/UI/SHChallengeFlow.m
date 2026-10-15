@@ -8,12 +8,25 @@
 
 static SHChallengeFlow *g_flow = nil;   // the running flow keeps itself alive while its alerts are up
 
+static NSError *SHCannotFinishHere(void)
+{
+    return SHMakeError(SHErrorAPI, L(@"Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again."));
+}
+
+// A value of the step's data, or nil when Instagram left it empty ("None" in some replies).
+static NSString *SHStepValue(NSString *key)
+{
+    NSString *v = SHStr([SHInstagram challengeStepData][key]);
+    return (v.length && ![v isEqualToString:@"None"] && ![v isEqualToString:@"null"]) ? v : nil;
+}
+
 @interface SHChallengeFlow () <UIAlertViewDelegate, UIActionSheetDelegate>
 @property (nonatomic, weak) UIView *view;
 @property (nonatomic, copy) void (^completion)(BOOL passed, NSError *error);
 @property (nonatomic, strong) SHHTTPTask *task;
-@property (nonatomic) NSInteger hops;        // steps taken, so a checkpoint that never closes cannot loop
-@property (nonatomic) BOOL acknowledged;     // the blind "choice 0" was tried once
+@property (nonatomic) NSInteger hops;                   // steps taken, so a checkpoint that never closes cannot loop
+@property (nonatomic) BOOL acknowledged;                // the blind "choice 0" was tried once
+@property (nonatomic, strong) NSArray *methodChoices;   // the choice value behind each button of the method sheet
 @end
 
 @implementation SHChallengeFlow
@@ -48,18 +61,25 @@ static SHChallengeFlow *g_flow = nil;   // the running flow keeps itself alive w
     }];
 }
 
-// Instagram names the step; unknown ones (an unusual-activity notice, a "review" page) take a plain "choice 0"
-// acknowledgement, which closes most of them. What that does not close must be finished on instagram.com.
+// Instagram names the step. Unknown ones (a notice of some kind) take a plain "choice 0" acknowledgement, which
+// closes most of them; what that does not close, and what this app cannot answer honestly (a new password, a
+// selfie, a birthday), has to be finished in the official app or on instagram.com.
 - (void)handleStep:(NSString *)step
 {
-    SHLog(@"Challenge step: %@", step.length ? step : @"(none)");
-    if (++_hops > 6) { [self finish:NO error:SHMakeError(SHErrorAPI, L(@"Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again."))]; return; }
+    SHLog(@"Challenge step: %@ (data: %@)", step.length ? step : @"(none)",
+          [[[SHInstagram challengeStepData] allKeys] componentsJoinedByString:@","] ?: @"-");
+    if (++_hops > 6) { [self finish:NO error:SHCannotFinishHere()]; return; }
     if ([step isEqualToString:@"close"]) { [self finish:YES error:nil]; return; }
-    if ([step isEqualToString:@"select_verify_method"]) { [self askVerifyMethod]; return; }
+    if ([step isEqualToString:@"select_verify_method"] || [step isEqualToString:@"select_contact_point_recovery"]) { [self askVerifyMethod]; return; }
     if ([step hasPrefix:@"verify_"] || [step isEqualToString:@"submit_code"]) { [self promptForCode]; return; }
-    if ([step isEqualToString:@"delta_login_review"] || [step isEqualToString:@"login_review"]) { [self askLoginReview]; return; }
+    if ([step isEqualToString:@"delta_login_review"] || [step isEqualToString:@"login_review"]) { [self askReview:L(@"Was this you?")]; return; }
+    if ([step isEqualToString:@"scraping_warning"]) {
+        [self askReview:L(@"Instagram noticed unusual activity on this account. Confirm that it was you to continue.")];
+        return;
+    }
+    if ([@[ @"change_password", @"selfie_captcha", @"add_birthday", @"captcha" ] containsObject:step]) { [self finish:NO error:SHCannotFinishHere()]; return; }
     if (!_acknowledged) { _acknowledged = YES; [self postChoice:0]; return; }
-    [self finish:NO error:SHMakeError(SHErrorAPI, L(@"Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again."))];
+    [self finish:NO error:SHCannotFinishHere()];
 }
 
 - (void)postChoice:(NSInteger)choice
@@ -71,26 +91,39 @@ static SHChallengeFlow *g_flow = nil;   // the running flow keeps itself alive w
     }];
 }
 
+// Offers what the account has, with the masked address Instagram shows ("s****@g****.com", "+420 *** *** *12").
 - (void)askVerifyMethod
 {
+    NSString *email = SHStepValue(@"email"), *phone = SHStepValue(@"phone_number");
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:L(@"Where should we send the code?")
         delegate:self cancelButtonTitle:nil destructiveButtonTitle:nil otherButtonTitles:nil];
-    [sheet addButtonWithTitle:L(@"Email")];
-    [sheet addButtonWithTitle:L(@"Text message")];
+    NSMutableArray *choices = [NSMutableArray array];
+    if (email.length || !phone.length) {
+        [sheet addButtonWithTitle:email.length ? [NSString stringWithFormat:@"%@ (%@)", L(@"Email"), email] : L(@"Email")];
+        [choices addObject:@1];
+    }
+    if (phone.length || !email.length) {
+        [sheet addButtonWithTitle:phone.length ? [NSString stringWithFormat:@"%@ (%@)", L(@"Text message"), phone] : L(@"Text message")];
+        [choices addObject:@0];
+    }
     sheet.cancelButtonIndex = [sheet addButtonWithTitle:L(@"Cancel")];
+    _methodChoices = choices;
     UIView *v = self.view ?: [UIApplication sharedApplication].keyWindow;
     [sheet showInView:v];
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex
 {
-    if (buttonIndex == actionSheet.cancelButtonIndex) { [self finish:NO error:nil]; return; }
-    [self postChoice:buttonIndex == 0 ? 1 : 0];   // 1 = e-mail, 0 = SMS
+    if (buttonIndex == actionSheet.cancelButtonIndex || buttonIndex < 0 || (NSUInteger)buttonIndex >= _methodChoices.count) {
+        [self finish:NO error:nil];
+        return;
+    }
+    [self postChoice:[_methodChoices[(NSUInteger)buttonIndex] integerValue]];   // 1 = e-mail, 0 = SMS
 }
 
-- (void)askLoginReview
+- (void)askReview:(NSString *)message
 {
-    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Verify it's you") message:L(@"Was this you?")
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Verify it's you") message:message
                                                    delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"It was me"), nil];
     alert.tag = SH_ALERT_REVIEW;
     [alert show];
@@ -98,8 +131,10 @@ static SHChallengeFlow *g_flow = nil;   // the running flow keeps itself alive w
 
 - (void)promptForCode
 {
-    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Verify it's you")
-        message:L(@"Enter the code Instagram sent to your email or phone.")
+    NSString *contact = SHStepValue(@"contact_point");
+    NSString *message = contact.length ? [NSString stringWithFormat:L(@"Enter the code Instagram sent to %@."), contact]
+                                       : L(@"Enter the code Instagram sent to your email or phone.");
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Verify it's you") message:message
         delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Verify"), nil];
     alert.tag = SH_ALERT_CODE;
     alert.alertViewStyle = UIAlertViewStylePlainTextInput;

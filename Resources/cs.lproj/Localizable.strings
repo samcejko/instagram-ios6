@@ -113,6 +113,8 @@
 "Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again." = "Instagram vyžaduje bezpečnostní kontrolu. Ověřte se zde kódem zaslaným na e-mail nebo telefon, nebo to potvrďte v aplikaci Instagram či na instagram.com a zkuste to znovu.";
 "Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again." = "Instagram stále vyžaduje kontrolu, kterou tu nelze dokončit. Potvrďte ji v aplikaci Instagram nebo na instagram.com a zkuste to znovu.";
 "Was this you?" = "Byli jste to vy?";
+"Instagram noticed unusual activity on this account. Confirm that it was you to continue." = "Instagram zaznamenal na tomto účtu neobvyklou aktivitu. Pokračujte potvrzením, že jste to byli vy.";
+"Enter the code Instagram sent to %@." = "Zadejte kód, který Instagram poslal na %@.";
 "It was me" = "Byl(a) jsem to já";
 "Verified. Loading again." = "Ověřeno. Načítám znovu.";
 "Verified. Please log in again." = "Ověřeno. Přihlaste se prosím znovu.";

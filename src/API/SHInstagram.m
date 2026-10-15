@@ -865,9 +865,18 @@ static NSString *SHExtractBloksError(NSString *body)
 #pragma mark - Challenge (checkpoint) flow
 
 static NSString *g_challengePath = nil;
+static NSString *g_challengeContext = nil;       // challenge.challenge_context of the reply that asked for the check
+static NSDictionary *g_challengeStepData = nil;  // step_data of the current step (masked e-mail/phone, contact_point)
 
-+ (void)setChallengePath:(NSString *)path { g_challengePath = [path copy]; }
++ (void)setChallengePath:(NSString *)path
+{
+    g_challengePath = [path copy];
+    g_challengeContext = nil;
+    g_challengeStepData = nil;
+}
+
 + (BOOL)hasPendingChallenge { return g_challengePath.length > 0; }
++ (NSDictionary *)challengeStepData { return g_challengeStepData; }
 
 + (void)registerChallengeObserver
 {
@@ -875,11 +884,32 @@ static NSString *g_challengePath = nil;
                                                  name:SHHTTPChallengeRequiredNotification object:nil];
 }
 
+// Every call of a stopped session brings the same challenge; only a new one replaces the pending one (and its step).
 + (void)challengeRequiredNotification:(NSNotification *)note
 {
+    NSDictionary *c = SHDict(SHDict(note.userInfo[@"json"])[@"challenge"]);
     NSString *path = SHStr(note.userInfo[@"path"]);
-    if (path.length) [self setChallengePath:path];
-    SHLog(@"Instagram stopped the session for a security check (challenge path %@)", path.length ? @"known" : @"missing");
+    if (!path.length) { SHLog(@"Instagram stopped the session for a security check, without a challenge path"); return; }
+    if ([path isEqualToString:g_challengePath]) return;
+    [self setChallengePath:path];
+    g_challengeContext = [SHStr(c[@"challenge_context"]) copy];
+    SHLog(@"Instagram stopped the session for a security check: %@ path, native_flow=%@ lock=%@ logout=%@ flow_render_type=%@ context=%@",
+          [path componentsSeparatedByString:@"/"].count >= 5 ? @"user/nonce" : @"generic", c[@"native_flow"], c[@"lock"], c[@"logout"],
+          c[@"flow_render_type"], g_challengeContext.length ? @"yes" : @"no");
+}
+
+// The challenge_context the app sends with the step request: the reply's own, else (like the app) one naming the
+// user and the nonce of an api_path "/challenge/<user id>/<nonce>/".
+static NSString *SHChallengeContextParameter(void)
+{
+    if (g_challengeContext.length) return g_challengeContext;
+    NSArray *parts = [g_challengePath componentsSeparatedByString:@"/"];
+    NSUInteger i = [parts indexOfObject:@"challenge"];
+    if (i == NSNotFound || i + 2 >= parts.count) return nil;
+    NSString *user = parts[i + 1], *nonce = parts[i + 2];
+    if (!nonce.length || [user longLongValue] <= 0) return nil;
+    NSData *json = [SHUtils JSONDataFromObject:@{ @"step_name": @"", @"nonce_code": nonce, @"user_id": @([user longLongValue]), @"is_stateless": @NO }];
+    return json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
 }
 
 + (NSString *)challengeURL
@@ -897,15 +927,19 @@ static NSString *g_challengePath = nil;
     NSString *url = [self challengeURL];
     if (!url) { completion(nil, NO, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
     // SHAuthHeaders carries the session when there is one (a checkpoint of a live session); before a login it is
-    // just the device headers and the CSRF token. The device identifies itself like the app does.
-    url = [url stringByAppendingFormat:@"%@guid=%@&device_id=%@", [url rangeOfString:@"?"].location == NSNotFound ? @"?" : @"&",
-           [SHUtils urlEncode:[SHSettings deviceId]], [SHUtils urlEncode:[SHSettings androidId]]];
-    return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
-        if (error) { completion(nil, NO, error); return; }
+    // just the device headers and the CSRF token. The device and the challenge identify themselves like the app's.
+    NSMutableString *u = [url mutableCopy];
+    [u appendFormat:@"%@guid=%@&device_id=%@", [url rangeOfString:@"?"].location == NSNotFound ? @"?" : @"&",
+     [SHUtils urlEncode:[SHSettings deviceId]], [SHUtils urlEncode:[SHSettings androidId]]];
+    NSString *context = SHChallengeContextParameter();
+    if (context.length) [u appendFormat:@"&challenge_context=%@", [SHUtils urlEncode:context]];
+    return [SHHTTP getJSON:u headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
+        if (error) { SHLog(@"Challenge step request failed: HTTP %ld %@", (long)status, error.localizedDescription); completion(nil, NO, error); return; }
         NSDictionary *d = SHDict(json);
+        g_challengeStepData = SHDict(d[@"step_data"]);
         NSString *step = SHStr(d[@"step_name"]) ?: @"";
         if (!step.length && [SHStr(d[@"action"]) isEqualToString:@"close"]) step = @"close";
-        completion(step, [step isEqualToString:@"select_verify_method"], nil);
+        completion(step, [step isEqualToString:@"select_verify_method"] || [step isEqualToString:@"select_contact_point_recovery"], nil);
     }];
 }
 
@@ -923,11 +957,16 @@ static NSString *g_challengePath = nil;
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         if (error) { completion(nil, NO, error); return; }
-        if (status >= 400) { completion(nil, NO, SHMakeError(status, [SHHTTP messageFromErrorJSON:d] ?: L(@"That code didn't work. Try again."))); return; }
+        if (status >= 400) {
+            SHLog(@"Challenge answer refused: HTTP %ld %@", (long)status, SHStr(d[@"message"]) ?: @"-");
+            completion(nil, NO, SHMakeError(status, [SHHTTP messageFromErrorJSON:d] ?: L(@"That code didn't work. Try again.")));
+            return;
+        }
+        g_challengeStepData = SHDict(d[@"step_data"]);
         NSString *step = SHStr(d[@"step_name"]) ?: @"";
         if (!step.length) step = [SHStr(d[@"action"]) isEqualToString:@"close"] || [SHStr(d[@"status"]) isEqualToString:@"ok"] ? @"close" : @"verify_code";
         if ([step isEqualToString:@"close"]) [self setChallengePath:nil];
-        completion(step, [step isEqualToString:@"select_verify_method"], nil);
+        completion(step, [step isEqualToString:@"select_verify_method"] || [step isEqualToString:@"select_contact_point_recovery"], nil);
     }];
 }
 

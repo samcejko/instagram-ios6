@@ -113,6 +113,8 @@
 "Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again." = "Instagram asked for a security check. Verify here with a code sent to your e-mail or phone, or confirm it in the Instagram app or on instagram.com and try again.";
 "Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again." = "Instagram still asks for a check it can't do here. Confirm it in the Instagram app or on instagram.com, then try again.";
 "Was this you?" = "Was this you?";
+"Instagram noticed unusual activity on this account. Confirm that it was you to continue." = "Instagram noticed unusual activity on this account. Confirm that it was you to continue.";
+"Enter the code Instagram sent to %@." = "Enter the code Instagram sent to %@.";
 "It was me" = "It was me";
 "Verified. Loading again." = "Verified. Loading again.";
 "Verified. Please log in again." = "Verified. Please log in again.";
