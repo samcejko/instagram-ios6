@@ -1,24 +1,87 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#FDC468"/>
-      <stop offset="0.3" stop-color="#DF4996"/>
-      <stop offset="0.7" stop-color="#BC2FAE"/>
-      <stop offset="1" stop-color="#7B39C7"/>
+    <linearGradient id="o-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a5e67"/>
+      <stop offset="0.5" stop-color="#2c2f36"/>
+      <stop offset="1" stop-color="#141519"/>
     </linearGradient>
-    <linearGradient id="gloss" x1="0.5" y1="0" x2="0.5" y2="0.5">
-      <stop offset="0" stop-color="white" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    <filter id="o-brush" x="0" y="0" width="1" height="1">
+      <feTurbulence type="fractalNoise" baseFrequency="0.0012 0.9" numOctaves="2" seed="11"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0.34 0 0 0 -0.09"/>
+    </filter>
+    <filter id="o-shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18"/>
+      <feOffset dy="20" result="b"/>
+      <feFlood flood-color="#000" flood-opacity="0.75"/>
+      <feComposite in2="b" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="o-blur3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+    <filter id="o-blur12" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="12"/></filter>
+    <linearGradient id="o-chrome" x1="0.15" y1="0.08" x2="0.85" y2="0.92">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.2" stop-color="#b3b7bf"/>
+      <stop offset="0.42" stop-color="#f1f2f5"/>
+      <stop offset="0.6" stop-color="#787d86"/>
+      <stop offset="0.8" stop-color="#d5d8dd"/>
+      <stop offset="1" stop-color="#565a62"/>
+    </linearGradient>
+    <linearGradient id="o-knurl-sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.32"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="o-bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2c32"/>
+      <stop offset="1" stop-color="#08090b"/>
+    </linearGradient>
+    <radialGradient id="o-inner" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.75" stop-color="#1d1f24"/>
+      <stop offset="1" stop-color="#040405"/>
+    </radialGradient>
+    <radialGradient id="o-glass" cx="0.5" cy="0.55" r="0.5" fx="0.36" fy="0.3">
+      <stop offset="0" stop-color="#4466a8"/>
+      <stop offset="0.35" stop-color="#15274c"/>
+      <stop offset="0.75" stop-color="#070d1d"/>
+      <stop offset="1" stop-color="#010205"/>
+    </radialGradient>
+    <clipPath id="o-glass-clip"><circle cx="512" cy="512" r="200"/></clipPath>
+    <linearGradient id="o-gloss" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="500">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.05"/>
     </linearGradient>
   </defs>
-  <!-- Background with rounded corners -->
-  <rect width="1024" height="1024" rx="180" fill="url(#bg)"/>
-  <!-- Gloss overlay -->
-  <rect width="1024" height="512" rx="180" fill="url(#gloss)"/>
-  <!-- Camera body (rounded square) -->
-  <rect x="232" y="232" width="560" height="560" rx="120" fill="none" stroke="white" stroke-width="52"/>
-  <!-- Lens circle -->
-  <circle cx="512" cy="512" r="160" fill="none" stroke="white" stroke-width="48"/>
-  <!-- Flash dot -->
-  <circle cx="700" cy="324" r="42" fill="white"/>
+
+  <rect width="1024" height="1024" fill="url(#o-bg)"/>
+  <rect width="1024" height="1024" fill="#000" filter="url(#o-brush)"/>
+
+  <rect x="772" y="150" width="104" height="54" rx="12" fill="#07080a" stroke="#6d717a" stroke-width="4"/>
+  <rect x="784" y="160" width="80" height="20" rx="8" fill="#fff" opacity="0.14"/>
+
+  <circle cx="512" cy="512" r="362" fill="url(#o-chrome)" filter="url(#o-shadow)"/>
+  <circle cx="512" cy="512" r="362" fill="none" stroke="#2d3036" stroke-width="3"/>
+  <circle cx="512" cy="512" r="332" fill="#1c1d22"/>
+  <circle cx="512" cy="512" r="315" fill="none" stroke="#3e4149" stroke-width="30" stroke-dasharray="7 7"/>
+  <circle cx="512" cy="512" r="332" fill="url(#o-knurl-sheen)"/>
+  <circle cx="512" cy="512" r="299" fill="url(#o-bezel)" stroke="#0a0b0d" stroke-width="4"/>
+  <circle cx="512" cy="512" r="296" fill="none" stroke="url(#o-chrome)" stroke-width="5"/>
+  <circle cx="512" cy="512" r="270" fill="none" stroke="#c9ccd2" stroke-width="12" stroke-dasharray="2.5 25.77" opacity="0.7"/>
+  <circle cx="512" cy="512" r="272" fill="none" stroke="#f2f4f7" stroke-width="20" stroke-dasharray="4 137.37"/>
+  <circle cx="512" cy="512" r="246" fill="url(#o-inner)"/>
+  <circle cx="512" cy="512" r="246" fill="none" stroke="#6b6f78" stroke-width="3" opacity="0.6"/>
+
+  <circle cx="512" cy="512" r="200" fill="url(#o-glass)"/>
+  <g clip-path="url(#o-glass-clip)">
+    <circle cx="512" cy="512" r="150" fill="none" stroke="#8aa8ff" stroke-opacity="0.16" stroke-width="3"/>
+    <circle cx="512" cy="512" r="96" fill="none" stroke="#8aa8ff" stroke-opacity="0.14" stroke-width="3"/>
+    <circle cx="512" cy="512" r="60" fill="#02040a"/>
+    <ellipse cx="452" cy="450" rx="150" ry="105" transform="rotate(-40 452 450)" fill="#b46cff" opacity="0.4" filter="url(#o-blur12)"/>
+    <ellipse cx="596" cy="604" rx="110" ry="64" transform="rotate(-40 596 604)" fill="#45ffb0" opacity="0.24" filter="url(#o-blur12)"/>
+    <circle cx="566" cy="432" r="28" fill="#ffb347" opacity="0.35" filter="url(#o-blur3)"/>
+    <ellipse cx="440" cy="428" rx="72" ry="36" transform="rotate(-38 440 428)" fill="#fff" opacity="0.85" filter="url(#o-blur3)"/>
+    <circle cx="604" cy="612" r="11" fill="#fff" opacity="0.6"/>
+  </g>
+  <circle cx="512" cy="512" r="200" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="3"/>
+
+  <ellipse cx="512" cy="-60" rx="760" ry="560" fill="url(#o-gloss)"/>
 </svg>

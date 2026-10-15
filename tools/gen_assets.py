@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generates the app icon and launch images for iOS 6 (run in CI, needs Pillow and rsvg-convert).
 
-The icon is tools/icon.svg: chrome shutter blades on a glossy deep blue tile, with its own gloss
-(UIPrerenderedIcon is on, like Surfari's icon). The name under the launch images is the app's display name in
-Resources/Info.plist.
+The icon is tools/icon.svg: a camera lens (chrome barrel, knurled ring, coated glass) on brushed graphite, with
+its own gloss (UIPrerenderedIcon is on, like Surfari's icon). The name under the launch images is the app's
+display name in Resources/Info.plist.
 
 Usage: python3 tools/gen_assets.py Resources
 """
