@@ -19,6 +19,8 @@
 
 #define SH_ALERT_CHECKPOINT 500
 
+static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL outsideSearchBars);
+
 @interface SHAppDelegate () <UIAlertViewDelegate>
 @property (nonatomic) BOOL checkpointPromptUp;       // one alert for the burst of failing calls, not one each
 @property (nonatomic) NSTimeInterval checkpointDismissedAt;
@@ -145,6 +147,30 @@
     if ([target isEqualToString:@"press"]) {
         CGPoint pt = CGPointMake([params[@"x"] floatValue], [params[@"y"] floatValue]);
         [self pressAtPoint:pt];
+        return YES;
+    }
+    if ([target isEqualToString:@"type"]) {
+        // text into the top screen as if typed: in=search (the search bar, default) or in=field&n=<index> (its text
+        // fields outside search bars, in view order); submit=1 also presses Search / Return
+        UIViewController *top = [self topController];
+        NSString *text = params[@"text"] ?: @"";
+        BOOL submit = [params[@"submit"] boolValue];
+        if (![params[@"in"] isEqualToString:@"field"]) {
+            UISearchBar *bar = (UISearchBar *)SHDebugFindView(top.view, [UISearchBar class], 0, NO);
+            if (bar) {
+                bar.text = text;
+                if ([bar.delegate respondsToSelector:@selector(searchBar:textDidChange:)]) [bar.delegate searchBar:bar textDidChange:text];
+                if (submit && [bar.delegate respondsToSelector:@selector(searchBarSearchButtonClicked:)]) [bar.delegate searchBarSearchButtonClicked:bar];
+            }
+            SHLog(@"type -> search bar %@ of %@", bar ? @"found" : @"missing", NSStringFromClass([top class]));
+            return YES;
+        }
+        UITextField *field = (UITextField *)SHDebugFindView(top.view, [UITextField class], [params[@"n"] integerValue], YES);
+        if (field) {
+            field.text = text;
+            if (submit && [field.delegate respondsToSelector:@selector(textFieldShouldReturn:)]) [field.delegate textFieldShouldReturn:field];
+        }
+        SHLog(@"type -> text field %@ of %@", field ? @"found" : @"missing", NSStringFromClass([top class]));
         return YES;
     }
     if ([target isEqualToString:@"dmtestphoto"]) {   // a plain test picture waiting to be sent in the open chat
@@ -281,6 +307,29 @@ static BOOL SHDebugFireTapRecognizers(UIView *v)
         }
     }
     return fired;
+}
+
+// The index-th visible view of a class under root, depth first in view order (text fields inside a search bar are
+// skipped when outsideSearchBars is set). Debug builds only.
+static UIView *SHDebugFindViewIn(UIView *root, Class cls, NSInteger *index, BOOL outsideSearchBars)
+{
+    if (root.hidden || root.alpha < 0.01) return nil;
+    if (outsideSearchBars && [root isKindOfClass:[UISearchBar class]]) return nil;
+    if ([root isKindOfClass:cls]) {
+        if (*index == 0) return root;
+        (*index)--;
+    }
+    for (UIView *sub in root.subviews) {
+        UIView *found = SHDebugFindViewIn(sub, cls, index, outsideSearchBars);
+        if (found) return found;
+    }
+    return nil;
+}
+
+static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL outsideSearchBars)
+{
+    NSInteger left = MAX(0, index);
+    return SHDebugFindViewIn(root, cls, &left, outsideSearchBars);
 }
 
 // A best-effort synthetic tap for headless testing: hit-tests the point and triggers the tap recognizer, control
