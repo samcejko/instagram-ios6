@@ -89,12 +89,19 @@ static NSString *SHEncryptPassword(NSString *password, NSString *pubKeyBase64, N
 {
     if (!password.length || !pubKeyBase64.length) return nil;
 
-    NSData *pubKeyDer = [SHUtils base64Decode:pubKeyBase64];
-    if (!pubKeyDer) return nil;
+    NSData *keyData = [SHUtils base64Decode:pubKeyBase64];
+    if (!keyData.length) return nil;
+    // Instagram sends the key base64-encoded; decoded it is PEM text ("-----BEGIN PUBLIC KEY-----..."). mbedTLS's PEM
+    // reader needs the buffer NUL-terminated with the NUL counted in the length (same as the CA bundle in SHTLSSocket).
+    // Without it the parse fails, SHEncryptPassword returns nil and login silently falls back to the plaintext
+    // password that Instagram rejects. (DER keys, which start with 0x30, are passed through unchanged.)
+    NSMutableData *keyBuf = [keyData mutableCopy];
+    BOOL isPEM = keyData.length >= 10 && memcmp(keyData.bytes, "-----BEGIN", 10) == 0;
+    if (isPEM) { unsigned char zero = 0; [keyBuf appendBytes:&zero length:1]; }
 
     mbedtls_pk_context pk;
     mbedtls_pk_init(&pk);
-    int ret = mbedtls_pk_parse_public_key(&pk, pubKeyDer.bytes, pubKeyDer.length);
+    int ret = mbedtls_pk_parse_public_key(&pk, keyBuf.bytes, keyBuf.length);
     if (ret != 0) { mbedtls_pk_free(&pk); return nil; }
 
     mbedtls_entropy_context entropy;
@@ -708,9 +715,11 @@ static NSString *g_challengePath = nil;
 {
     return [self fetchEncryptionKeyWithCompletion:^(NSString *pubKey, NSInteger keyId, NSError *error) {
         if (error || !pubKey.length) { completion(NO, [NSString stringWithFormat:@"no pubkey (%@)", error.localizedDescription ?: @"?"]); return; }
+        NSData *kd = [SHUtils base64Decode:pubKey];
+        NSString *kind = (kd.length >= 10 && memcmp(kd.bytes, "-----BEGIN", 10) == 0) ? @"PEM" : @"DER/other";
         const char *sample = "selftest-not-a-credential";
         NSString *enc = SHEncryptPassword([NSString stringWithUTF8String:sample], pubKey, keyId);
-        if (!enc.length) { completion(NO, @"SHEncryptPassword returned nil (crypto path failed)"); return; }
+        if (!enc.length) { completion(NO, [NSString stringWithFormat:@"SHEncryptPassword returned nil (pubkey=%@ %lu bytes)", kind, (unsigned long)kd.length]); return; }
         if (![enc hasPrefix:@"#PWD_INSTAGRAM:4:"]) {
             completion(NO, [NSString stringWithFormat:@"wrong prefix, plaintext fallback? %@", [enc substringToIndex:MIN((NSUInteger)20, enc.length)]]);
             return;
@@ -724,8 +733,8 @@ static NSString *g_challengePath = nil;
         int kid = p[1];
         int rsaLen = p[14] | (p[15] << 8);
         BOOL ok = (version == 1 && kid == (int)keyId && rsaLen == 256 && payload.length == expected);
-        completion(ok, [NSString stringWithFormat:@"v4 prefix=yes version=%d keyId=%d(exp %ld) rsaLen=%d payloadLen=%lu expected=%lu",
-            version, kid, (long)keyId, rsaLen, (unsigned long)payload.length, (unsigned long)expected]);
+        completion(ok, [NSString stringWithFormat:@"pubkey=%@ v4=yes version=%d keyId=%d(exp %ld) rsaLen=%d payloadLen=%lu expected=%lu",
+            kind, version, kid, (long)keyId, rsaLen, (unsigned long)payload.length, (unsigned long)expected]);
     }];
 }
 
