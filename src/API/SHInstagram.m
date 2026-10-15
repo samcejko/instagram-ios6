@@ -239,6 +239,44 @@ static NSString *SHExtractJSONString(NSString *body, NSString *key)
     return nil;
 }
 
+// The run of allowed characters at `start`. Used to lift tokens out of the heavily-escaped bloks body.
+static NSString *SHReadRun(NSString *s, NSUInteger start, NSCharacterSet *allowed)
+{
+    NSMutableString *out = [NSMutableString string];
+    for (NSUInteger i = start; i < s.length; i++) {
+        unichar c = [s characterAtIndex:i];
+        if (![allowed characterIsMember:c]) break;
+        [out appendFormat:@"%C", c];
+    }
+    return out;
+}
+
+// On a successful CAA login the session arrives INSIDE the bloks payload (not in an ig-set-authorization header)
+// as an embedded "IG-Set-Authorization: Bearer IGT:2:<b64>" string. Lift the base64 token out (SHSettings stores
+// the part after "Bearer IGT:2:"). nil when the body has no token (a failure / 2FA / challenge screen).
+static NSString *SHExtractBearerFromBody(NSString *body)
+{
+    NSRange r = [body rangeOfString:@"Bearer IGT:2:"];
+    if (r.location == NSNotFound) return nil;
+    NSCharacterSet *tok = [NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"];
+    NSString *t = SHReadRun(body, r.location + r.length, tok);
+    return t.length > 20 ? t : nil;
+}
+
+// The www-claim ("hmac....") is embedded in the same block; keep it for later requests.
+static NSString *SHExtractClaimFromBody(NSString *body)
+{
+    NSRange r = [body rangeOfString:@"x-ig-set-www-claim" options:NSCaseInsensitiveSearch];
+    if (r.location == NSNotFound) return nil;
+    NSRange h = [body rangeOfString:@"hmac." options:0 range:NSMakeRange(r.location, MIN((NSUInteger)220, body.length - r.location))];
+    if (h.location == NSNotFound) return nil;
+    NSCharacterSet *claim = [NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"];
+    NSString *c = SHReadRun(body, h.location, claim);
+    return c.length > 5 ? c : nil;
+}
+
 // A readable reason out of a bloks login response (the body is a UI-flow blob; string matching is what the
 // reference libraries use too). nil when nothing recognisable is found.
 static NSString *SHExtractBloksError(NSString *body)
@@ -406,6 +444,21 @@ static NSString *SHExtractBloksError(NSString *body)
                         (int)([lc rangeOfString:@"fallback_triggered\":true"].location != NSNotFound));
                 }
 
+                NSString *bodyStr = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
+                // A successful CAA login carries the session INSIDE the bloks payload (no ig-set-authorization
+                // header), so lift the token / www-claim out of the body when the header path gave nothing.
+                if (![SHSettings isLoggedIn]) {
+                    NSString *tok = SHExtractBearerFromBody(bodyStr);
+                    if (tok.length) {
+                        [SHSettings setSessionToken:tok];
+                        NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:tok]]);
+                        NSString *uid = SHStr(claims[@"ds_user_id"]);
+                        if (uid.length) [SHSettings setUserId:uid];
+                        NSString *claim = SHExtractClaimFromBody(bodyStr);
+                        if (claim.length) [SHSettings setWwwClaim:claim];
+                    }
+                }
+
                 if ([SHSettings isLoggedIn]) {
                     [SHSettings setUsername:username];
                     [SHSettings save];
@@ -413,7 +466,6 @@ static NSString *SHExtractBloksError(NSString *body)
                     return;
                 }
 
-                NSString *bodyStr = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
                 if ([bodyStr rangeOfString:@"two_factor" options:NSCaseInsensitiveSearch].location != NSNotFound ||
                     [bodyStr rangeOfString:@"two_step_verification" options:NSCaseInsensitiveSearch].location != NSNotFound) {
                     NSString *tfId = SHExtractJSONString(bodyStr, @"two_factor_identifier") ?: @"";
