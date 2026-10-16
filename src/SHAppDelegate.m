@@ -4,8 +4,10 @@
 #import "SHMainTabController.h"
 #import "SHChallengeFlow.h"
 #import "SHLinkRouter.h"
+#import "SHThreadViewController.h"
 #import "SHInstagram.h"
 #import "SHMediaProxy.h"
+#import "SHRealtime.h"
 #import "SHTLSSocket.h"
 #import "SHImageLoader.h"
 #import "SHSettings.h"
@@ -111,6 +113,37 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
 
     if ([target isEqualToString:@"stats"]) {
         SHLog(@"Top: %@, proxy %@", NSStringFromClass([[self topController] class]), [[SHMediaProxy shared] statsDescription]);
+        return YES;
+    }
+    if ([target isEqualToString:@"rt"]) {
+        // the live connection: its state; off=1 stops it (polling only, as when it fails), on=1 starts it again
+        if ([params[@"off"] boolValue]) [[SHRealtime shared] stop];
+        if ([params[@"on"] boolValue] && [SHSettings isLoggedIn]) {
+            [[SHRealtime shared] start];
+            [SHInstagram directInboxWithCursor:nil completion:nil];   // (its seq_id starts the connection)
+        }
+        SHLog(@"RT %@", [[SHRealtime shared] statusLine]);
+        return YES;
+    }
+    if ([target isEqualToString:@"thread"]) {
+        // a chat of the inbox's first page opened by its id on the Direct tab (as a tap on its row would)
+        NSString *threadId = params[@"id"] ?: @"";
+        [SHInstagram directInboxWithCursor:nil completion:^(NSArray *threads, NSString *cursor, NSError *error) {
+            SHDirectThread *found = nil;
+            for (SHDirectThread *t in threads) if ([t.threadId isEqualToString:threadId]) found = t;
+            UIViewController *root = self.window.rootViewController;
+            if (!found || ![root isKindOfClass:[UITabBarController class]]) {
+                SHLog(@"thread -> %@", found ? @"no tab shell" : (error ? error.localizedDescription : @"not on the inbox's first page"));
+                return;
+            }
+            UITabBarController *tabs = (UITabBarController *)root;
+            tabs.selectedIndex = 3;
+            UINavigationController *nav = (UINavigationController *)tabs.selectedViewController;
+            if (![nav isKindOfClass:[UINavigationController class]]) return;
+            [nav popToRootViewControllerAnimated:NO];
+            [nav pushViewController:[[SHThreadViewController alloc] initWithThread:found] animated:YES];
+            SHLog(@"thread -> opened, %lu users", (unsigned long)found.users.count);
+        }];
         return YES;
     }
     if ([target isEqualToString:@"snapshot"] || [target isEqualToString:@"screen"]) {

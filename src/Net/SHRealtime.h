@@ -37,4 +37,6 @@ extern NSString * const SHRealtimeTTLKey;      // NSNumber: seconds the typing h
 // subscription starts. Each fresh inbox is told; the newer position wins.
 - (void)noteInboxSeqId:(long long)seqId snapshotAt:(long long)snapshotMs;
 
+- (NSString *)statusLine;   // for the debug log: state, sync position, password form, failures (never the session)
+
 @end

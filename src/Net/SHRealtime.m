@@ -831,6 +831,15 @@ typedef enum {
 
 - (BOOL)live { return _state == SHRTLive; }
 
+- (NSString *)statusLine
+{
+    static NSString * const names[] = { @"idle", @"connecting", @"connected", @"live" };
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    return [NSString stringWithFormat:@"state=%@ started=%d seq_id=%lld%@ password_form=%ld failures=%lu%@", names[_state], _started,
+            _seqId, _seqStale ? @" (stale)" : @"", (long)_authForm, (unsigned long)_failures,
+            now < _pausedUntil ? [NSString stringWithFormat:@" paused %.0f min", (_pausedUntil - now) / 60] : @""];
+}
+
 - (void)setState:(SHRTState)state
 {
     BOOL wasLive = _state == SHRTLive;
@@ -1160,8 +1169,10 @@ typedef enum {
             [self irisAnswered:e[@"json"]];
         } else if ([kind isEqualToString:@"reconnect"]) {
             RTLog(@"<- %@: the server asks for a new connection", topic);
+            BOOL stable = _state == SHRTLive && CFAbsoluteTimeGetCurrent() - _liveSince > 60;
             [self disconnect];
-            [self retryIn:1];
+            if (stable) _failures = 0;
+            [self scheduleReconnect];   // (the usual pauses: a server asking again and again gets no burst)
             return;
         } else if ([kind isEqualToString:@"item"]) {
             NSMutableDictionary *info = [NSMutableDictionary dictionary];
