@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 (2026-10-16)
+
+Direct over Instagram's live connection. Tested on an iPad 2 with iOS 6.1.3.
+
+- New messages arrive the moment they are sent (in about two seconds), the way the official app gets them: over Instagram's own live connection instead of asking every few seconds. The open chat, the list of chats and the badge on the Direct tab all update at once.
+- Typing: a bubble with three dots in the chat while the other side types, "Typing..." in the list of chats.
+- "Seen" under your last message appears as soon as they have read it, and a message they unsend disappears.
+- Fewer requests: while the live connection is up, the chat, the list and the badge only check every 1.5, 3 and 10 minutes, as a safety net. Without the connection (or if Instagram refuses it) everything updates as before.
+- The connection is open only while the app is on screen; it comes back by itself when you return to the app or the network does.
+
+Good to know:
+
+- Instagram may slow down or restrict an account used from an unofficial client.
+- The arm64 build (iOS 15 and newer) is the same code, but its live connection has not been tried on a device yet.
+
 ## 0.3.0 (2026-10-16)
 
 Direct grows up, and the first version in the repository. Tested on an iPad 2 with iOS 6.1.3.

@@ -1,6 +1,6 @@
 Package: com.samcejko.shutter
 Name: Gramify
-Version: 0.3.0
+Version: 0.3.1
 Architecture: iphoneos-arm
 Description: Unofficial photo, video and chat client for iOS 6 (universal), in English and Czech: sign in with your account, home feed, stories and highlights, reels, profiles, likes, comments and direct messages with photos and voice messages.
 Maintainer: samcejko
