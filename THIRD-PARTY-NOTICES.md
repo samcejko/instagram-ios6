@@ -1,10 +1,9 @@
 # Third-party notices
 
-Shutter (working name) is an independent, unofficial client. It is not affiliated with, endorsed by or associated
-with Instagram or Meta Platforms. Instagram is a trademark of Meta Platforms, Inc. The app signs in with your own
-account and talks to the service the way its Android app does; using an unofficial client may be against the
-service's terms of use and can get an account checked or locked, which is the user's call. Private build, not for
-redistribution.
+Gramify is an independent, unofficial client. It is not affiliated with, endorsed by or associated with Instagram or
+Meta Platforms. Instagram is a trademark of Meta Platforms, Inc. The app signs in with your own account and talks to
+the service the way its Android app does; using an unofficial client may be against the service's terms of use and can
+get an account checked or locked, which is the user's call.
 
 ## On the device (the app)
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0 (2026-10-16)
+
+Direct grows up, and the first version in the repository. Tested on an iPad 2 with iOS 6.1.3.
+
+- New messages show up on their own: an open chat asks every few seconds (less often while nothing comes), the list of chats every 15 to 60 seconds, nothing while the app is in the background. A red badge on the Direct tab counts the unread chats.
+- Read receipts both ways: an open chat counts as read (the sender sees "Seen"), and "Seen" appears under your last message once they have read it.
+- Photos and voice messages are sent again: Instagram retired the old way, they go through its new upload now. Photos from the camera or the library, voice messages up to a minute.
+- Photos and videos from the chat's camera: "keep in chat" ones show in the chat, "view once" and "allow replay" ones open full screen with a tap, and the sender sees they were opened.
+- Calls in a chat's history: one line per call, a missed call in red, the length of a call.
+- Follow requests to a private account in Activity, message requests above the chats: accept or delete.
+- Highlights on profiles, under the bio, played like stories.
+- @names, #hashtags and links in captions, comments, bios and messages open the profile, the tag's posts or the post; the people tagged on a photo; mentions on stories.
+- A post can be sent into a chat (the paper plane), its link copied or shared.
+- Stories: the ones seen turn grey and move to the end, the picture at the top opens the person's profile.
+- Reels: the creator's profile, the comments and the post open with a "Reels" back button and the video plays on; on newer iPhones the close button and the controls keep clear of the notch.
+
+Good to know:
+
+- Instagram may slow down or restrict an account used from an unofficial client.
+- Calls themselves are not possible: Instagram's calling is a closed system.
+- The arm64 build (iOS 15 and newer: the rootless DEB and the TrollStore IPA) has not been tested on a device yet.
+
 ## 0.2.0 (2026-10-15)
 
 The rework after the first day with a real account. Tested on an iPad 2 with iOS 6.1.3.
