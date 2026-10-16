@@ -1180,7 +1180,14 @@ typedef enum {
             info[SHRealtimeOpKey] = e[@"op"] ?: @"add";
             info[SHRealtimeItemIdKey] = e[@"item"];
             if (e[@"json"]) info[SHRealtimeItemKey] = e[@"json"];
-            RTLog(@"<- item %@ thread %@ item %@ type %@", info[SHRealtimeOpKey], thread, e[@"item"], SHStr(SHDict(e[@"json"])[@"item_type"]) ?: @"-");
+            if (SHRTDebug()) {
+                // (how long after Instagram's own time of the message it got here: this device's clock is right)
+                double sent = SHDbl(SHDict(e[@"json"])[@"timestamp"]);
+                if (sent > 1e14) sent /= 1e6;
+                NSString *age = sent > 0 ? [NSString stringWithFormat:@", %.1f s after it was sent", [[NSDate date] timeIntervalSince1970] - sent] : @"";
+                RTLog(@"<- item %@ thread %@ item %@ type %@%@", info[SHRealtimeOpKey], thread, e[@"item"],
+                      SHStr(SHDict(e[@"json"])[@"item_type"]) ?: @"-", age);
+            }
             [nc postNotificationName:SHRealtimeDirectItemNotification object:self userInfo:info];
         } else if ([kind isEqualToString:@"seen"]) {
             NSMutableDictionary *info = [NSMutableDictionary dictionary];
