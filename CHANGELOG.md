@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7 (2026-10-16)
+
+Ideas from the testers.
+
+- Hold a message in a chat for its menu, as in iOS 6 Messages: Copy, Reply, Save (a photo or video) and Unsend (your own messages, gone for everyone after a question). A reply goes out as Instagram's reply, and replies are shown with a line of what they answer.
+- The sounds of iOS Messages when a message comes in or goes out, while the app is on screen; Settings > Sounds turns them off. The ring/silent switch silences them as it does Messages'.
+- Save to Photos on the "Send to" screen of a post or a reel (all pictures and videos of it), and in the menu of a photo or video in a chat.
+- Settings > Appearance: the dark look or the light one.
+
 ## 0.3.6 (2026-10-16)
 
 - The code that confirms a sign-in from a new device: the alert now says where Instagram sent it (the e-mail address or phone number, masked as Instagram shows it), so it is clear which inbox to look in. When Instagram does not name it, the alert says "by e-mail or text message" as before.
