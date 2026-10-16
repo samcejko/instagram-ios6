@@ -1210,8 +1210,8 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     NSString *mid = [SHSettings machineId];
     NSNull *none = [NSNull null];
     // short input ids like the current login screen's ("<4 hex>ig"; hex-only ones can answer a null payload)
-    NSString *inputId = [[[[[NSUUID UUID] UUIDString] stringByReplacingOccurrencesOfString:@"-" withString:@""] substringToIndex:4]
-                         lowercaseString] stringByAppendingString:@"ig"];
+    NSString *hex = [[[[NSUUID UUID] UUIDString] stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
+    NSString *inputId = [[hex substringToIndex:4] stringByAppendingString:@"ig"];
     BOOL ascii = [password ?: @"" canBeConvertedToEncoding:NSASCIIStringEncoding];
     NSDictionary *client = @{
         @"blocked_uids": @[], @"aac": aac ?: @"", @"sim_phones": @[], @"aymh_accounts": @[], @"network_bssid": none,
