@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8 (2026-10-16)
+
+- Signing in to an account where Instagram asks to "approve the login on another device": the app now chooses "send a code" (to your e-mail or by text message) instead, so you can finish the sign-in with the code here rather than waiting on another phone. When no code option is offered, the alert says so with details.
+
 ## 0.3.7 (2026-10-16)
 
 Ideas from the testers.

@@ -16,6 +16,13 @@
 + (void)setChallengePath:(NSString *)path;
 + (NSString *)challengeURL;
 + (SHHTTPTask *)fetchEncryptionKeyWithCompletion:(void (^)(NSString *pubKey, NSInteger keyId, NSError *error))completion;
+// The new-device confirmation steps (defined further down; declared so they can call one another in any order).
++ (void)openNewDeviceStep:(NSDictionary *)answer body:(NSString *)bodyStr task:(SHHTTPTask *)task
+                completion:(void (^)(SHLoginStep *step, NSError *error))completion;
++ (void)chooseCodeInPicker:(NSDictionary *)picker body:(NSString *)pickerBody task:(SHHTTPTask *)task
+                completion:(void (^)(SHLoginStep *step, NSError *error))completion;
++ (void)openNewDeviceCodeEntry:(NSDictionary *)answer body:(NSString *)entryBody destination:(NSString *)entryDestination
+                          task:(SHHTTPTask *)task completion:(void (^)(SHLoginStep *step, NSError *error))completion;
 @end
 
 static BOOL SHDebugLogging(void);   // (defined with the Direct helpers further down)
@@ -408,10 +415,15 @@ static NSString *SHWithLoginDetails(NSString *message, NSString *details)
 // Instagram's current two-factor authentication. Their answers are Bloks programs, "(op arg …)" expressions in a
 // JSON string, where a screen's parameters follow its app id as "<app id>" … (f4i (dkc "key" …) (dkc value …)).
 // (The parsing follows instagrapi's mixins/bloks.py.)
-static NSString * const SHAPCodeEntrypoint = @"com.bloks.www.ap.two_step_verification.entrypoint_async";
-static NSString * const SHAPCodeEntry      = @"com.bloks.www.ap.two_step_verification.code_entry";
-static NSString * const SHAPCodeEntryAsync = @"com.bloks.www.ap.two_step_verification.code_entry_async";
-static NSString * const SHTwoStepEntry     = @"com.bloks.www.two_step_verification.entrypoint";
+static NSString * const SHAPCodeEntrypoint   = @"com.bloks.www.ap.two_step_verification.entrypoint_async";
+static NSString * const SHAPCodeEntry        = @"com.bloks.www.ap.two_step_verification.code_entry";
+static NSString * const SHAPCodeEntryAsync   = @"com.bloks.www.ap.two_step_verification.code_entry_async";
+// The screen that offers the ways to confirm a sign-in from a new device - by default "approve it on another
+// device", with "send a code to e-mail / text message" among them - and the action that chooses one of them.
+static NSString * const SHAPChallengePicker  = @"com.bloks.www.ap.two_step_verification.challenge_picker";
+static NSString * const SHAPChallengePickerNav = @"com.bloks.www.ap.two_step_verification.challenge_picker.navigation.async";
+static NSString * const SHAPContactpointChooser = @"com.bloks.www.ap.two_step_verification.contactpoint_chooser";
+static NSString * const SHTwoStepEntry       = @"com.bloks.www.two_step_verification.entrypoint";
 
 // Every string of a parsed answer.
 static void SHBloksCollectStrings(id value, NSMutableArray *out, NSInteger depth)
@@ -1088,8 +1100,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     task.cancelBlock = ^{ [check cancel]; };
 }
 
-// The code that confirms a sign-in from a new device: its entry (Instagram sends the code), the code screen, and
-// the context the code goes back with.
+// The code that confirms a sign-in from a new device: the entry (Instagram sends the code or offers the ways to
+// confirm), the code screen, and the context the code goes back with. Some accounts get a chooser first, where the
+// default is "approve it on another device"; this picks "send a code" so the app can finish with a code instead.
 + (void)openNewDeviceStep:(NSDictionary *)answer body:(NSString *)bodyStr task:(SHHTTPTask *)task
                 completion:(void (^)(SHLoginStep *step, NSError *error))completion
 {
@@ -1109,39 +1122,94 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     SHHTTPTask *first = [self loginScreen:SHAPCodeEntrypoint action:YES params:entryParams
                                      done:^(NSDictionary *a1, NSString *b1, NSDictionary *h1, NSError *e1) {
         if (task.isCancelled) return;
-        NSString *codeContext = e1 ? nil : SHBloksContextValue(a1, SHAPCodeEntry, @"context_data");
-        if (!codeContext.length) {
-            if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no code screen");
-            completion(nil, SHLoginStepError(e1, @"ap entrypoint_async", b1));
+        if (e1) { completion(nil, SHLoginStepError(e1, @"ap entrypoint_async", b1)); return; }
+        // the code screen is there at once (Instagram already sent the code): finish on it
+        if (SHBloksContextValue(a1, SHAPCodeEntry, @"context_data").length) {
+            [self openNewDeviceCodeEntry:a1 body:b1 destination:SHBloksMaskedContactPoint(a1) task:task completion:completion];
             return;
         }
-        NSString *entryDestination = SHBloksMaskedContactPoint(a1);
-        NSDictionary *codeParams = @{
-            @"client_input_params": @{ @"aac": g_loginAAC ?: @"" },
-            @"server_params": @{ @"context_data": codeContext, @"show_close_button": @0, @"device_id": guid,
-                                 @"INTERNAL_INFRA_screen_id": @"generic_code_entry", @"is_dismissable": @1 },
-        };
-        SHHTTPTask *second = [self loginScreen:SHAPCodeEntry action:NO params:codeParams
-                                          done:^(NSDictionary *a2, NSString *b2, NSDictionary *h2, NSError *e2) {
-            if (task.isCancelled) return;
-            NSString *submit = e2 ? nil : SHBloksContextValue(a2, SHAPCodeEntryAsync, @"context_data");
-            if (!submit.length) {
-                if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no submit context");
-                completion(nil, SHLoginStepError(e2, @"ap code_entry", b2));
-                return;
-            }
-            SHLoginStep *step = [[SHLoginStep alloc] init];
-            step.kind = SHLoginStepNewDevice;
-            step.context = submit;
-            // where the code went, as the code screen (or the entry before it) shows it
-            step.destination = SHBloksMaskedContactPoint(a2) ?: entryDestination;
-            if (SHDebugLogging())
-                SHLog(@"LOGINSTEP new device: code sent to %@ (code screen names: %@)", step.destination ?: @"? (not named)", SHLoginDetails(b2));
-            completion(step, nil);
-        }];
-        task.cancelBlock = ^{ [second cancel]; };
+        // a chooser with "approve on another device" as the default: pick a way that sends a code instead
+        if ([b1 rangeOfString:SHAPChallengePicker].location != NSNotFound) {
+            [self chooseCodeInPicker:a1 body:b1 task:task completion:completion];
+            return;
+        }
+        if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no code screen, no picker");
+        completion(nil, SHLoginStepError(e1, @"ap entrypoint_async", b1));
     }];
     task.cancelBlock = ^{ [first cancel]; };
+}
+
+// The picker of how to confirm a new-device sign-in: choose a way that sends a code (e-mail or text message) over
+// "approve on another device", so the app can finish with a code. Its answer should carry the code screen then.
++ (void)chooseCodeInPicker:(NSDictionary *)picker body:(NSString *)pickerBody task:(SHHTTPTask *)task
+                completion:(void (^)(SHLoginStep *step, NSError *error))completion
+{
+    NSString *context = SHBloksContextValue(picker, SHAPChallengePicker, @"context_data")
+                     ?: SHBloksContextValue(picker, SHAPChallengePickerNav, @"context_data");
+    if (!context.length) {
+        if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: picker without a context");
+        completion(nil, SHLoginStepError(nil, @"ap challenge_picker", pickerBody));
+        return;
+    }
+    // what the picker offers (never "another device"): e-mail first, then a text message
+    BOOL hasEmail = [pickerBody rangeOfString:@"email" options:NSCaseInsensitiveSearch].location != NSNotFound;
+    NSString *guid = [SHSettings deviceId] ?: @"", *mid = [SHSettings machineId], *family = g_loginFamilyId ?: guid;
+    NSString *method = hasEmail ? @"email" : @"sms";
+    NSDictionary *navParams = @{
+        @"client_input_params": @{ @"auth_secure_device_id": @"", @"machine_id": mid, @"selected_challenge": [method uppercaseString],
+                                   @"family_device_id": family },
+        @"server_params": @{ @"context_data": context, @"INTERNAL__latency_qpl_marker_id": @36707139,
+                             @"INTERNAL__latency_qpl_instance_id": SHNowMs(), @"device_id": guid, @"selected_challenge": [method uppercaseString] },
+    };
+    SHHTTPTask *nav = [self loginScreen:SHAPChallengePickerNav action:YES params:navParams
+                                   done:^(NSDictionary *a, NSString *b, NSDictionary *h, NSError *e) {
+        if (task.isCancelled) return;
+        if (e) { completion(nil, SHLoginStepError(e, @"ap challenge_picker (code)", b)); return; }
+        NSString *destination = SHBloksMaskedContactPoint(a);
+        // the code screen directly, or an entrypoint for the chosen contact point that leads to it
+        if (SHBloksContextValue(a, SHAPCodeEntry, @"context_data").length) {
+            [self openNewDeviceCodeEntry:a body:b destination:destination task:task completion:completion];
+            return;
+        }
+        NSString *entry = SHBloksContextValue(a, SHAPCodeEntrypoint, @"context_data")
+                       ?: SHBloksContextValue(a, SHAPContactpointChooser, @"context_data");
+        if (entry.length) { [self openNewDeviceStep:a body:b task:task completion:completion]; return; }
+        if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: picker (%@) led nowhere: %@", method, SHLoginDetails(b));
+        completion(nil, SHLoginStepError(e, @"ap challenge_picker (code)", b));
+    }];
+    task.cancelBlock = ^{ [nav cancel]; };
+}
+
+// The code screen itself: it hands out the context the typed code goes back with, and may say where the code went.
++ (void)openNewDeviceCodeEntry:(NSDictionary *)answer body:(NSString *)entryBody destination:(NSString *)entryDestination
+                          task:(SHHTTPTask *)task completion:(void (^)(SHLoginStep *step, NSError *error))completion
+{
+    NSString *codeContext = SHBloksContextValue(answer, SHAPCodeEntry, @"context_data");
+    if (!codeContext.length) { completion(nil, SHLoginStepError(nil, @"ap code screen", entryBody)); return; }
+    NSString *guid = [SHSettings deviceId] ?: @"";
+    NSDictionary *codeParams = @{
+        @"client_input_params": @{ @"aac": g_loginAAC ?: @"" },
+        @"server_params": @{ @"context_data": codeContext, @"show_close_button": @0, @"device_id": guid,
+                             @"INTERNAL_INFRA_screen_id": @"generic_code_entry", @"is_dismissable": @1 },
+    };
+    SHHTTPTask *second = [self loginScreen:SHAPCodeEntry action:NO params:codeParams
+                                      done:^(NSDictionary *a2, NSString *b2, NSDictionary *h2, NSError *e2) {
+        if (task.isCancelled) return;
+        NSString *submit = e2 ? nil : SHBloksContextValue(a2, SHAPCodeEntryAsync, @"context_data");
+        if (!submit.length) {
+            if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no submit context");
+            completion(nil, SHLoginStepError(e2, @"ap code_entry", b2));
+            return;
+        }
+        SHLoginStep *step = [[SHLoginStep alloc] init];
+        step.kind = SHLoginStepNewDevice;
+        step.context = submit;
+        step.destination = SHBloksMaskedContactPoint(a2) ?: entryDestination;
+        if (SHDebugLogging())
+            SHLog(@"LOGINSTEP new device: code sent to %@ (code screen names: %@)", step.destination ?: @"? (not named)", SHLoginDetails(b2));
+        completion(step, nil);
+    }];
+    task.cancelBlock = ^{ [second cancel]; };
 }
 
 // Instagram's current two-factor screens: the entry, the method picker, the method (which sends the text message
