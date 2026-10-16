@@ -41,6 +41,7 @@ static const CGFloat SHStoryBarHeight = 96;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;   // under the story bar while the list is still empty
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic) BOOL failed;
+@property (nonatomic, copy) NSString *failReason;   // what went wrong, shown under "Couldn't load the feed."
 @end
 
 @implementation SHFeedViewController
@@ -83,10 +84,10 @@ static const CGFloat SHStoryBarHeight = 96;
     _spinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     _spinner.hidesWhenStopped = YES;
     [self.view addSubview:_spinner];
-    _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, SHStoryBarHeight + 44, self.view.bounds.size.width - 40, 40)];
+    _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, SHStoryBarHeight + 44, self.view.bounds.size.width - 40, 120)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     _statusLabel.textAlignment = NSTextAlignmentCenter;
-    _statusLabel.numberOfLines = 2;
+    _statusLabel.numberOfLines = 0;
     _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [theme secondaryTextColor];
     _statusLabel.backgroundColor = [UIColor clearColor];
@@ -121,7 +122,10 @@ static const CGFloat SHStoryBarHeight = 96;
     BOOL empty = _posts.count == 0 && _suggested.count == 0;
     BOOL busy = _loading || _loadingSuggested;
     if (empty && busy) [_spinner startAnimating]; else [_spinner stopAnimating];
-    _statusLabel.text = _failed ? L(@"Couldn't load the feed.") : L(@"Nothing here yet.");
+    // (the reason under it: a screenshot of this screen then says what Instagram answered)
+    NSString *failed = _failReason.length ? [NSString stringWithFormat:@"%@\n%@", L(@"Couldn't load the feed."), _failReason]
+                                          : L(@"Couldn't load the feed.");
+    _statusLabel.text = _failed ? failed : L(@"Nothing here yet.");
     _statusLabel.hidden = !(empty && !busy);
 }
 
@@ -137,6 +141,7 @@ static const CGFloat SHStoryBarHeight = 96;
         if (error) {
             SHLog(@"Feed error: %@", error.localizedDescription);
             self->_failed = self->_posts.count == 0;
+            self->_failReason = error.localizedDescription;
             [self updateStatus];
             return;
         }

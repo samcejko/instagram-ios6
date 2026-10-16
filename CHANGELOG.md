@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3 (2026-10-16)
+
+- When the home feed cannot load, the screen now says why under "Couldn't load the feed." (Instagram's own words or the network error), so a screenshot tells what went wrong.
+- Everything of 0.3.2: the sign-in fix for "Your session expired" on every screen.
+
 ## 0.3.2 (2026-10-16)
 
 A fix for signing in.
