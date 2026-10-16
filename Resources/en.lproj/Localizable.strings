@@ -224,3 +224,6 @@
 "Video call started" = "Video call started";
 "Video call ended" = "Video call ended";
 "Missed video call" = "Missed video call";
+
+/* Someone typing in a chat (the live connection) */
+"Typing..." = "Typing…";

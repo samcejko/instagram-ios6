@@ -7,6 +7,7 @@
 #import "SHTabIcons.h"
 #import "SHInstagram.h"
 #import "SHDirectMonitor.h"
+#import "SHRealtime.h"
 #import "SHPoller.h"
 #import "SHSettings.h"
 #import "SHTheme.h"
@@ -75,13 +76,19 @@
             done(monitor.unreadCount != before);
         }];
     }];
-    [_directPoller startAfter:6];   // (after the feed's own first requests)
+    _directPoller.liveInterval = 600;   // (the live connection brings the messages; this only catches what it missed)
+    [_directPoller startAfter:6];       // (after the feed's own first requests; its inbox also starts the connection)
+
+    // Instagram's live connection, as the app keeps it: new messages, reads and typing at once (polling stays the
+    // fallback). It waits for the first inbox (its seq_id) and lives only while the app is in front.
+    if ([SHSettings isLoggedIn]) [[SHRealtime shared] start];
 }
 
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_directPoller stop];
+    if (![SHSettings isLoggedIn]) [[SHRealtime shared] stop];   // (a new tab shell of the same account keeps it)
     [[SHDirectMonitor shared] reset];   // (logged out: the next account starts from nothing)
 }
 

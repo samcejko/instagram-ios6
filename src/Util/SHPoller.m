@@ -1,4 +1,5 @@
 #import "SHPoller.h"
+#import "SHRealtime.h"
 #import "SHCommon.h"
 
 NSString * const SHUserReturnedNotification = @"SHUserReturnedNotification";
@@ -53,6 +54,7 @@ NSTimeInterval SHSecondsSinceUserActivity(void)
         [nc addObserver:self selector:@selector(appBecameActive) name:UIApplicationDidBecomeActiveNotification object:nil];
         [nc addObserver:self selector:@selector(appResigned) name:UIApplicationWillResignActiveNotification object:nil];
         [nc addObserver:self selector:@selector(userReturned) name:SHUserReturnedNotification object:nil];
+        [nc addObserver:self selector:@selector(liveChanged) name:SHRealtimeStateDidChangeNotification object:nil];
     }
     return self;
 }
@@ -68,7 +70,8 @@ NSTimeInterval SHSecondsSinceUserActivity(void)
     _interval = _min;
     if (delay < 0) {
         NSTimeInterval since = CFAbsoluteTimeGetCurrent() - _lastPoll;
-        delay = since >= _min ? 0 : _min - since;
+        NSTimeInterval wait = (_liveInterval > 0 && [SHRealtime shared].live) ? MAX(_min, _liveInterval) : _min;
+        delay = since >= wait ? 0 : wait - since;
     }
     [self scheduleIn:delay];
 }
@@ -84,6 +87,7 @@ NSTimeInterval SHSecondsSinceUserActivity(void)
 - (void)speedUp
 {
     _interval = _min;
+    if (_liveInterval > 0 && [SHRealtime shared].live) return;   // (the live connection brings it)
     if (_running && !_inFlight) [self scheduleIn:_min];
 }
 
@@ -101,7 +105,15 @@ NSTimeInterval SHSecondsSinceUserActivity(void)
 {
     NSTimeInterval wait = _interval;
     if (SHSecondsSinceUserActivity() > SHPollSlowAfterIdle) wait = MAX(wait, 60);
+    if (_liveInterval > 0 && [SHRealtime shared].live) wait = MAX(wait, _liveInterval);
     return wait;
+}
+
+// The connection went down: asking often again starts now, not after the long wait that was planned.
+- (void)liveChanged
+{
+    if (_liveInterval <= 0 || !_running || [SHRealtime shared].live) return;
+    [self speedUp];
 }
 
 - (void)fire

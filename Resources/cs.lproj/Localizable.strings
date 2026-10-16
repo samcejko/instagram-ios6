@@ -224,3 +224,6 @@
 "Video call started" = "Videohovor začal";
 "Video call ended" = "Videohovor skončil";
 "Missed video call" = "Zmeškaný videohovor";
+
+/* Someone typing in a chat (the live connection) */
+"Typing..." = "Píše…";

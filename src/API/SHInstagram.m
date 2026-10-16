@@ -1,5 +1,6 @@
 #import "SHInstagram.h"
 #import "SHDirectMonitor.h"
+#import "SHRealtime.h"
 #import "SHSettings.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
@@ -29,6 +30,7 @@ static NSString * const SHAppVersion   = @"449.0.0.52.84";
 static NSString * const SHVersionCode  = @"1079242191";
 static NSString * const SHBloksVersion = @"799db3e387d7a21a19c72918b8698b6cd28a1516ade363792c100ed45a0f9f0b";
 static NSString * const SHSignatureKey = @"SIGNATURE";
+static NSString * const SHCapabilities = @"3brTvx0=";
 
 #pragma mark - User-Agent and headers
 
@@ -47,7 +49,7 @@ static NSDictionary *SHCommonHeaders(void)
     h[@"X-IG-Device-ID"]        = [SHSettings deviceId];
     h[@"X-IG-Android-ID"]       = [SHSettings androidId];
     h[@"X-IG-Connection-Type"]  = @"WIFI";
-    h[@"X-IG-Capabilities"]     = @"3brTvx0=";
+    h[@"X-IG-Capabilities"]     = SHCapabilities;
     h[@"X-Bloks-Version-Id"]    = SHBloksVersion;
     h[@"Accept-Language"]       = @"en-US";
     h[@"Accept"]                = @"application/json";
@@ -416,6 +418,10 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
 #pragma mark - Login
 
 @implementation SHInstagram
+
++ (NSString *)appUserAgent { return SHUserAgent(); }
++ (NSString *)appVersionName { return SHAppVersion; }
++ (NSString *)capabilitiesHeader { return SHCapabilities; }
 
 // Modern CAA / bloks login request. Instagram deprecated the plain /accounts/login/ endpoint (it answers
 // "needs_upgrade"); this is the flow the current app uses. The session token still comes back in the
@@ -1578,18 +1584,23 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
 {
     NSMutableString *url = [NSMutableString stringWithFormat:@"%@/direct_v2/inbox/?persistentBadging=true&limit=20&thread_message_limit=1", SHApiBase];
     if (cursor.length) [url appendFormat:@"&cursor=%@", [SHUtils urlEncode:cursor]];
+    if (!cursor.length) [[SHDirectMonitor shared] noteInboxRequested];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
-        if (error) { completion(nil, nil, error); return; }
+        if (error) { if (completion) completion(nil, nil, error); return; }
         NSString *next = nil;
         NSArray *threads = SHParseInbox(SHDict(json), &next);
         if (!cursor.length) {
             SHResponseCacheStore(@"inbox", SHDict(json));
             // the message requests waiting (they are not in this list): counted by the same answer, no request more
             g_pendingMessageRequests = SHInt(SHDict(json)[@"pending_requests_total"]);
-            if (SHDebugLogging()) SHLog(@"INBOX threads=%lu pending_requests_total=%ld", (unsigned long)threads.count, (long)g_pendingMessageRequests);
+            if (SHDebugLogging()) SHLog(@"INBOX threads=%lu pending_requests_total=%ld seq_id=%@", (unsigned long)threads.count,
+                                        (long)g_pendingMessageRequests, SHStr(SHDict(json)[@"seq_id"]) ?: @"-");
             [[SHDirectMonitor shared] noteInboxThreads:threads];   // the Direct tab's badge
+            // where the live connection's message sync starts (the snapshot this page is)
+            [[SHRealtime shared] noteInboxSeqId:[SHStr(SHDict(json)[@"seq_id"]) longLongValue]
+                                     snapshotAt:[SHStr(SHDict(json)[@"snapshot_at_ms"]) longLongValue]];
         }
-        completion(threads, next, nil);
+        if (completion) completion(threads, next, nil);
     }];
 }
 

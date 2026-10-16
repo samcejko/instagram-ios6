@@ -14,6 +14,7 @@
 #import "SHLinkLabel.h"
 #import "SHShareViewController.h"
 #import "SHDirectMonitor.h"
+#import "SHRealtime.h"
 #import "SHPoller.h"
 #import "SHCommon.h"
 #import <AVFoundation/AVFoundation.h>
@@ -505,6 +506,8 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 @property (nonatomic, strong) NSDictionary *lastSeenAt;      // user pk -> how far they have read (NSDate)
 @property (nonatomic, copy) NSString *seenMarkedPk;          // the newest message of theirs told to Instagram as read
 @property (nonatomic, copy) NSString *seenPk;                // my last message, once the other side has read it
+@property (nonatomic, strong) UIView *typingView;            // the other side types (the live connection says so)
+@property (nonatomic, strong) NSDate *typingUntil;
 @end
 
 @implementation SHThreadViewController
@@ -684,15 +687,22 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
         if (s) [s refreshThen:done];
         else done(NO);
     }];
+    _poller.liveInterval = 90;   // (while the live connection brings the messages, only a safety net)
     [_poller noteFresh];
 
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillShowNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillHideNotification object:nil];
+    NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+    [nc addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillShowNotification object:nil];
+    [nc addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillHideNotification object:nil];
+    // what the live connection brings for this chat: messages, how far the other side read, typing
+    [nc addObserver:self selector:@selector(realtimeItem:) name:SHRealtimeDirectItemNotification object:nil];
+    [nc addObserver:self selector:@selector(realtimeSeen:) name:SHRealtimeDirectSeenNotification object:nil];
+    [nc addObserver:self selector:@selector(realtimeTyping:) name:SHRealtimeDirectTypingNotification object:nil];
 }
 
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
+    [SHDirectMonitor shared].openThreadId = _thread.threadId;   // (its new messages are read here, not unread)
     [_poller start];
     [self markSeenIfNeeded];
 }
@@ -711,6 +721,8 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 - (void)viewWillDisappear:(BOOL)animated
 {
     [super viewWillDisappear:animated];
+    SHDirectMonitor *monitor = [SHDirectMonitor shared];
+    if ([monitor.openThreadId isEqualToString:_thread.threadId ?: @""]) monitor.openThreadId = nil;
     [_poller stop];
     [self stopVoice];
     if (!self.presentedViewController) {   // (not when the camera is what covers the chat)
@@ -775,17 +787,22 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
         && [(a.placeholderText ?: @"") isEqualToString:(b.placeholderText ?: @"")];   // (a "view once" picture opened elsewhere)
 }
 
+// Whether `m` (one of mine from Instagram) is the copy of a message sent from here: the same kind, from about then on.
+static BOOL SHIsCopyOfLocal(SHDirectMessage *m, SHDirectMessage *local)
+{
+    NSDate *since = [local.timestamp dateByAddingTimeInterval:-120];   // (this device's clock against Instagram's)
+    if (since && m.timestamp && [m.timestamp compare:since] == NSOrderedAscending) return NO;
+    return local.text.length ? [m.text isEqualToString:local.text]
+         : local.localImage ? (m.previewURL.length > 0 && !m.audioURL.length)
+         : [m.type isEqualToString:local.type];
+}
+
 // Instagram's copy of a message sent from here: one of mine of the same kind, from about then on, not shown before.
 - (SHDirectMessage *)serverCopyOf:(SHDirectMessage *)local inPage:(NSArray *)page shown:(NSSet *)shown used:(NSMutableSet *)used
 {
-    NSDate *since = [local.timestamp dateByAddingTimeInterval:-120];   // (this device's clock against Instagram's)
     for (SHDirectMessage *m in page) {
         if (![m.senderPk isEqualToString:_myId] || [shown containsObject:m.pk] || [used containsObject:m.pk]) continue;
-        if (since && m.timestamp && [m.timestamp compare:since] == NSOrderedAscending) continue;
-        BOOL match = local.text.length ? [m.text isEqualToString:local.text]
-                   : local.localImage ? (m.previewURL.length > 0 && !m.audioURL.length)
-                   : [m.type isEqualToString:local.type];
-        if (match) { [used addObject:m.pk]; return m; }
+        if (SHIsCopyOfLocal(m, local)) { [used addObject:m.pk]; return m; }
     }
     return nil;
 }
@@ -832,13 +849,7 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
         [merged addObject:m];
     }
 
-    // "Seen" under my last message once the other side has read that far (one-to-one chats, as the app)
-    NSString *seenPk = nil;
-    SHDirectMessage *last = [merged lastObject];
-    if (last && !SHIsLocalMessage(last) && !last.systemRow && [last.senderPk isEqualToString:_myId] && _thread.users.count == 1) {
-        NSDate *theirs = _lastSeenAt[[[_thread.users firstObject] pk] ?: @""];
-        if (theirs && last.timestamp && [theirs compare:last.timestamp] != NSOrderedAscending) seenPk = last.pk;
-    }
+    NSString *seenPk = [self seenPkForMessages:merged];
 
     BOOL firstLoad = !_loadedOnce;
     _loadedOnce = YES;
@@ -854,6 +865,200 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
     }
     [self markSeenIfNeeded];
     return !same;
+}
+
+// "Seen" under my last message once the other side has read that far (one-to-one chats, as the app).
+- (NSString *)seenPkForMessages:(NSArray *)messages
+{
+    SHDirectMessage *last = [messages lastObject];
+    if (!last || SHIsLocalMessage(last) || last.systemRow || ![last.senderPk isEqualToString:_myId] || _thread.users.count != 1) return nil;
+    NSDate *theirs = _lastSeenAt[[[_thread.users firstObject] pk] ?: @""];
+    return (theirs && last.timestamp && [theirs compare:last.timestamp] != NSOrderedAscending) ? last.pk : nil;
+}
+
+// The marker for what is shown now; answers whether it moved.
+- (BOOL)updateSeenMarker
+{
+    NSString *seenPk = [self seenPkForMessages:_messages];
+    if ([(seenPk ?: @"") isEqualToString:(_seenPk ?: @"")]) return NO;
+    _seenPk = seenPk;
+    return YES;
+}
+
+#pragma mark - The live connection
+
+static BOOL SHRealtimeLogging(void)
+{
+    static int on = -1;
+    if (on < 0) on = [[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]] ? 1 : 0;
+    return on == 1;
+}
+
+- (BOOL)isThisThread:(NSNotification *)note
+{
+    return _thread.threadId.length && [note.userInfo[SHRealtimeThreadKey] isEqualToString:_thread.threadId];
+}
+
+// A message of this chat by the live connection, at once: a new one goes in by its time (Instagram's copy of one
+// sent from here takes the faded echo's place), a changed one is replaced, one taken back leaves.
+- (void)realtimeItem:(NSNotification *)note
+{
+    if (![self isThisThread:note] || !_loadedOnce) return;
+    NSDictionary *info = note.userInfo;
+    NSString *op = info[SHRealtimeOpKey];
+    NSString *itemId = info[SHRealtimeItemIdKey] ?: @"";
+    NSUInteger index = NSNotFound;
+    for (NSUInteger i = 0; i < _messages.count; i++) if ([[_messages[i] pk] isEqualToString:itemId]) { index = i; break; }
+
+    if ([op isEqualToString:@"remove"]) {
+        if (index == NSNotFound) return;
+        [_messages removeObjectAtIndex:index];
+        [self updateSeenMarker];
+        [_tableView reloadData];
+        if (SHRealtimeLogging()) SHLog(@"DM live: removed %@", itemId);
+        return;
+    }
+    SHDirectMessage *m = [SHDirectMessage fromJSON:info[SHRealtimeItemKey]];
+    if (!m) return;
+    if (!m.pk.length) m.pk = itemId;
+    if (!m.pk.length) return;
+    BOOL mine = m.senderPk.length && [m.senderPk isEqualToString:_myId];
+    BOOL follow = [self isNearBottom];
+
+    if (index != NSNotFound) {
+        SHDirectMessage *old = _messages[index];
+        if (SHSameMessage(old, m)) return;
+        if (old.localImage && !m.localImage) m.localImage = old.localImage;
+        [_messages replaceObjectAtIndex:index withObject:m];
+    } else if ([op isEqualToString:@"add"]) {
+        NSUInteger localIndex = NSNotFound;
+        if (mine) {
+            for (NSUInteger i = 0; i < _messages.count; i++) {
+                SHDirectMessage *l = _messages[i];
+                if (SHIsLocalMessage(l) && SHIsCopyOfLocal(m, l)) { localIndex = i; break; }
+            }
+        }
+        if (localIndex != NSNotFound) {
+            SHDirectMessage *local = _messages[localIndex];
+            if (local.localImage && !m.localImage) m.localImage = local.localImage;   // (no flash)
+            [_messages replaceObjectAtIndex:localIndex withObject:m];
+        } else {
+            // a call is one line: its start goes once its end is here, and a start after its end stays out
+            if (m.callId.length) {
+                if (m.callStarted) {
+                    for (SHDirectMessage *x in _messages) if ([x.callId isEqualToString:m.callId] && !x.callStarted) return;
+                } else {
+                    [_messages removeObjectsAtIndexes:[_messages indexesOfObjectsPassingTest:^BOOL(SHDirectMessage *x, NSUInteger i, BOOL *stop) {
+                        return x.callStarted && [x.callId isEqualToString:m.callId];
+                    }]];
+                }
+            }
+            // by its time (a burst may come out of order); what is still on its way from here stays at the end
+            NSUInteger at = _messages.count;
+            while (at > 0) {
+                SHDirectMessage *prev = _messages[at - 1];
+                if (!SHIsLocalMessage(prev) && (!m.timestamp || !prev.timestamp || [prev.timestamp compare:m.timestamp] != NSOrderedDescending)) break;
+                at--;
+            }
+            [_messages insertObject:m atIndex:at];
+        }
+        if (!mine) [self showTyping:NO];   // (what they were typing is here)
+    } else {
+        return;   // a change to a message not shown (further up than loaded)
+    }
+    if (SHRealtimeLogging()) SHLog(@"DM live: %@ %@ (%@), %lu messages", op, m.type, mine ? @"mine" : @"theirs", (unsigned long)_messages.count);
+    [self updateSeenMarker];
+    [_tableView reloadData];
+    if (follow || mine) [self scrollToBottom:YES];
+    [self markSeenIfNeeded];
+}
+
+// The other side read this chat (or I did, elsewhere): "Seen" under my last message when it is that far.
+- (void)realtimeSeen:(NSNotification *)note
+{
+    if (![self isThisThread:note]) return;
+    NSDictionary *info = note.userInfo;
+    NSString *user = info[SHRealtimeUserKey];
+    NSDate *date = info[SHRealtimeDateKey];
+    NSString *itemId = info[SHRealtimeItemIdKey];
+    if (itemId.length) {
+        for (SHDirectMessage *m in _messages) {
+            if (![m.pk isEqualToString:itemId]) continue;
+            if (m.timestamp && (!date || [m.timestamp compare:date] == NSOrderedDescending)) date = m.timestamp;
+            break;
+        }
+    }
+    if (!user.length || !date) return;
+    NSDate *before = _lastSeenAt[user];
+    if (before && [before compare:date] != NSOrderedAscending) return;
+    NSMutableDictionary *seen = [NSMutableDictionary dictionaryWithDictionary:_lastSeenAt ?: @{}];
+    seen[user] = date;
+    _lastSeenAt = seen;
+    if (SHRealtimeLogging()) SHLog(@"DM live: seen by %@", [user isEqualToString:_myId] ? @"me" : @"them");
+    if ([self updateSeenMarker]) [_tableView reloadData];
+}
+
+- (void)realtimeTyping:(NSNotification *)note
+{
+    if (![self isThisThread:note]) return;
+    NSDictionary *info = note.userInfo;
+    if ([info[SHRealtimeUserKey] isEqualToString:_myId ?: @""]) return;
+    if (![info[SHRealtimeTypingKey] boolValue]) { [self showTyping:NO]; return; }
+    NSTimeInterval ttl = MAX(1, [info[SHRealtimeTTLKey] doubleValue]);
+    _typingUntil = [NSDate dateWithTimeIntervalSinceNow:ttl];
+    [self showTyping:YES];
+    __weak SHThreadViewController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((ttl + 0.2) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        SHThreadViewController *s = weakSelf;
+        if (s.typingUntil && [s.typingUntil timeIntervalSinceNow] <= 0) [s showTyping:NO];
+    });
+}
+
+// The other side's bubble with three dots that pulse, under the last message, while they type.
+- (void)showTyping:(BOOL)typing
+{
+    if (!typing) _typingUntil = nil;
+    if (typing == (_typingView != nil)) return;
+    if (typing) {
+        BOOL follow = [self isNearBottom];
+        _typingView = [self makeTypingView];
+        _tableView.tableFooterView = _typingView;
+        if (follow) [self scrollToBottom:YES];
+    } else {
+        _typingView = nil;
+        _tableView.tableFooterView = [[UIView alloc] initWithFrame:CGRectZero];
+    }
+}
+
+- (UIView *)makeTypingView
+{
+    SHTheme *theme = [SHTheme shared];
+    CGFloat tail = [theme bubbleTailWidth];
+    UIView *row = [[UIView alloc] initWithFrame:CGRectMake(0, 0, _tableView.bounds.size.width, SHRowGap + 30 + SHRowGap + 2)];
+    row.backgroundColor = [UIColor clearColor];
+    row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    row.isAccessibilityElement = YES;
+    row.accessibilityLabel = L(@"Typing...");
+    UIImageView *bubble = [[UIImageView alloc] initWithImage:[theme bubbleImageOutgoing:NO]];
+    bubble.frame = CGRectMake(SHEdge + SHAvatarSize + 6, SHRowGap, tail + 52, 30);
+    [row addSubview:bubble];
+    UIColor *dotColor = theme.isDark ? [UIColor colorWithWhite:1 alpha:0.8f] : [UIColor colorWithWhite:0.35f alpha:1];
+    for (int i = 0; i < 3; i++) {
+        UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(tail + 10 + i * 12, 11, 8, 8)];
+        dot.backgroundColor = dotColor;
+        dot.layer.cornerRadius = 4;
+        [bubble addSubview:dot];
+        CABasicAnimation *pulse = [CABasicAnimation animationWithKeyPath:@"opacity"];
+        pulse.fromValue = @1;
+        pulse.toValue = @0.2;
+        pulse.duration = 0.45;
+        pulse.autoreverses = YES;
+        pulse.repeatCount = HUGE_VALF;
+        pulse.beginTime = CACurrentMediaTime() + i * 0.15;
+        pulse.fillMode = kCAFillModeBackwards;
+        [dot.layer addAnimation:pulse forKey:@"pulse"];
+    }
+    return row;
 }
 
 // The newest message from the other side counts as read once the chat shows it (Instagram tells them "Seen"). A
@@ -905,6 +1110,14 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
 
 - (void)scrollToBottom:(BOOL)animated
 {
+    if (_typingView) {
+        // the very end, the typing bubble under the last message included
+        [_tableView layoutIfNeeded];
+        UIEdgeInsets inset = _tableView.contentInset;
+        CGFloat y = MAX(-inset.top, _tableView.contentSize.height - _tableView.bounds.size.height + inset.bottom);
+        [_tableView setContentOffset:CGPointMake(0, y) animated:animated];
+        return;
+    }
     if (_messages.count == 0) return;
     NSIndexPath *ip = [NSIndexPath indexPathForRow:(NSInteger)_messages.count - 1 inSection:0];
     [_tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionBottom animated:animated];
@@ -1098,7 +1311,15 @@ static BOOL SHSameMessage(SHDirectMessage *a, SHDirectMessage *b)
     }
     [_tableView reloadData];
     [_poller speedUp];   // (an answer may come soon)
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self refresh]; });
+    // Instagram's copy takes the echo's place: by the live connection at once, else from the thread loaded again
+    BOOL live = [SHRealtime shared].live;
+    __weak SHThreadViewController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((live ? 6 : 1.5) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        SHThreadViewController *s = weakSelf;
+        if (!s) return;
+        if (live && [s->_messages indexOfObjectIdenticalTo:m] == NSNotFound) return;   // (it came)
+        [s refresh];
+    });
 }
 
 #pragma mark - Photos

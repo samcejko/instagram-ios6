@@ -18,6 +18,11 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 
 @interface SHInstagram : NSObject
 
+// What the live connection (SHRealtime) tells Instagram about this client: the same Android app as the API calls.
++ (NSString *)appUserAgent;
++ (NSString *)appVersionName;       // "449.0.0.52.84"
++ (NSString *)capabilitiesHeader;   // X-IG-Capabilities
+
 + (SHHTTPTask *)loginWithUsername:(NSString *)username password:(NSString *)password
                       completion:(void (^)(SHUser *user, NSString *twoFactorId, NSError *error))completion;
 

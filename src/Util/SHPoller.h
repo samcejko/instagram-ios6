@@ -13,6 +13,9 @@
 - (void)noteFresh;                          // the owner just loaded the same thing itself
 - (void)speedUp;                            // something happened here (a message sent): the shortest wait again
 @property (nonatomic, readonly) BOOL running;
+// While the live connection (SHRealtime) is up, at least this long between asks: it only has to catch what the
+// connection missed. 0 (the default) changes nothing. When the connection drops, the shortest wait comes back.
+@property (nonatomic) NSTimeInterval liveInterval;
 @end
 
 // The app's window: notes every touch, so that polling stops when nobody uses the app.

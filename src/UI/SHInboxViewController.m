@@ -3,7 +3,9 @@
 #import "SHProfileViewController.h"
 #import "SHInstagram.h"
 #import "SHDirectMonitor.h"
+#import "SHRealtime.h"
 #import "SHPoller.h"
+#import "SHSettings.h"
 #import "SHModels.h"
 #import "SHImageLoader.h"
 #import "SHTheme.h"
@@ -77,6 +79,8 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 @property (nonatomic, strong) SHPoller *poller;      // new messages while the list is on screen
 @property (nonatomic) BOOL loadedMore;               // pages further down are in
 @property (nonatomic, copy) NSString *signature;     // what the rows showed last (to redraw only on a change)
+@property (nonatomic, strong) NSMutableDictionary *typingUntil;   // thread id -> until when someone types there (NSDate)
+@property (nonatomic) BOOL reloadPlanned;            // a new chat by the live connection: the list once more, soon
 @end
 
 @implementation SHInboxViewController
@@ -138,6 +142,14 @@ static NSString * const SHThreadCellId = @"ThreadCell";
             NSString *before = s->_signature;
             [s load:NO then:^{ done(![(before ?: @"") isEqualToString:(weakSelf.signature ?: @"")]); }];
         }];
+        _poller.liveInterval = 180;   // (the live connection updates the rows itself)
+        // what the live connection brings: new messages move their chat up, typing shows in its row
+        _typingUntil = [NSMutableDictionary dictionary];
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc addObserver:self selector:@selector(realtimeItem:) name:SHRealtimeDirectItemNotification object:nil];
+        [nc addObserver:self selector:@selector(realtimeTyping:) name:SHRealtimeDirectTypingNotification object:nil];
+        [nc addObserver:self selector:@selector(realtimeInboxChanged:) name:SHRealtimeInboxChangedNotification object:nil];
+        [nc addObserver:self selector:@selector(unreadChanged) name:SHDirectUnreadDidChangeNotification object:nil];
     }
 }
 
@@ -206,8 +218,107 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_poller stop];
     [_task cancel];
+}
+
+#pragma mark - The live connection
+
+- (BOOL)onScreen { return self.isViewLoaded && self.view.window != nil; }
+
+- (SHDirectThread *)threadWithId:(NSString *)threadId
+{
+    for (SHDirectThread *t in _threads) if ([t.threadId isEqualToString:threadId]) return t;
+    return nil;
+}
+
+// The rows again, when they would look different.
+- (void)redraw
+{
+    NSString *signature = [self signatureOfThreads];
+    if ([signature isEqualToString:(_signature ?: @"")]) return;
+    _signature = signature;
+    [self updateRequestsRow];
+    [_tableView reloadData];
+}
+
+// A chat not listed yet (or a message taken back): the first page again, once for a burst, and only on screen
+// (the list loads anyway each time it shows).
+- (void)reloadSoon
+{
+    if (_reloadPlanned || ![self onScreen]) return;
+    _reloadPlanned = YES;
+    __weak SHInboxViewController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        SHInboxViewController *s = weakSelf;
+        if (!s) return;
+        s->_reloadPlanned = NO;
+        if ([s onScreen]) [s load:NO];
+    });
+}
+
+// A new message: its chat's row says it and moves to the top (unread when it is someone else's).
+- (void)realtimeItem:(NSNotification *)note
+{
+    NSDictionary *info = note.userInfo;
+    NSString *op = info[SHRealtimeOpKey];
+    SHDirectThread *thread = [self threadWithId:info[SHRealtimeThreadKey]];
+    if ([op isEqualToString:@"remove"]) { if (thread) [self reloadSoon]; return; }   // (perhaps the line shown)
+    if (![op isEqualToString:@"add"]) return;                                       // (reactions, edits)
+    if (!thread) { [self reloadSoon]; return; }
+    SHDirectMessage *m = [SHDirectMessage fromJSON:info[SHRealtimeItemKey]];
+    if (!m) return;
+    thread.lastText = m.text.length ? m.text : (m.placeholderText ?: @"");
+    if (m.timestamp) thread.lastActivity = m.timestamp;
+    BOOL mine = [m.senderPk isEqualToString:[SHSettings userId] ?: @""];
+    if (!mine && !m.systemRow) thread.unread = YES;
+    if (!mine && m.senderPk.length) [_typingUntil removeObjectForKey:thread.threadId];   // (the message it was)
+    [_threads removeObjectIdenticalTo:thread];
+    [_threads insertObject:thread atIndex:0];
+    [self redraw];
+}
+
+- (void)realtimeTyping:(NSNotification *)note
+{
+    NSDictionary *info = note.userInfo;
+    NSString *threadId = info[SHRealtimeThreadKey];
+    if (!threadId.length || [info[SHRealtimeUserKey] isEqualToString:[SHSettings userId] ?: @""] || ![self threadWithId:threadId]) return;
+    if ([info[SHRealtimeTypingKey] boolValue]) {
+        NSTimeInterval ttl = MAX(1, [info[SHRealtimeTTLKey] doubleValue]);
+        _typingUntil[threadId] = [NSDate dateWithTimeIntervalSinceNow:ttl];
+        __weak SHInboxViewController *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((ttl + 0.2) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            SHInboxViewController *s = weakSelf;
+            NSDate *until = s.typingUntil[threadId];
+            if (!s || !until || [until timeIntervalSinceNow] > 0) return;
+            [s.typingUntil removeObjectForKey:threadId];
+            [s.tableView reloadData];
+        });
+    } else {
+        if (!_typingUntil[threadId]) return;
+        [_typingUntil removeObjectForKey:threadId];
+    }
+    [_tableView reloadData];
+}
+
+// A chat itself changed: a new one is loaded, a removed one leaves the list (renames and the like wait for a poll).
+- (void)realtimeInboxChanged:(NSNotification *)note
+{
+    NSString *threadId = note.userInfo[SHRealtimeThreadKey];
+    NSString *op = note.userInfo[SHRealtimeOpKey];
+    SHDirectThread *thread = threadId.length ? [self threadWithId:threadId] : nil;
+    if ([op isEqualToString:@"remove"] && thread) {
+        [_threads removeObjectIdenticalTo:thread];
+        [self redraw];
+    } else if ([op isEqualToString:@"add"] && threadId.length && !thread) {
+        [self reloadSoon];
+    }
+}
+
+- (void)unreadChanged
+{
+    if ([self onScreen]) [self redraw];
 }
 
 - (void)load:(BOOL)more { [self load:more then:nil]; }
@@ -279,10 +390,17 @@ static NSString * const SHThreadCellId = @"ThreadCell";
         [weakSelf.navigationController pushViewController:vc animated:YES];
     };
     cell.titleLabel.text = [SHUtils displayText:t.title];
-    cell.previewLabel.text = [SHUtils displayText:t.lastText ?: @""];
     BOOL unread = [[SHDirectMonitor shared] threadIsUnread:t];   // (also off at once for a chat just read here)
     cell.unreadDot.hidden = !unread;
-    cell.previewLabel.textColor = unread ? [[SHTheme shared] textColor] : [[SHTheme shared] secondaryTextColor];
+    NSDate *typingUntil = _typingUntil[t.threadId ?: @""];
+    if (typingUntil && [typingUntil timeIntervalSinceNow] > 0) {
+        // someone types there (the live connection says so)
+        cell.previewLabel.text = L(@"Typing...");
+        cell.previewLabel.textColor = [[SHTheme shared] linkColor];
+    } else {
+        cell.previewLabel.text = [SHUtils displayText:t.lastText ?: @""];
+        cell.previewLabel.textColor = unread ? [[SHTheme shared] textColor] : [[SHTheme shared] secondaryTextColor];
+    }
     [cell setNeedsLayout];
     return cell;
 }
