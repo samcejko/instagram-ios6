@@ -205,7 +205,9 @@
     self.step = step;
     NSString *title = step.kind == SHLoginStepNewDevice ? L(@"Verify it's you") : L(@"Two-Factor Authentication");
     NSString *message;
-    if (step.kind == SHLoginStepNewDevice)
+    if (step.kind == SHLoginStepNewDevice && step.destination.length)   // (masked: "b*****@outlook.com")
+        message = [NSString stringWithFormat:L(@"Instagram sent a code to %@ to confirm this sign-in. Enter it here."), step.destination];
+    else if (step.kind == SHLoginStepNewDevice)
         message = L(@"Instagram sent a code to confirm this sign-in, by e-mail or text message. Enter it here.");
     else if (step.kind == SHLoginStepTwoFactor && [step.method isEqualToString:@"sms"])
         message = L(@"Enter the code Instagram sent you by text message.");

@@ -601,6 +601,109 @@ static NSDictionary *SHBloksLoginHeaders(NSDictionary *answer)
     return nil;
 }
 
+// What Instagram hides the letters and digits of a contact point with: "*", or a bullet.
+static BOOL SHIsMaskCharacter(unichar c)
+{
+    return c == '*' || c == 0x2022 || c == 0x25CF;
+}
+
+// A match of the pattern below that is a masked contact point: an e-mail address with a name and a domain, or a phone
+// number with its last digits and more of it hidden than shown. Some of it hidden in any case: never a whole address
+// (such as the one typed in to sign in).
+static BOOL SHPlausibleMaskedContact(NSString *s)
+{
+    NSUInteger n = s.length, masks = 0, digits = 0, i = 0;
+    NSUInteger at = [s rangeOfString:@"@"].location;
+    if (at != NSNotFound) {
+        BOOL name = NO, domain = NO;
+        for (; i < n; i++) {
+            unichar c = [s characterAtIndex:i];
+            BOOL letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            if (SHIsMaskCharacter(c)) masks++;
+            if (i < at && (letter || (c >= '0' && c <= '9'))) name = YES;
+            if (i > at && letter) domain = YES;
+        }
+        return masks > 0 && name && domain && n <= 100;
+    }
+    // a phone number: what follows its country code
+    if (n && [s characterAtIndex:0] == '+') {
+        i = 1;
+        while (i < n && [s characterAtIndex:i] >= '0' && [s characterAtIndex:i] <= '9') i++;
+    }
+    for (; i < n; i++) {
+        unichar c = [s characterAtIndex:i];
+        if (SHIsMaskCharacter(c)) masks++;
+        else if (c >= '0' && c <= '9') digits++;
+    }
+    return masks >= 3 && masks >= digits && masks + digits >= 6 && masks + digits <= 15;
+}
+
+// The first masked contact point a text of a sign-in answer names ("b*****@outlook.com", "+1 ***-***-**12"), also in
+// the string literals of a Bloks program, which can keep a mask's bullets (and the marks around a phone number) as
+// escapes; nil when it names none.
+static NSString *SHMaskedContactIn(NSString *text, NSInteger depth)
+{
+    static NSRegularExpression *pattern;
+    static NSCharacterSet *maskCharacters;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // an e-mail address, or a phone number (a country code, groups, its last digits), "*" and bullets allowed in
+        // both; neither starts inside a word (nor a long run of letters is tried from each of its characters)
+        pattern = [NSRegularExpression regularExpressionWithPattern:
+            @"(?<![A-Za-z0-9._%+*\\x{2022}\\x{25CF}-])[A-Za-z0-9._%+*\\x{2022}\\x{25CF}-]{1,64}+@[A-Za-z0-9*\\x{2022}\\x{25CF}-]{1,63}"
+            @"(?:\\.[A-Za-z0-9*\\x{2022}\\x{25CF}-]{1,63}){1,4}"
+            @"|(?<![A-Za-z0-9+*\\x{2022}\\x{25CF}])(?:\\+[0-9]{1,4}[ \\x{00A0}.-]?)?\\(?[0-9*\\x{2022}\\x{25CF}]"
+            @"[0-9*\\x{2022}\\x{25CF} \\x{00A0}().-]{3,24}[0-9]{2}(?![A-Za-z0-9*\\x{2022}\\x{25CF}])"
+                                                            options:0 error:NULL];
+        maskCharacters = [NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@"*%C%C", (unichar)0x2022, (unichar)0x25CF]];
+    });
+    if (!text.length || depth > 2) return nil;
+    // the literals with escapes first, decoded
+    if ([text rangeOfString:@"\\"].location != NSNotFound) {
+        NSUInteger i = 0, n = text.length;
+        while (i < n) {
+            NSRange quote = [text rangeOfString:@"\"" options:0 range:NSMakeRange(i, n - i)];
+            if (quote.location == NSNotFound) break;
+            NSUInteger end = SHBloksStringEnd(text, quote.location);
+            if (end == NSNotFound) break;
+            NSRange literal = NSMakeRange(quote.location, end - quote.location);
+            i = end;
+            if ([text rangeOfString:@"\\" options:0 range:literal].location == NSNotFound) continue;
+            NSString *found = SHMaskedContactIn(SHBloksDecodeLiteral([text substringWithRange:literal]), depth + 1);
+            if (found) return found;
+        }
+    }
+    // only the matches that start near a mask character, each whole (a contact point is short, and the pattern still
+    // sees the text around): a Bloks program can be hundreds of kilobytes
+    NSUInteger n = text.length, from = 0;
+    while (from < n) {
+        NSUInteger mask = [text rangeOfCharacterFromSet:maskCharacters options:0 range:NSMakeRange(from, n - from)].location;
+        if (mask == NSNotFound) break;
+        NSUInteger start = mask > 96 ? mask - 96 : 0, end = MIN(n, mask + 96), limit = MIN(n, end + 128);
+        for (NSTextCheckingResult *m in [pattern matchesInString:text options:NSMatchingWithTransparentBounds range:NSMakeRange(start, limit - start)]) {
+            if (m.range.location >= end) break;
+            NSString *candidate = [text substringWithRange:m.range];
+            if (SHPlausibleMaskedContact(candidate)) return candidate;
+        }
+        from = end;
+    }
+    return nil;
+}
+
+// Where a code screen says Instagram sent the code: the first masked e-mail address or phone number among the strings
+// of its answer; nil when it names none.
+static NSString *SHBloksMaskedContactPoint(NSDictionary *answer)
+{
+    if (!answer) return nil;
+    NSMutableArray *strings = [NSMutableArray array];
+    SHBloksCollectStrings(answer, strings, 0);
+    for (NSString *text in strings) {
+        NSString *found = SHMaskedContactIn(text, 0);
+        if (found.length) return found;
+    }
+    return nil;
+}
+
 #pragma mark - Response cache
 
 // The first page of the main lists (timeline, explore, activity, inbox) is kept on disk, so that the next start
@@ -1012,6 +1115,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
             completion(nil, SHLoginStepError(e1, @"ap entrypoint_async", b1));
             return;
         }
+        NSString *entryDestination = SHBloksMaskedContactPoint(a1);
         NSDictionary *codeParams = @{
             @"client_input_params": @{ @"aac": g_loginAAC ?: @"" },
             @"server_params": @{ @"context_data": codeContext, @"show_close_button": @0, @"device_id": guid,
@@ -1029,6 +1133,10 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
             SHLoginStep *step = [[SHLoginStep alloc] init];
             step.kind = SHLoginStepNewDevice;
             step.context = submit;
+            // where the code went, as the code screen (or the entry before it) shows it
+            step.destination = SHBloksMaskedContactPoint(a2) ?: entryDestination;
+            if (SHDebugLogging())
+                SHLog(@"LOGINSTEP new device: code sent to %@ (code screen names: %@)", step.destination ?: @"? (not named)", SHLoginDetails(b2));
             completion(step, nil);
         }];
         task.cancelBlock = ^{ [second cancel]; };

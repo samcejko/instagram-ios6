@@ -29,6 +29,9 @@ typedef NS_ENUM(NSInteger, SHLoginStepKind) {
 @property (nonatomic) SHLoginStepKind kind;
 @property (nonatomic, copy) NSString *method;     // two-factor: "totp" (authenticator app) or "sms"
 @property (nonatomic, copy) NSString *context;    // opaque: what the code goes back to Instagram with
+// new device: where Instagram sent the code, masked the way it shows it ("b*****@outlook.com", "+1 ***-***-**12");
+// nil when its screens did not name it
+@property (nonatomic, copy) NSString *destination;
 @end
 
 @interface SHInstagram : NSObject
