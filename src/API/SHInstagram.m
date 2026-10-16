@@ -1022,6 +1022,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 {
     NSString *from = nil;
     BOOL session = SHKeepSessionFromAnswer(answer, bodyStr, nil, &from);
+    // a plain refusal (a wrong password, no such account) is that, whatever screens the answer also names
+    NSString *refusal = session ? nil : SHExtractBloksError(bodyStr);
+    if (refusal.length) { completion(nil, SHMakeError(status ?: SHErrorAPI, refusal)); return; }
     // a screen that asks for a code comes before a header token: no sign-in is finished yet
     BOOL newDevice = !session && [bodyStr rangeOfString:SHAPCodeEntrypoint].location != NSNotFound;
     NSString *twoStep = (session || newDevice) ? nil : SHBloksTwoStepContext(answer);
