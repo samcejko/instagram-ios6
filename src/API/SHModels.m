@@ -477,19 +477,31 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
         NSString *words = [[SHStr(call[@"description"]) ?: @"" lowercaseString] stringByAppendingFormat:@" %@", action];
         BOOL audio = SHBool(call[@"thread_has_audio_only_call"]) || SHBool(call[@"is_audio_only"]) || SHBool(d[@"is_audio_only"])
                   || [words rangeOfString:@"audio"].location != NSNotFound || [words rangeOfString:@"voice"].location != NSNotFound;
-        BOOL missed = [words rangeOfString:@"miss"].location != NSNotFound || [words rangeOfString:@"unanswered"].location != NSNotFound
+        BOOL ended = [action rangeOfString:@"end"].location != NSNotFound || [action rangeOfString:@"left"].location != NSNotFound;
+        // a call of the other side's that this account never joined ended unanswered: a missed call here, as in the app
+        BOOL theirs = m.senderPk.length && ![m.senderPk isEqualToString:[SHSettings userId] ?: @""];
+        BOOL unanswered = ended && theirs && [call[@"did_join"] isKindOfClass:[NSNumber class]] && ![call[@"did_join"] boolValue];
+        BOOL missed = unanswered || [words rangeOfString:@"miss"].location != NSNotFound || [words rangeOfString:@"unanswered"].location != NSNotFound
                    || [words rangeOfString:@"declin"].location != NSNotFound;
         m.systemRow = YES;
         m.missedCall = missed;
+        m.callId = SHStr(call[@"vc_id"]);
+        m.callStarted = !ended && !missed && [action rangeOfString:@"start"].location != NSNotFound;
         if (missed) m.placeholderText = audio ? L(@"Missed call") : L(@"Missed video call");
         else if ([action rangeOfString:@"end"].location != NSNotFound || [action rangeOfString:@"left"].location != NSNotFound)
             m.placeholderText = audio ? L(@"Call ended") : L(@"Video call ended");
         else if ([action rangeOfString:@"start"].location != NSNotFound || [action rangeOfString:@"join"].location != NSNotFound)
             m.placeholderText = audio ? L(@"Call started") : L(@"Video call started");
         else m.placeholderText = SHStr(call[@"description"]) ?: (audio ? L(@"Call") : L(@"Video call"));
+        // how long it took: call_duration, else end - start (in the units of the times: s, ms or µs)
         NSTimeInterval seconds = SHDbl(call[@"call_duration"]) ?: SHDbl(call[@"duration"]);
-        if (seconds > 1e5) seconds /= 1000;   // (milliseconds)
-        if (seconds >= 1 && !missed)
+        if (seconds > 36000) seconds /= 1000;   // (milliseconds)
+        double start = SHDbl(call[@"call_start_time"]), end = SHDbl(call[@"call_end_time"]);
+        if (seconds <= 0 && start > 0 && end > start) {
+            seconds = end - start;
+            if (start > 1e14) seconds /= 1e6; else if (start > 1e11) seconds /= 1e3;
+        }
+        if (seconds >= 1 && ended && !missed)
             m.placeholderText = [NSString stringWithFormat:@"%@, %d:%02d", m.placeholderText, (int)seconds / 60, (int)seconds % 60];
         // (debug builds: what a call carries, once per item, so its other forms can be taught)
         static NSMutableSet *loggedCalls;
@@ -497,7 +509,9 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
         NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
         if (m.pk.length && ![loggedCalls containsObject:m.pk] && [[NSFileManager defaultManager] fileExistsAtPath:[docs stringByAppendingPathComponent:@"debug"]]) {
             [loggedCalls addObject:m.pk];
-            SHLog(@"DMITEM call action=%@ desc=%@ keys=%@", action, SHStr(call[@"description"]) ?: @"-", [[call allKeys] componentsJoinedByString:@","]);
+            SHLog(@"DMITEM call action=%@ desc=%@ did_join=%@ duration=%@ start=%@ end=%@ theirs=%d -> %@", action, SHStr(call[@"description"]) ?: @"-",
+                  SHStr(call[@"did_join"]) ?: @"-", SHStr(call[@"call_duration"]) ?: @"-", SHStr(call[@"call_start_time"]) ?: @"-",
+                  SHStr(call[@"call_end_time"]) ?: @"-", theirs, m.placeholderText);
         }
     } else if ([m.type isEqualToString:@"action_log"]) {
         m.placeholderText = SHStr(SHDict(d[@"action_log"])[@"description"]) ?: @"";
@@ -545,6 +559,14 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
     for (NSDictionary *item in SHArr(d[@"items"])) {
         SHDirectMessage *m = [SHDirectMessage fromJSON:item];
         if (m) [messages addObject:m];
+    }
+    // a call is one line, as in the app: its start is left out once its end (or the missed call) is listed too
+    NSMutableSet *finishedCalls = [NSMutableSet set];
+    for (SHDirectMessage *m in messages) if (m.callId.length && !m.callStarted) [finishedCalls addObject:m.callId];
+    if (finishedCalls.count) {
+        [messages removeObjectsAtIndexes:[messages indexesOfObjectsPassingTest:^BOOL(SHDirectMessage *m, NSUInteger i, BOOL *stop) {
+            return m.callStarted && m.callId.length && [finishedCalls containsObject:m.callId];
+        }]];
     }
     t.messages = messages;
 

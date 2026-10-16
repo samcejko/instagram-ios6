@@ -146,6 +146,8 @@
 // drew its times. A missed call is drawn red.
 @property (nonatomic) BOOL systemRow;
 @property (nonatomic) BOOL missedCall;
+@property (nonatomic, copy) NSString *callId;            // a call's events share it (vc_id)
+@property (nonatomic) BOOL callStarted;                  // "… started a call" (left out once its end is listed)
 + (BOOL)ephemeralOpened:(NSString *)pk;                // opened on this device already
 + (void)noteEphemeralOpened:(NSString *)pk;
 + (instancetype)fromJSON:(NSDictionary *)json;
