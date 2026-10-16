@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6 (2026-10-16)
+
+- The code that confirms a sign-in from a new device: the alert now says where Instagram sent it (the e-mail address or phone number, masked as Instagram shows it), so it is clear which inbox to look in. When Instagram does not name it, the alert says "by e-mail or text message" as before.
+- Tried by a tester on an iPhone 4S with iOS 6.1: signing in with a two-factor code works.
+
 ## 0.3.5 (2026-10-16)
 
 For the accounts that still could not sign in with 0.3.4 ("Instagram wants a code for this sign-in, but the next step didn't open"): some accounts, private ones among them, get an answer from Instagram that does not depend on the password.
