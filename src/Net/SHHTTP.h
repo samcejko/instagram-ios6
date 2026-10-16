@@ -7,7 +7,8 @@ typedef void (^SHJSONCompletion)(id json, NSInteger status, NSError *error);
 // for a security check). userInfo: "path" = challenge.api_path (or url) when the reply named one, "json" = the body.
 extern NSString * const SHHTTPChallengeRequiredNotification;
 // Posted on the main thread when Instagram answers {"message":"login_required"} (the session is no longer valid:
-// logged out elsewhere, or a sign-in it did not accept). userInfo: "json" = the body (error_title, logout_reason).
+// logged out elsewhere, or a sign-in it did not accept). userInfo: "json" = the body (error_title, logout_reason),
+// "status" = the HTTP status (NSNumber).
 extern NSString * const SHHTTPLoginRequiredNotification;
 
 // A running request of SHHTTP. After -cancel the completion block is never called.

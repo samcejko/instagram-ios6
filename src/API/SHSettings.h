@@ -19,6 +19,9 @@
 + (NSString *)deviceId;
 + (NSString *)phoneId;
 + (NSString *)androidId;
++ (NSString *)machineId;                 // Instagram's "mid" for this device (ig-set-x-mid), "" before it sent one
++ (void)setMachineId:(NSString *)mid;
++ (void)renewDeviceIds;                  // (debug, while logged out) a new device in Instagram's eyes
 
 + (void)logout;
 

@@ -46,23 +46,27 @@ static NSString * const SHKeychainService = @"com.samcejko.shutter";
     SecItemDelete((__bridge CFDictionaryRef)q);
     [defaults removeObjectForKey:[self fallbackKey:key]];
     [defaults removeObjectForKey:[self fallbackMarkKey:key]];
-    if (!value.length) { [defaults synchronize]; return; }
 
-    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
-    q[(__bridge id)kSecValueData] = data;
-    q[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
-    OSStatus status = SecItemAdd((__bridge CFDictionaryRef)q, NULL);
-    if (status == errSecDuplicateItem) {   // an item that could not be deleted: written over instead
-        status = SecItemUpdate((__bridge CFDictionaryRef)[self queryForKey:key],
-                               (__bridge CFDictionaryRef)@{ (__bridge id)kSecValueData: data });
+    OSStatus status = errSecSuccess;
+    if (value.length) {
+        NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+        q[(__bridge id)kSecValueData] = data;
+        q[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
+        status = SecItemAdd((__bridge CFDictionaryRef)q, NULL);
+        if (status == errSecDuplicateItem) {   // an item that could not be deleted: written over instead
+            status = SecItemUpdate((__bridge CFDictionaryRef)[self queryForKey:key],
+                                   (__bridge CFDictionaryRef)@{ (__bridge id)kSecValueData: data });
+        }
     }
     // Only what the keychain gives back is left to it; anything else goes to the preferences, marked as the one
-    // that counts (an old session token read back from the keychain made every request "session expired").
-    if (status == errSecSuccess && [[self keychainStringForKey:key] isEqualToString:value]) {
+    // that counts (an old session token read back from the keychain made every request "session expired"). That
+    // holds for an empty value too: a logout the keychain did not take must not bring the old token back.
+    NSString *readBack = [self keychainStringForKey:key];
+    if (value.length ? (status == errSecSuccess && [readBack isEqualToString:value]) : !readBack.length) {
         [defaults synchronize];
         return;
     }
-    [defaults setObject:value forKey:[self fallbackKey:key]];
+    if (value.length) [defaults setObject:value forKey:[self fallbackKey:key]];
     [defaults setBool:YES forKey:[self fallbackMarkKey:key]];
     [defaults synchronize];
     SHLog(@"Keychain: %@ kept in the preferences (status %d)", key, (int)status);

@@ -16,7 +16,7 @@
 @property (nonatomic, strong) UIButton *loginButton;
 @property (nonatomic, strong) UIActivityIndicatorView *spinner;
 @property (nonatomic, strong) SHHTTPTask *task;
-@property (nonatomic, copy) NSString *twoFactorId;
+@property (nonatomic, strong) SHLoginStep *step;   // the code Instagram asked for, while its alert is up
 @end
 
 @implementation SHLoginViewController
@@ -174,30 +174,54 @@
     [self.view endEditing:YES];
     [self setLoading:YES];
     [_task cancel];
-    _task = [SHInstagram loginWithUsername:user password:pass completion:^(SHUser *loggedIn, NSString *twoFactorId, NSError *error) {
+    _task = [SHInstagram loginWithUsername:user password:pass completion:^(SHLoginStep *step, NSError *error) {
         [self setLoading:NO];
-        if (twoFactorId.length) {
-            self.twoFactorId = twoFactorId;
-            [SHSettings setUsername:user];
-            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Two-Factor Authentication")
-                                                            message:L(@"Enter the code from your authenticator app or SMS.")
-                                                           delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Verify"), nil];
-            alert.tag = SH_ALERT_2FA;
-            alert.alertViewStyle = UIAlertViewStylePlainTextInput;
-            UITextField *tf = [alert textFieldAtIndex:0];
-            tf.keyboardType = UIKeyboardTypeNumberPad;
-            tf.placeholder = L(@"Code");
-            [alert show];
-            return;
-        }
-        if (error) {
-            if (error.code == SHErrorChallenge) { [self startChallenge:error]; return; }
-            [SHUtils alertWithTitle:L(@"Log In") message:error.localizedDescription];
-            return;
-        }
-        SHLog(@"Logged in as %@", loggedIn.username);
-        [[SHAppDelegate shared] showFeed];
+        if (step) { [self askForCode:step problem:nil]; return; }
+        [self finishSignIn:error];
     }];
+}
+
+// After the password (or the code): the app with the session, the security check, or why not. Never the app
+// without a session (it used to open with every screen saying "Your session expired").
+- (void)finishSignIn:(NSError *)error
+{
+    if (error) {
+        if (error.code == SHErrorChallenge) { [self startChallenge:error]; return; }
+        [SHUtils alertWithTitle:L(@"Log In") message:error.localizedDescription];
+        return;
+    }
+    if (![SHSettings isLoggedIn]) {
+        [SHUtils alertWithTitle:L(@"Log In") message:L(@"Couldn't sign in. Please try again.")];
+        return;
+    }
+    SHLog(@"Logged in as %@", [SHSettings username]);
+    [[SHAppDelegate shared] showFeed];
+}
+
+// The code Instagram asked for: from the authenticator app, a text message, or the one that confirms a new device.
+// `problem`: why the last code did not do (one alert says both; iOS 6 would stack two the wrong way round).
+- (void)askForCode:(SHLoginStep *)step problem:(NSString *)problem
+{
+    self.step = step;
+    NSString *title = step.kind == SHLoginStepNewDevice ? L(@"Verify it's you") : L(@"Two-Factor Authentication");
+    NSString *message;
+    if (step.kind == SHLoginStepNewDevice)
+        message = L(@"Instagram sent a code to confirm this sign-in, by e-mail or text message. Enter it here.");
+    else if (step.kind == SHLoginStepTwoFactor && [step.method isEqualToString:@"sms"])
+        message = L(@"Enter the code Instagram sent you by text message.");
+    else if (step.kind == SHLoginStepTwoFactor)
+        message = L(@"Enter the code from your authenticator app.");
+    else
+        message = L(@"Enter the code from your authenticator app or SMS.");
+    if (problem.length) message = [NSString stringWithFormat:@"%@\n\n%@", problem, message];
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:title message:message delegate:self
+                                          cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Verify"), nil];
+    alert.tag = SH_ALERT_2FA;
+    alert.alertViewStyle = UIAlertViewStylePlainTextInput;
+    UITextField *tf = [alert textFieldAtIndex:0];
+    tf.keyboardType = UIKeyboardTypeNumberPad;
+    tf.placeholder = L(@"Code");
+    [alert show];
 }
 
 #pragma mark - Challenge (checkpoint) flow
@@ -222,16 +246,22 @@
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
 {
-    if (buttonIndex == alertView.cancelButtonIndex) return;
+    if (alertView.tag != SH_ALERT_2FA) return;
+    SHLoginStep *step = self.step;
+    if (buttonIndex == alertView.cancelButtonIndex || !step) { self.step = nil; return; }
     NSString *code = [[alertView textFieldAtIndex:0] text];
-    if (!code.length) return;
+    if (!code.length) { [self askForCode:step problem:nil]; return; }
     [self setLoading:YES];
     [_task cancel];
-    _task = [SHInstagram twoFactorLoginWithIdentifier:_twoFactorId code:code completion:^(SHUser *user, NSError *error) {
+    _task = [SHInstagram finishLoginStep:step code:code completion:^(NSError *error) {
         [self setLoading:NO];
-        if (error) { [SHUtils alertWithTitle:L(@"Two-Factor Authentication") message:error.localizedDescription]; return; }
-        SHLog(@"2FA ok, logged in as %@", user.username);
-        [[SHAppDelegate shared] showFeed];
+        if (error.code == SHErrorAPI || (error.code >= 400 && error.code < 500)) {
+            // a code that did not do: the step stays usable, the code once more (a typo, or a code that came late)
+            [self askForCode:step problem:error.localizedDescription];
+            return;
+        }
+        self.step = nil;
+        [self finishSignIn:error];
     }];
 }
 

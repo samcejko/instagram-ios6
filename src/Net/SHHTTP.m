@@ -34,10 +34,11 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body, id parse
     return [SHStr(d[@"message"]) isEqualToString:@"challenge_required"] ? d : nil;
 }
 
-// Instagram's "this session is not valid" ({"message":"login_required"}, HTTP 401/403), from its own API only.
+// Instagram's "this session is not valid" ({"message":"login_required"}, HTTP 403 as a rule, any 4xx counts), from
+// its own API only.
 static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData *body, id parsed)
 {
-    if ((status != 401 && status != 403) || !body.length || body.length > 8192) return nil;
+    if (status < 400 || status >= 500 || !body.length || body.length > 8192) return nil;
     if (![[url.host lowercaseString] hasSuffix:@"instagram.com"]) return nil;
     static const char marker[] = "login_required";
     if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
@@ -135,7 +136,8 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
                 [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPChallengeRequiredNotification object:nil userInfo:info];
             }
             if (loggedOut)
-                [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPLoginRequiredNotification object:nil userInfo:@{ @"json": loggedOut }];
+                [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPLoginRequiredNotification object:nil
+                                                                  userInfo:@{ @"json": loggedOut, @"status": @(status) }];
             if (completion) completion(error ? 0 : status, responseBody, json, responseHeaders, error);
         });
     };

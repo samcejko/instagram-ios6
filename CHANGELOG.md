@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4 (2026-10-16)
+
+A fix for signing in to accounts Instagram asks a code for.
+
+- Signing in to an account Instagram wants a code for (two-factor authentication, or the code it sends to confirm a sign-in from a new device) opened the app without a session, and every screen said "Your session expired". The app now asks for the code, from the authenticator app, a text message or the e-mail, on Instagram's current sign-in screens, and opens only with a session.
+- When Instagram ends a session, or the app has none, it goes back to the login screen once with Instagram's reason and the HTTP status, whatever status Instagram answers with.
+- A logout the keychain does not take no longer brings an old session back, and a session token cut by an older version counts as no session.
+
 ## 0.3.3 (2026-10-16)
 
 - When the home feed cannot load, the screen now says why under "Couldn't load the feed." (Instagram's own words or the network error), so a screenshot tells what went wrong.

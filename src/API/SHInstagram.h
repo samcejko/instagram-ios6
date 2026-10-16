@@ -16,6 +16,21 @@ typedef void (^SHMediaCompletion)(SHPost *post, NSError *error);
 typedef void (^SHNewsCompletion)(NSArray *stories, NSError *error);
 typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice, NSError *error);
 
+// A sign-in Instagram wants a code for before it hands out the session: two-factor authentication (an authenticator
+// app or a text message), or the code it sends to confirm a sign-in from a new device (by e-mail or text message).
+// The login screen asks for the code and gives it back with +finishLoginStep:code:completion:.
+typedef NS_ENUM(NSInteger, SHLoginStepKind) {
+    SHLoginStepTwoFactor,         // Instagram's current two-factor screens; `method` "totp" or "sms"
+    SHLoginStepNewDevice,         // the code that confirms a sign-in from a new device
+    SHLoginStepLegacyTwoFactor,   // the older two_factor_identifier flow
+};
+
+@interface SHLoginStep : NSObject
+@property (nonatomic) SHLoginStepKind kind;
+@property (nonatomic, copy) NSString *method;     // two-factor: "totp" (authenticator app) or "sms"
+@property (nonatomic, copy) NSString *context;    // opaque: what the code goes back to Instagram with
+@end
+
 @interface SHInstagram : NSObject
 
 // What the live connection (SHRealtime) tells Instagram about this client: the same Android app as the API calls.
@@ -23,8 +38,14 @@ typedef void (^SHChallengeCompletion)(NSString *stepName, BOOL needsMethodChoice
 + (NSString *)appVersionName;       // "449.0.0.52.84"
 + (NSString *)capabilitiesHeader;   // X-IG-Capabilities
 
+// Signs in. Done: step and error nil, and a session is kept ([SHSettings isLoggedIn]). A step: Instagram wants a
+// code first. An error with SHErrorChallenge: the security check (SHChallengeFlow).
 + (SHHTTPTask *)loginWithUsername:(NSString *)username password:(NSString *)password
-                      completion:(void (^)(SHUser *user, NSString *twoFactorId, NSError *error))completion;
+                      completion:(void (^)(SHLoginStep *step, NSError *error))completion;
+// The code of a step: nil error = signed in. An error leaves the step usable for another try.
++ (SHHTTPTask *)finishLoginStep:(SHLoginStep *)step code:(NSString *)code completion:(void (^)(NSError *error))completion;
+// The kept session token is a whole one (base64 of its JSON with the user id and the session id).
++ (BOOL)hasUsableSessionToken;
 
 + (SHHTTPTask *)twoFactorLoginWithIdentifier:(NSString *)identifier code:(NSString *)code
                                   completion:(SHLoginCompletion)completion;

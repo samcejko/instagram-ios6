@@ -181,30 +181,46 @@ static NSString *SHEncryptPassword(NSString *password, NSString *pubKeyBase64, N
 
 static NSString *SHValidSessionToken(NSString *token, NSString **userId);
 
-static void SHSaveTokensFromHeaders(NSDictionary *headers)
+// The session token of a set of (response or embedded) headers: ig-set-authorization "Bearer IGT:2:<token>", when
+// it is a whole one. The token is base64(JSON) with ds_user_id/sessionid; the user id comes with it, so the account
+// loads without a separate request (the CAA login response carries no logged_in_user object).
+static NSString *SHSessionTokenInHeaders(NSDictionary *headers, NSString **userId)
+{
+    for (NSString *key in headers) {
+        if (![[key lowercaseString] isEqualToString:@"ig-set-authorization"]) continue;
+        NSString *val = SHStr(headers[key]);
+        if (![val hasPrefix:@"Bearer IGT:2:"]) continue;
+        NSString *token = SHValidSessionToken([val substringFromIndex:@"Bearer IGT:2:".length], userId);
+        if (token.length) return token;
+    }
+    return nil;
+}
+
+// What a set of headers asks to keep besides the token: the www-claim and the device's mid.
+static void SHSaveSessionExtrasFromHeaders(NSDictionary *headers)
 {
     for (NSString *key in headers) {
         NSString *lower = [key lowercaseString];
-        if ([lower isEqualToString:@"ig-set-authorization"]) {
-            NSString *val = headers[key];
-            if ([val hasPrefix:@"Bearer IGT:2:"]) {
-                // The token is base64(JSON) with ds_user_id/sessionid; pull the user id so the account loads
-                // without a separate request (the CAA login response carries no logged_in_user object).
-                NSString *uid = nil;
-                NSString *token = SHValidSessionToken([val substringFromIndex:@"Bearer IGT:2:".length], &uid);
-                if (token.length) {
-                    [SHSettings setSessionToken:token];
-                    if (uid.length) [SHSettings setUserId:uid];
-                }
-            }
-        }
         if ([lower isEqualToString:@"x-ig-set-www-claim"]) {
-            NSString *claim = headers[key];
+            NSString *claim = SHStr(headers[key]);
             // The server hands back "0" before login and a real "hmac....." claim afterwards; keep the real one,
             // which every subsequent request must echo in X-IG-WWW-Claim or it is rejected with login_required.
             if (claim.length && ![claim isEqualToString:@"0"]) [SHSettings setWwwClaim:claim];
         }
+        if ([lower isEqualToString:@"ig-set-x-mid"]) [SHSettings setMachineId:SHStr(headers[key])];
     }
+}
+
+// Keeps the session the headers set, if any. YES when a whole token was kept.
+static BOOL SHSaveTokensFromHeaders(NSDictionary *headers)
+{
+    SHSaveSessionExtrasFromHeaders(headers);
+    NSString *uid = nil;
+    NSString *token = SHSessionTokenInHeaders(headers, &uid);
+    if (!token.length) return NO;
+    [SHSettings setSessionToken:token];
+    if (uid.length) [SHSettings setUserId:uid];
+    return YES;
 }
 
 static NSString *SHExtractCSRF(NSDictionary *headers)
@@ -355,6 +371,205 @@ static NSString *SHExtractBloksError(NSString *body)
     return nil;
 }
 
+#pragma mark - Bloks answers of the sign-in screens
+
+// The screens a sign-in can lead to before the session: the code that confirms a new device (three steps) and
+// Instagram's current two-factor authentication. Their answers are Bloks programs, "(op arg …)" expressions in a
+// JSON string, where a screen's parameters follow its app id as "<app id>" … (f4i (dkc "key" …) (dkc value …)).
+// (The parsing follows instagrapi's mixins/bloks.py.)
+static NSString * const SHAPCodeEntrypoint = @"com.bloks.www.ap.two_step_verification.entrypoint_async";
+static NSString * const SHAPCodeEntry      = @"com.bloks.www.ap.two_step_verification.code_entry";
+static NSString * const SHAPCodeEntryAsync = @"com.bloks.www.ap.two_step_verification.code_entry_async";
+static NSString * const SHTwoStepEntry     = @"com.bloks.www.two_step_verification.entrypoint";
+
+// Every string of a parsed answer.
+static void SHBloksCollectStrings(id value, NSMutableArray *out, NSInteger depth)
+{
+    if (depth > 64) return;
+    if ([value isKindOfClass:[NSString class]]) [out addObject:value];
+    else if ([value isKindOfClass:[NSDictionary class]]) for (id key in value) SHBloksCollectStrings(value[key], out, depth + 1);
+    else if ([value isKindOfClass:[NSArray class]]) for (id item in value) SHBloksCollectStrings(item, out, depth + 1);
+}
+
+// One past the closing quote of the JSON string literal that opens at `start`; NSNotFound when it does not close.
+static NSUInteger SHBloksStringEnd(NSString *s, NSUInteger start)
+{
+    BOOL escaped = NO;
+    for (NSUInteger i = start + 1, n = s.length; i < n; i++) {
+        unichar c = [s characterAtIndex:i];
+        if (escaped) { escaped = NO; continue; }
+        if (c == '\\') { escaped = YES; continue; }
+        if (c == '"') return i + 1;
+    }
+    return NSNotFound;
+}
+
+// A JSON string literal ("…" with its escapes) as the string it stands for; nil when it is not one.
+static NSString *SHBloksDecodeLiteral(NSString *literal)
+{
+    if (literal.length < 2 || [literal characterAtIndex:0] != '"') return nil;
+    NSArray *wrapped = SHArr([SHUtils JSONObjectFromData:[[NSString stringWithFormat:@"[%@]", literal] dataUsingEncoding:NSUTF8StringEncoding]]);
+    return wrapped.count == 1 && [wrapped[0] isKindOfClass:[NSString class]] ? wrapped[0] : nil;
+}
+
+// The balanced "( … )" expression that opens at `start`, quoted strings respected; nil when it does not close.
+static NSString *SHBloksExpression(NSString *s, NSUInteger start)
+{
+    NSInteger depth = 0;
+    BOOL inString = NO, escaped = NO;
+    for (NSUInteger i = start, n = s.length; i < n; i++) {
+        unichar c = [s characterAtIndex:i];
+        if (inString) {
+            if (escaped) escaped = NO;
+            else if (c == '\\') escaped = YES;
+            else if (c == '"') inString = NO;
+            continue;
+        }
+        if (c == '"') inString = YES;
+        else if (c == '(') depth++;
+        else if (c == ')' && --depth == 0) return [s substringWithRange:NSMakeRange(start, i + 1 - start)];
+    }
+    return nil;
+}
+
+// The direct operands of "(op a b …)": nested expressions and string literals kept whole. Empty when malformed.
+static NSArray *SHBloksItems(NSString *expression)
+{
+    NSUInteger n = expression.length;
+    if (n < 2 || [expression characterAtIndex:0] != '(' || [expression characterAtIndex:n - 1] != ')') return @[];
+    NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSMutableArray *items = [NSMutableArray array];
+    NSUInteger i = 1;
+    while (i < n - 1) {
+        unichar c = [expression characterAtIndex:i];
+        if ([space characterIsMember:c]) { i++; continue; }
+        NSString *item = nil;
+        if (c == '(') {
+            item = SHBloksExpression(expression, i);
+        } else if (c == '"') {
+            NSUInteger end = SHBloksStringEnd(expression, i);
+            if (end != NSNotFound && end < n) item = [expression substringWithRange:NSMakeRange(i, end - i)];
+        } else {
+            NSUInteger j = i;
+            while (j < n - 1) {
+                unichar d = [expression characterAtIndex:j];
+                if (d == '(' || d == ')' || d == '"' || [space characterIsMember:d]) break;
+                j++;
+            }
+            if (j > i) item = [expression substringWithRange:NSMakeRange(i, j - i)];
+        }
+        if (!item.length) return @[];
+        [items addObject:item];
+        i += item.length;
+    }
+    return items;
+}
+
+// The literal `key` among the parameters of the exact app id `appId` in an answer (looked up in its own map and
+// the "server_params" map in it, never an expression that would have to be evaluated). nil when there is none.
+static NSString *SHBloksContextValue(id answer, NSString *appId, NSString *key)
+{
+    NSMutableArray *strings = [NSMutableArray array];
+    SHBloksCollectStrings(answer, strings, 0);
+    NSString *anchor = [NSString stringWithFormat:@"\"%@\"", appId];
+    for (NSString *text in strings) {
+        NSRange search = NSMakeRange(0, text.length);
+        while (search.length) {
+            NSRange found = [text rangeOfString:anchor options:0 range:search];
+            if (found.location == NSNotFound) break;
+            NSUInteger after = NSMaxRange(found);
+            search = NSMakeRange(after, text.length - after);
+            NSRange map = [text rangeOfString:@"(f4i" options:0 range:search];
+            if (map.location == NSNotFound) break;
+            // the map has to be this app's: no other app named in between
+            if ([text rangeOfString:@"com.bloks." options:0 range:NSMakeRange(after, map.location - after)].location != NSNotFound) continue;
+            NSString *expression = SHBloksExpression(text, map.location);
+            while (expression.length) {
+                NSArray *items = SHBloksItems(expression);
+                expression = nil;
+                if (items.count != 3 || ![items[0] isEqualToString:@"f4i"]) break;
+                NSArray *keys = SHBloksItems(items[1]), *values = SHBloksItems(items[2]);
+                if (!keys.count || !values.count || keys.count != values.count
+                    || ![keys[0] isEqualToString:@"dkc"] || ![values[0] isEqualToString:@"dkc"]) break;
+                for (NSUInteger k = 1; k < keys.count; k++) {
+                    NSString *name = SHBloksDecodeLiteral(keys[k]);
+                    if ([name isEqualToString:key]) return [values[k] hasPrefix:@"\""] ? SHBloksDecodeLiteral(values[k]) : nil;
+                    if ([name isEqualToString:@"server_params"]) expression = values[k];
+                }
+            }
+        }
+    }
+    return nil;
+}
+
+// A value Python would call true: a non-empty string or container, a non-zero number.
+static BOOL SHBloksTruthy(id v)
+{
+    if ([v isKindOfClass:[NSString class]]) return [(NSString *)v length] > 0;
+    if ([v isKindOfClass:[NSArray class]] || [v isKindOfClass:[NSDictionary class]]) return [v count] > 0;
+    if ([v isKindOfClass:[NSNumber class]]) return [(NSNumber *)v boolValue];
+    return NO;
+}
+
+// The value of `key` anywhere in an answer, also inside JSON that a string holds.
+static id SHBloksFindValue(id data, NSString *key, NSInteger depth)
+{
+    if (depth > 40) return nil;
+    if ([data isKindOfClass:[NSDictionary class]]) {
+        id value = data[key];
+        if (SHBloksTruthy(value)) return value;
+        for (id k in data) { id found = SHBloksFindValue(data[k], key, depth + 1); if (found) return found; }
+    } else if ([data isKindOfClass:[NSArray class]]) {
+        for (id item in data) { id found = SHBloksFindValue(item, key, depth + 1); if (found) return found; }
+    } else if ([data isKindOfClass:[NSString class]] && [data length] < 10000 && [data rangeOfString:key].location != NSNotFound) {
+        id parsed = [SHUtils JSONObjectFromData:[data dataUsingEncoding:NSUTF8StringEncoding]];
+        if (parsed) return SHBloksFindValue(parsed, key, depth + 1);
+    }
+    return nil;
+}
+
+static NSString *SHBloksAction(NSDictionary *answer)
+{
+    return SHStr(SHDict(SHDict(answer[@"layout"])[@"bloks_payload"])[@"action"]);
+}
+
+// The context of Instagram's two-factor screens when a sign-in leads there; nil otherwise.
+static NSString *SHBloksTwoStepContext(NSDictionary *answer)
+{
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    id found = SHBloksFindValue(answer, @"two_step_verification_context", 0);
+    NSString *value = [found isKindOfClass:[NSString class]] ? [found stringByTrimmingCharactersInSet:ws] : nil;
+    if (value.length) return value;
+    NSString *action = SHBloksAction(answer);
+    if (!action.length) return nil;
+    value = [SHBloksContextValue(@{ @"action": action }, SHTwoStepEntry, @"two_step_verification_context") stringByTrimmingCharactersInSet:ws];
+    return value.length ? value : nil;
+}
+
+// The finished sign-in an answer carries in its program: a string holding JSON with "login_response" and the
+// "headers" Instagram would have set (IG-Set-Authorization, x-ig-set-www-claim). Those headers; nil when none.
+static NSDictionary *SHBloksLoginHeaders(NSDictionary *answer)
+{
+    NSString *action = SHBloksAction(answer);
+    NSUInteger i = 0, n = action.length;
+    while (i < n) {
+        NSRange quote = [action rangeOfString:@"\"" options:0 range:NSMakeRange(i, n - i)];
+        if (quote.location == NSNotFound) break;
+        NSUInteger end = SHBloksStringEnd(action, quote.location);
+        if (end == NSNotFound) break;
+        NSRange literal = NSMakeRange(quote.location, end - quote.location);
+        i = end;
+        if ([action rangeOfString:@"login_response" options:0 range:literal].location == NSNotFound) continue;
+        NSString *value = SHBloksDecodeLiteral([action substringWithRange:literal]);
+        if (!value) { i = quote.location + 1; continue; }
+        NSDictionary *raw = SHDict([SHUtils JSONObjectFromData:[value dataUsingEncoding:NSUTF8StringEncoding]]);
+        if (!SHStr(raw[@"login_response"]).length) continue;
+        NSString *headers = SHStr(raw[@"headers"]);
+        return SHDict(headers.length ? [SHUtils JSONObjectFromData:[headers dataUsingEncoding:NSUTF8StringEncoding]] : nil) ?: @{};
+    }
+    return nil;
+}
+
 #pragma mark - Response cache
 
 // The first page of the main lists (timeline, explore, activity, inbox) is kept on disk, so that the next start
@@ -472,6 +687,69 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
 
 #pragma mark - Login
 
+@implementation SHLoginStep
+@end
+
+// The form of a request of the sign-in screens: params (JSON), _uuid, bk_client_context, bloks_versioning_id.
+static NSData *SHBloksFormBody(NSDictionary *params)
+{
+    NSString *paramsJSON = [[NSString alloc] initWithData:[SHUtils JSONDataFromObject:params] encoding:NSUTF8StringEncoding] ?: @"{}";
+    NSString *bkJSON = [[NSString alloc] initWithData:[SHUtils JSONDataFromObject:@{ @"bloks_version": SHBloksVersion, @"styles_id": @"instagram" }]
+                                             encoding:NSUTF8StringEncoding] ?: @"{}";
+    NSString *body = [NSString stringWithFormat:@"params=%@&_uuid=%@&bk_client_context=%@&bloks_versioning_id=%@",
+        [SHUtils urlEncode:paramsJSON], [SHUtils urlEncode:[SHSettings deviceId] ?: @""], [SHUtils urlEncode:bkJSON], SHBloksVersion];
+    return [body dataUsingEncoding:NSUTF8StringEncoding];
+}
+
+static NSNumber *SHNowMs(void) { return @((long long)([[NSDate date] timeIntervalSince1970] * 1000)); }
+
+// A yes/no of a sign-in answer ("sms_two_factor_on": true, 1 or "1").
+static BOOL SHBloksFlag(NSDictionary *answer, NSString *key)
+{
+    id v = SHBloksFindValue(answer, key, 0);
+    if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];
+    if ([v isKindOfClass:[NSString class]]) {
+        NSString *s = [[v stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+        return [s isEqualToString:@"1"] || [s isEqualToString:@"true"] || [s isEqualToString:@"yes"];
+    }
+    return NO;
+}
+
+// A code screen that did not open: what the login screen says (with the HTTP status when there was one). The
+// security check goes through as it is: the login screen runs it.
+static NSError *SHLoginStepError(NSError *underlying)
+{
+    if (underlying.code == SHErrorChallenge) return underlying;
+    NSString *text = L(@"Instagram wants a code for this sign-in, but the next step didn't open. Try again in a few minutes, or confirm the sign-in in the Instagram app first.");
+    if (underlying.code >= 400 && underlying.code < 600) text = [text stringByAppendingFormat:@" (HTTP %ld)", (long)underlying.code];
+    return SHMakeError(SHErrorAuth, text);
+}
+
+// The session a sign-in answer carries, kept: the finished sign-in in its program (the way the app reads it), else
+// a whole token anywhere in its body, else the response's own headers. YES when one was kept.
+static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDictionary *headers, NSString **from)
+{
+    NSString *uid = nil;
+    NSDictionary *embedded = SHBloksLoginHeaders(answer);
+    NSString *token = SHSessionTokenInHeaders(embedded, &uid);
+    NSString *source = @"embedded";
+    if (token.length) {
+        SHSaveSessionExtrasFromHeaders(embedded);
+    } else if ((token = SHExtractBearerFromBody(body, &uid)).length) {
+        source = @"body";
+        NSString *claim = SHExtractClaimFromBody(body);
+        if (claim.length) [SHSettings setWwwClaim:claim];
+    } else if ((token = SHSessionTokenInHeaders(headers, &uid)).length) {
+        source = @"headers";
+    }
+    if (from) *from = token.length ? source : @"none";
+    if (!token.length) return NO;
+    [SHSettings setSessionToken:token];
+    if (uid.length) [SHSettings setUserId:uid];
+    [SHSettings save];
+    return YES;
+}
+
 @implementation SHInstagram
 
 + (NSString *)appUserAgent { return SHUserAgent(); }
@@ -479,8 +757,8 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
 + (NSString *)capabilitiesHeader { return SHCapabilities; }
 
 // Modern CAA / bloks login request. Instagram deprecated the plain /accounts/login/ endpoint (it answers
-// "needs_upgrade"); this is the flow the current app uses. The session token still comes back in the
-// ig-set-authorization response header, so the (un-signed) bloks body only needs scanning for errors/2FA/challenge.
+// "needs_upgrade"); this is the flow the current app uses. The session comes back inside the (un-signed) bloks
+// answer, or the answer leads to a code screen first: +takeLoginAnswer: reads which.
 + (SHHTTPTask *)caaSendLoginRequest:(NSString *)username encPassword:(NSString *)encPassword
                          completion:(SHHTTPCompletion)completion
 {
@@ -573,17 +851,275 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
             if ([lower isEqualToString:@"ig-set-password-encryption-key-id"])
                 keyId = [headers[key] integerValue];
         }
+        SHSaveSessionExtrasFromHeaders(headers);   // (the device's mid)
         completion(pubKey, keyId, nil);
     }];
 }
 
++ (BOOL)hasUsableSessionToken
+{
+    return SHValidSessionToken([SHSettings sessionToken], NULL).length > 0;
+}
+
+// One request of the sign-in screens (no session yet): bloks/apps/<app>/ for a screen, bloks/async_action/<app>/
+// for an action. `done` gets the parsed answer and its text; an HTTP error or an answer that is no JSON is an error
+// (with the answer still given).
++ (SHHTTPTask *)loginScreen:(NSString *)app action:(BOOL)isAction params:(NSDictionary *)params
+                       done:(void (^)(NSDictionary *answer, NSString *body, NSDictionary *headers, NSError *error))done
+{
+    NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    h[@"X-MID"] = [SHSettings machineId];
+    if (isAction) h[@"X-FB-Friendly-Name"] = [NSString stringWithFormat:@"IgApi: bloks/async_action/%@/", app];
+    NSString *csrf = [SHSettings csrfToken];
+    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    NSString *url = [NSString stringWithFormat:@"%@/bloks/%@/%@/", SHApiBase, isAction ? @"async_action" : @"apps", app];
+    return [SHHTTP request:@"POST" url:url headers:h body:SHBloksFormBody(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSString *text = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
+        NSDictionary *answer = SHDict([SHUtils JSONObjectFromData:body]);
+        NSString *newCsrf = SHExtractCSRF(headers);
+        if (newCsrf) [SHSettings setCsrfToken:newCsrf];
+        SHSaveSessionExtrasFromHeaders(headers);
+        if (!error && status >= 400) {
+            BOOL challenge = [SHStr(answer[@"message"]) isEqualToString:@"challenge_required"];
+            error = SHMakeError(challenge ? SHErrorChallenge : status,
+                                [SHHTTP messageFromErrorJSON:answer] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status]);
+        }
+        if (!error && !answer) error = SHMakeError(SHErrorBadResponse, L(@"Unexpected response format."));
+        if (SHDebugLogging())
+            SHLog(@"LOGINSTEP %@ HTTP %ld, %lu B%@", [app componentsSeparatedByString:@"."].lastObject, (long)status,
+                  (unsigned long)body.length, error ? [@", " stringByAppendingString:error.localizedDescription] : @"");
+        done(answer, text, headers, error);
+    }];
+}
+
+// One look at the account with the new session before the app opens: a session Instagram does not take (it
+// answers login_required) is a failed sign-in here, not an app full of "Your session expired". A network hiccup
+// is not a failed sign-in.
++ (void)verifyNewSessionForTask:(SHHTTPTask *)task completion:(void (^)(NSError *error))completion
+{
+    SHHTTPTask *check = [self currentUserWithCompletion:^(SHUser *user, NSError *verifyError) {
+        if (task.isCancelled) return;
+        if (verifyError.code >= 400 && verifyError.code < 500
+            && [verifyError.localizedDescription isEqualToString:L(@"Your session expired. Please log in again.")]) {
+            if (SHDebugLogging()) SHLog(@"CAALOGIN session refused by current_user (HTTP %ld)", (long)verifyError.code);
+            [SHSettings logout];
+            completion(SHMakeError(SHErrorAuth, [NSString stringWithFormat:@"%@ (HTTP %ld)",
+                L(@"Instagram didn't accept the sign-in from this app. Please try again in a few minutes."), (long)verifyError.code]));
+            return;
+        }
+        if (user.username.length) [SHSettings setUsername:user.username];
+        if (SHDebugLogging()) SHLog(@"CAALOGIN session checked: %@", verifyError ? verifyError.localizedDescription : @"ok");
+        completion(nil);
+    }];
+    task.cancelBlock = ^{ [check cancel]; };
+}
+
+// The code that confirms a sign-in from a new device: its entry (Instagram sends the code), the code screen, and
+// the context the code goes back with.
++ (void)openNewDeviceStep:(NSDictionary *)answer task:(SHHTTPTask *)task completion:(void (^)(SHLoginStep *step, NSError *error))completion
+{
+    NSString *entry = SHBloksContextValue(answer, SHAPCodeEntrypoint, @"context_data");
+    if (!entry.length) {
+        if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no entry context");
+        completion(nil, SHLoginStepError(nil));
+        return;
+    }
+    NSString *guid = [SHSettings deviceId] ?: @"", *mid = [SHSettings machineId];
+    NSDictionary *entryParams = @{
+        @"client_input_params": @{ @"auth_secure_device_id": @"", @"accounts_list": @[], @"has_whatsapp_installed": @0,
+                                   @"family_device_id": guid, @"machine_id": mid },
+        @"server_params": @{ @"use_open_instead_of_push": @0, @"context_data": entry, @"INTERNAL__latency_qpl_marker_id": @36707139,
+                             @"INTERNAL__latency_qpl_instance_id": SHNowMs(), @"device_id": guid, @"use_close_instead_of_back": @0 },
+    };
+    SHHTTPTask *first = [self loginScreen:SHAPCodeEntrypoint action:YES params:entryParams
+                                     done:^(NSDictionary *a1, NSString *b1, NSDictionary *h1, NSError *e1) {
+        if (task.isCancelled) return;
+        NSString *codeContext = e1 ? nil : SHBloksContextValue(a1, SHAPCodeEntry, @"context_data");
+        if (!codeContext.length) {
+            if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no code screen");
+            completion(nil, SHLoginStepError(e1));
+            return;
+        }
+        NSDictionary *codeParams = @{
+            @"client_input_params": @{ @"aac": @"" },
+            @"server_params": @{ @"context_data": codeContext, @"show_close_button": @0, @"device_id": guid,
+                                 @"INTERNAL_INFRA_screen_id": @"generic_code_entry", @"is_dismissable": @1 },
+        };
+        SHHTTPTask *second = [self loginScreen:SHAPCodeEntry action:NO params:codeParams
+                                          done:^(NSDictionary *a2, NSString *b2, NSDictionary *h2, NSError *e2) {
+            if (task.isCancelled) return;
+            NSString *submit = e2 ? nil : SHBloksContextValue(a2, SHAPCodeEntryAsync, @"context_data");
+            if (!submit.length) {
+                if (SHDebugLogging()) SHLog(@"LOGINSTEP new device: no submit context");
+                completion(nil, SHLoginStepError(e2));
+                return;
+            }
+            SHLoginStep *step = [[SHLoginStep alloc] init];
+            step.kind = SHLoginStepNewDevice;
+            step.context = submit;
+            completion(step, nil);
+        }];
+        task.cancelBlock = ^{ [second cancel]; };
+    }];
+    task.cancelBlock = ^{ [first cancel]; };
+}
+
+// Instagram's current two-factor screens: the entry, the method picker, the method (which sends the text message
+// when it is "sms"). An account with text messages only gets those, the authenticator app otherwise (as instagrapi
+// decides it).
++ (void)openTwoFactorStep:(NSString *)context answer:(NSDictionary *)answer task:(SHHTTPTask *)task
+               completion:(void (^)(SHLoginStep *step, NSError *error))completion
+{
+    BOOL sms = SHBloksFlag(answer, @"sms_two_factor_on"), totp = SHBloksFlag(answer, @"totp_two_factor_on");
+    NSString *method = (sms && !totp) ? @"sms" : @"totp";
+    NSString *guid = [SHSettings deviceId] ?: @"", *android = [SHSettings androidId] ?: @"", *mid = [SHSettings machineId];
+    NSDictionary *entryParams = @{
+        @"client_input_params": @{ @"device_id": android, @"is_whatsapp_installed": @0, @"machine_id": mid },
+        @"server_params": @{ @"should_fallback_to_sms": @0, @"family_device_id": guid, @"device_id": android,
+                             @"two_step_verification_context": context, @"flow_source": @"two_factor_login" },
+    };
+    SHHTTPTask *first = [self loginScreen:SHTwoStepEntry action:NO params:entryParams
+                                     done:^(NSDictionary *a1, NSString *b1, NSDictionary *h1, NSError *e1) {
+        if (task.isCancelled) return;
+        if (e1) { completion(nil, SHLoginStepError(e1)); return; }
+        NSDictionary *pickerParams = @{
+            @"client_input_params": @{ @"is_whatsapp_installed": @0 },
+            @"server_params": @{ @"should_fallback_to_sms": @0, @"device_id": android, @"two_step_verification_context": context,
+                                 @"flow_source": @"two_factor_login" },
+        };
+        SHHTTPTask *second = [self loginScreen:@"com.bloks.www.two_step_verification.method_picker" action:NO params:pickerParams
+                                          done:^(NSDictionary *a2, NSString *b2, NSDictionary *h2, NSError *e2) {
+            if (task.isCancelled) return;
+            if (e2) { completion(nil, SHLoginStepError(e2)); return; }
+            NSDictionary *selectParams = @{
+                @"client_input_params": @{ @"selected_method": method, @"cloud_trust_token": [NSNull null], @"network_bssid": [NSNull null] },
+                @"server_params": @{ @"should_fallback_to_sms": @0, @"device_id": android, @"spectra_reg_login_data": [NSNull null],
+                                     @"two_step_verification_context": context, @"flow_source": @"two_factor_login" },
+            };
+            SHHTTPTask *third = [self loginScreen:@"com.bloks.www.two_step_verification.method_picker.navigation.async" action:YES
+                                           params:selectParams done:^(NSDictionary *a3, NSString *b3, NSDictionary *h3, NSError *e3) {
+                if (task.isCancelled) return;
+                if (e3) { completion(nil, SHLoginStepError(e3)); return; }
+                SHLoginStep *step = [[SHLoginStep alloc] init];
+                step.kind = SHLoginStepTwoFactor;
+                step.method = method;
+                step.context = context;
+                completion(step, nil);
+            }];
+            task.cancelBlock = ^{ [third cancel]; };
+        }];
+        task.cancelBlock = ^{ [second cancel]; };
+    }];
+    task.cancelBlock = ^{ [first cancel]; };
+}
+
+// What the answer to the password leads to: the session (checked once with Instagram), a code to ask for, the
+// security check, or the reason it failed. Never "signed in" without a session.
++ (void)takeLoginAnswer:(NSDictionary *)answer body:(NSString *)bodyStr headers:(NSDictionary *)headers status:(NSInteger)status
+                  error:(NSError *)loginErr task:(SHHTTPTask *)task completion:(void (^)(SHLoginStep *step, NSError *error))completion
+{
+    NSString *from = nil;
+    BOOL session = SHKeepSessionFromAnswer(answer, bodyStr, nil, &from);
+    // a screen that asks for a code comes before a header token: no sign-in is finished yet
+    BOOL newDevice = !session && [bodyStr rangeOfString:SHAPCodeEntrypoint].location != NSNotFound;
+    NSString *twoStep = (session || newDevice) ? nil : SHBloksTwoStepContext(answer);
+    if (!session && !newDevice && !twoStep) session = SHKeepSessionFromAnswer(nil, nil, headers, &from);
+    if (SHDebugLogging())
+        SHLog(@"CAALOGIN token %@, new-device code %@, two-factor %@", from, newDevice ? @"yes" : @"no", twoStep ? @"yes" : @"no");
+    if (session) {
+        [self verifyNewSessionForTask:task completion:^(NSError *error) { completion(nil, error); }];
+        return;
+    }
+    if (newDevice) { [self openNewDeviceStep:answer task:task completion:completion]; return; }
+    if (twoStep) { [self openTwoFactorStep:twoStep answer:answer task:task completion:completion]; return; }
+
+    // the older two-factor flow names its identifier in plain JSON
+    NSString *legacyId = SHExtractJSONString(bodyStr, @"two_factor_identifier");
+    if (legacyId.length) {
+        SHLoginStep *step = [[SHLoginStep alloc] init];
+        step.kind = SHLoginStepLegacyTwoFactor;
+        step.context = legacyId;
+        completion(step, nil);
+        return;
+    }
+    if ([bodyStr rangeOfString:@"two_factor" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        [bodyStr rangeOfString:@"two_step_verification" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        // a code is wanted, in a form this app does not know: say so (it used to open the app without a session)
+        completion(nil, SHLoginStepError(nil));
+        return;
+    }
+    if ([bodyStr rangeOfString:@"challenge" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        NSString *path = SHExtractJSONString(bodyStr, @"api_path");
+        if (path.length) [self setChallengePath:path];
+        completion(nil, SHMakeError(SHErrorChallenge, L(@"Instagram needs to verify it's you. A code will be sent to your e-mail or phone.")));
+        return;
+    }
+    NSString *msg = SHExtractBloksError(bodyStr) ?: (loginErr.localizedDescription ?: L(@"Login failed."));
+    completion(nil, SHMakeError(status ?: SHErrorAPI, msg));
+}
+
++ (SHHTTPTask *)finishLoginStep:(SHLoginStep *)step code:(NSString *)code completion:(void (^)(NSError *error))completion
+{
+    NSString *c = [[(code ?: @"") componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsJoinedByString:@""];
+    if (step.kind == SHLoginStepLegacyTwoFactor) {
+        return [self twoFactorLoginWithIdentifier:step.context code:c completion:^(SHUser *user, NSError *error) {
+            if (!error && ![SHSettings isLoggedIn]) error = SHMakeError(SHErrorAuth, L(@"Couldn't sign in. Please try again."));
+            completion(error);
+        }];
+    }
+    SHHTTPTask *task = [[SHHTTPTask alloc] init];
+    NSString *guid = [SHSettings deviceId] ?: @"", *android = [SHSettings androidId] ?: @"", *mid = [SHSettings machineId];
+    NSString *app;
+    NSDictionary *params;
+    if (step.kind == SHLoginStepNewDevice) {
+        app = SHAPCodeEntryAsync;
+        params = @{
+            @"client_input_params": @{ @"auth_secure_device_id": @"", @"aac": @"", @"code": c, @"family_device_id": guid,
+                                       @"device_id": android, @"machine_id": mid },
+            @"server_params": @{ @"context_data": step.context ?: @"", @"INTERNAL__latency_qpl_marker_id": @36707139,
+                                 @"INTERNAL__latency_qpl_instance_id": SHNowMs(), @"device_id": guid },
+        };
+    } else {
+        app = @"com.bloks.www.two_step_verification.verify_code.async";
+        params = @{
+            @"client_input_params": @{ @"auth_secure_device_id": @"", @"block_store_machine_id": @"", @"code": c, @"should_trust_device": @1,
+                                       @"family_device_id": guid, @"device_id": android, @"cloud_trust_token": [NSNull null],
+                                       @"network_bssid": [NSNull null], @"machine_id": mid },
+            @"server_params": @{ @"should_fallback_to_sms": @0, @"device_id": android, @"spectra_reg_login_data": [NSNull null],
+                                 @"challenge": step.method ?: @"totp", @"two_step_verification_context": step.context ?: @"",
+                                 @"flow_source": @"two_factor_login" },
+        };
+    }
+    SHHTTPTask *submit = [self loginScreen:app action:YES params:params
+                                      done:^(NSDictionary *answer, NSString *body, NSDictionary *headers, NSError *error) {
+        if (task.isCancelled) return;
+        if (error.code == SHErrorChallenge) { completion(error); return; }
+        NSString *from = nil;
+        if (!SHKeepSessionFromAnswer(answer, body, headers, &from)) {
+            if (SHDebugLogging()) SHLog(@"LOGINSTEP code: no session (%@)", error.localizedDescription ?: @"the answer carries none");
+            NSString *msg = SHExtractBloksError(body) ?: L(@"That code didn't work. Try again.");
+            if (error.code >= 400 && error.code < 600) msg = [msg stringByAppendingFormat:@" (HTTP %ld)", (long)error.code];
+            completion(SHMakeError(SHErrorAPI, msg));   // (SHErrorAPI: the login screen asks for the code again)
+            return;
+        }
+        if (SHDebugLogging()) SHLog(@"LOGINSTEP code: session from %@", from);
+        [self verifyNewSessionForTask:task completion:completion];
+    }];
+    task.cancelBlock = ^{ [submit cancel]; };
+    return task;
+}
+
 + (SHHTTPTask *)loginWithUsername:(NSString *)username password:(NSString *)password
-                      completion:(void (^)(SHUser *user, NSString *twoFactorId, NSError *error))completion
+                      completion:(void (^)(SHLoginStep *step, NSError *error))completion
 {
     SHHTTPTask *task = [[SHHTTPTask alloc] init];
+    // A sign-in starts from nothing: no token, claim or user id of an earlier session may stand in for this one.
+    [SHSettings logout];
     [self fetchEncryptionKeyWithCompletion:^(NSString *pubKey, NSInteger keyId, NSError *error) {
         if (task.isCancelled) return;
-        if (error) { completion(nil, nil, error); return; }
+        if (error) { completion(nil, error); return; }
 
         NSString *encPassword = nil;
         if (pubKey.length) {
@@ -596,9 +1132,10 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
 
         SHHTTPTask *inner = [self caaSendLoginRequest:username encPassword:encPassword
             completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *loginErr) {
+                if (task.isCancelled) return;
                 NSString *newCsrf = SHExtractCSRF(headers);
                 if (newCsrf) [SHSettings setCsrfToken:newCsrf];
-                SHSaveTokensFromHeaders(headers);   // the token (and ds_user_id) arrive here on success
+                SHSaveSessionExtrasFromHeaders(headers);
 
                 // Diagnostic (debug builds only): dump the full server reply to a file and log the response header
                 // names + content markers, so the real CAA flow can be reverse-engineered without ever logging the
@@ -624,57 +1161,9 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
                 }
 
                 NSString *bodyStr = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
-                // A successful CAA login carries the session INSIDE the bloks payload (no ig-set-authorization
-                // header), so lift the token / www-claim out of the body when the header path gave nothing.
-                if (![SHSettings isLoggedIn]) {
-                    NSString *uid = nil;
-                    NSString *tok = SHExtractBearerFromBody(bodyStr, &uid);
-                    if (tok.length) {
-                        [SHSettings setSessionToken:tok];
-                        if (uid.length) [SHSettings setUserId:uid];
-                        NSString *claim = SHExtractClaimFromBody(bodyStr);
-                        if (claim.length) [SHSettings setWwwClaim:claim];
-                    }
-                    if (SHDebugLogging())
-                        SHLog(@"CAALOGIN token %@ (%lu chars, %@)", tok.length ? @"valid" : @"none", (unsigned long)tok.length,
-                              [bodyStr rangeOfString:@"Bearer IGT:2:"].location != NSNotFound ? @"marker present" : @"no marker");
-                }
-
-                if ([SHSettings isLoggedIn]) {
-                    [SHSettings setUsername:username];
-                    [SHSettings save];
-                    // One look at the account before the app opens: a session Instagram does not take (it answers
-                    // login_required) is a failed sign-in here, not an app full of "Your session expired".
-                    [self currentUserWithCompletion:^(SHUser *user, NSError *verifyError) {
-                        if (verifyError && (verifyError.code == 401 || verifyError.code == 403) && verifyError.code != SHErrorChallenge
-                            && [verifyError.localizedDescription isEqualToString:L(@"Your session expired. Please log in again.")]) {
-                            if (SHDebugLogging()) SHLog(@"CAALOGIN session refused by current_user (HTTP %ld)", (long)verifyError.code);
-                            [SHSettings logout];
-                            completion(nil, nil, SHMakeError(SHErrorAuth, L(@"Instagram didn't accept the sign-in from this app. Please try again in a few minutes.")));
-                            return;
-                        }
-                        if (user.username.length) [SHSettings setUsername:user.username];
-                        completion(nil, nil, nil);   // signed in (a network hiccup here is not a failed sign-in)
-                    }];
-                    return;
-                }
-
-                if ([bodyStr rangeOfString:@"two_factor" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                    [bodyStr rangeOfString:@"two_step_verification" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    NSString *tfId = SHExtractJSONString(bodyStr, @"two_factor_identifier") ?: @"";
-                    [SHSettings setUsername:username];
-                    completion(nil, tfId, nil);
-                    return;
-                }
-                if ([bodyStr rangeOfString:@"challenge" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    NSString *path = SHExtractJSONString(bodyStr, @"api_path");
-                    if (path.length) [self setChallengePath:path];
-                    completion(nil, nil, SHMakeError(SHErrorChallenge,
-                        L(@"Instagram needs to verify it's you. A code will be sent to your e-mail or phone.")));
-                    return;
-                }
-                NSString *msg = SHExtractBloksError(bodyStr) ?: (loginErr.localizedDescription ?: L(@"Login failed."));
-                completion(nil, nil, SHMakeError(status ?: SHErrorAPI, msg));
+                NSDictionary *answer = SHDict([SHUtils JSONObjectFromData:body]);
+                [SHSettings setUsername:username];
+                [self takeLoginAnswer:answer body:bodyStr headers:headers status:status error:loginErr task:task completion:completion];
             }];
         task.cancelBlock = ^{ [inner cancel]; };
     }];

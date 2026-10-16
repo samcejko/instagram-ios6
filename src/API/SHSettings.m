@@ -60,6 +60,18 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
 + (NSString *)phoneId { return [DEF stringForKey:@"phoneId"]; }
 + (NSString *)androidId { return [DEF stringForKey:@"androidId"]; }
 
++ (NSString *)machineId { return [DEF stringForKey:@"machineId"] ?: @""; }
++ (void)setMachineId:(NSString *)mid { if (mid.length) [DEF setObject:mid forKey:@"machineId"]; }
+
++ (void)renewDeviceIds
+{
+    [DEF removeObjectForKey:@"deviceId"];
+    [DEF removeObjectForKey:@"phoneId"];
+    [DEF removeObjectForKey:@"androidId"];
+    [DEF removeObjectForKey:@"machineId"];
+    [self registerDefaults];
+}
+
 + (void)logout
 {
     [self setSessionToken:@""];

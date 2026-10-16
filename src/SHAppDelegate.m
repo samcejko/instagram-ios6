@@ -55,6 +55,12 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     self.window = [[SHActivityWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];   // (notes touches: polling)
     self.window.backgroundColor = [UIColor blackColor];
 
+    // A kept session token that is not a whole one (cut by an older version's sign-in) is no session: the login
+    // screen, not an app whose every screen says "Your session expired".
+    if ([SHSettings isLoggedIn] && ![SHInstagram hasUsableSessionToken]) {
+        SHLog(@"The kept session token is not a whole one: logged out");
+        [SHSettings logout];
+    }
     if ([SHSettings isLoggedIn]) {
         [self showFeed];
     } else {
@@ -172,6 +178,13 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
         }];
         return YES;
     }
+    if ([target isEqualToString:@"newdevice"]) {
+        // a new device in Instagram's eyes for the next sign-in (the code it asks a new device for); logged out only
+        if ([SHSettings isLoggedIn]) { SHLog(@"newdevice: log out first"); return YES; }
+        [SHSettings renewDeviceIds];
+        SHLog(@"newdevice: new device ids");
+        return YES;
+    }
     if ([target isEqualToString:@"showtabs"]) {
         [self showFeed];   // the main tab shell, even without a session, to inspect the layout
         return YES;
@@ -278,23 +291,27 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
 #pragma mark - A session Instagram no longer takes
 
 // Every call answers login_required (logged out on another device, a password change, a sign-in Instagram did not
-// keep): back to the login screen once, with Instagram's own words when it gave any, instead of an app whose every
-// screen says "Your session expired". (During the sign-in itself the login screen handles it.)
+// keep, or no session at all): back to the login screen once, with Instagram's own words when it gave any, instead
+// of an app whose every screen says "Your session expired". (During the sign-in itself the login screen handles it.)
 - (void)loginRequired:(NSNotification *)note
 {
-    if (self.sessionEndHandled || ![SHSettings isLoggedIn]) return;
+    if (self.sessionEndHandled) return;
     if (![self.window.rootViewController isKindOfClass:[SHMainTabController class]]) return;
     self.sessionEndHandled = YES;
     NSDictionary *json = SHDict(note.userInfo[@"json"]);
     NSString *title = SHStr(json[@"error_title"]);
     NSString *body = SHStr(json[@"error_body"]);
     NSString *reason = SHStr(json[@"logout_reason"]);
-    SHLog(@"Session ended by Instagram (logout_reason %@)", reason ?: @"-");
+    NSInteger status = [note.userInfo[@"status"] integerValue];
+    SHLog(@"Session ended by Instagram (HTTP %ld, logout_reason %@, had a session: %@)", (long)status, reason ?: @"-",
+          [SHSettings isLoggedIn] ? @"yes" : @"no");
     [SHInstagram clearResponseCache];
     [SHSettings logout];
     [self showLogin];
     NSString *message = body.length ? body : L(@"Your session expired. Please log in again.");
-    if (reason.length) message = [message stringByAppendingFormat:@" (%@ %@)", L(@"Reason"), reason];
+    // (what Instagram said in numbers: a screenshot of this alert then tells why)
+    if (reason.length) message = [message stringByAppendingFormat:@" (HTTP %ld, %@ %@)", (long)status, L(@"Reason"), reason];
+    else if (status) message = [message stringByAppendingFormat:@" (HTTP %ld)", (long)status];
     [SHUtils alertWithTitle:title.length ? title : L(@"Log In") message:message];
 }
 
