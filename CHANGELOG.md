@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5 (2026-10-16)
+
+For the accounts that still could not sign in with 0.3.4 ("Instagram wants a code for this sign-in, but the next step didn't open"): some accounts, private ones among them, get an answer from Instagram that does not depend on the password.
+
+- When Instagram's answer leads nowhere the app knows, it signs in once more the way Instagram's current Android app does: the login homepage first (its account access context), the attestation step, the token preflight, then the password request in its current form.
+- When Instagram sends a sign-in back to its older login (CAA_LOGIN_FALLBACK), the app goes there, as instagrapi does; that answer says the reason in plain words (a wrong password, two-factor authentication, a security check) or signs in.
+- A failed sign-in now shows details under the message: the screens Instagram's answer led to and the step that failed, no account data. A screenshot of the alert tells what went wrong.
+- More of Instagram's wordings for a wrong password are recognised.
+
 ## 0.3.4 (2026-10-16)
 
 A fix for signing in to accounts Instagram asks a code for.
