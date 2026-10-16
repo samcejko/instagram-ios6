@@ -33,19 +33,23 @@
 
 #pragma mark - UITableView
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
+// The sections: the account, the look (dark or light), the sounds of messages, the network, the version.
+enum { SHSectionAccount, SHSectionLook, SHSectionSounds, SHSectionNetwork, SHSectionVersion, SHSectionCount };
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return SHSectionCount; }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    if (section == 0) return 1;
-    if (section == 1) return 2;
+    if (section == SHSectionLook || section == SHSectionNetwork) return 2;
     return 1;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section
 {
-    if (section == 0) return L(@"Account");
-    if (section == 1) return L(@"Network");
+    if (section == SHSectionAccount) return L(@"Account");
+    if (section == SHSectionLook) return L(@"Appearance");
+    if (section == SHSectionSounds) return L(@"Sounds");
+    if (section == SHSectionNetwork) return L(@"Network");
     return nil;
 }
 
@@ -59,13 +63,28 @@
     cell.textLabel.textColor = [[SHTheme shared] textColor];
     cell.selectionStyle = UITableViewCellSelectionStyleBlue;
 
-    if (indexPath.section == 0) {
+    if (indexPath.section == SHSectionAccount) {
         cell.textLabel.text = [SHSettings isLoggedIn]
             ? [NSString stringWithFormat:@"@%@", [SHSettings username]]
             : L(@"Not logged in");
         cell.detailTextLabel.text = [SHSettings isLoggedIn] ? L(@"Log Out") : nil;
         cell.detailTextLabel.textColor = [UIColor redColor];
-    } else if (indexPath.section == 1) {
+    } else if (indexPath.section == SHSectionLook) {
+        // the dark linen look or the light one, ticked as iOS 6 Settings ticks a choice
+        BOOL darkRow = indexPath.row == 0;
+        cell.textLabel.text = darkRow ? L(@"Dark") : L(@"Light");
+        cell.detailTextLabel.text = nil;
+        cell.accessoryType = darkRow == [SHTheme shared].isDark ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+    } else if (indexPath.section == SHSectionSounds) {
+        cell.textLabel.text = L(@"Message sounds");
+        cell.detailTextLabel.text = nil;
+        UISwitch *sw = [[UISwitch alloc] init];
+        sw.on = [SHSettings messageSounds];
+        sw.tag = 2;
+        [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = sw;
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    } else if (indexPath.section == SHSectionNetwork) {
         if (indexPath.row == 0) {
             cell.textLabel.text = L(@"Verify TLS certificates");
             UISwitch *sw = [[UISwitch alloc] init];
@@ -90,19 +109,34 @@
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.section == 0 && [SHSettings isLoggedIn]) {
+    if (indexPath.section == SHSectionAccount && [SHSettings isLoggedIn]) {
         UIAlertView *alert = [[UIAlertView alloc] initWithTitle:L(@"Log Out") message:L(@"Are you sure?")
             delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Log Out"), nil];
         [alert show];
-    } else if (indexPath.section == 1 && indexPath.row == 1) {
+    } else if (indexPath.section == SHSectionLook) {
+        [self chooseDark:indexPath.row == 0];
+    } else if (indexPath.section == SHSectionNetwork && indexPath.row == 1) {
         [SHSettings clearSearchHistory];
         [SHUtils alertWithTitle:L(@"Settings") message:L(@"Search history cleared.")];
     }
 }
 
+// Another look: every screen is drawn anew in it (the app's screens are built again, the account stays).
+- (void)chooseDark:(BOOL)dark
+{
+    if ([SHTheme shared].isDark == dark) return;
+    [[SHTheme shared] setDark:dark];
+    [_tableView reloadData];
+    [self dismissViewControllerAnimated:YES completion:^{
+        if ([SHSettings isLoggedIn]) [[SHAppDelegate shared] showFeed];
+        else [[SHAppDelegate shared] showLogin];
+    }];
+}
+
 - (void)switchChanged:(UISwitch *)sw
 {
     if (sw.tag == 1) [SHSettings setVerifyTLS:sw.on];
+    if (sw.tag == 2) [SHSettings setMessageSounds:sw.on];
 }
 
 #pragma mark - UIAlertViewDelegate

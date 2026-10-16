@@ -134,6 +134,11 @@
 @property (nonatomic, copy) NSString *targetURL;        // the newer "xma" shares: the link a tap opens (instagram.com/p/…)
 @property (nonatomic, copy) NSString *shareTitle;       // …and whose post, reel or story it is
 @property (nonatomic, copy) NSString *videoURL;         // a video sent directly
+@property (nonatomic, copy) NSString *fullImageURL;     // a photo sent directly, its largest version (to save it)
+@property (nonatomic, copy) NSString *clientContext;    // the sender app's id of the message (a reply names it)
+// A reply: what the message it answers says (its text, or a word for a photo or a voice message), and whose it is
+@property (nonatomic, copy) NSString *repliedToText;
+@property (nonatomic, copy) NSString *repliedToSenderPk;
 @property (nonatomic, strong) UIImage *localImage;      // a photo just sent from here, shown until the thread reloads
 @property (nonatomic) BOOL sending;                     // on its way (drawn faded)
 // A photo or video from the chat's camera ("raven_media") meant to be opened on purpose: view_mode "once" or

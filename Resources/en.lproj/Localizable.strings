@@ -236,3 +236,29 @@
 
 /* Someone typing in a chat (the live connection) */
 "Typing..." = "Typing…";
+
+/* A message held in a chat: its menu, a reply, unsending */
+"Reply" = "Reply";
+"Save" = "Save";
+"Unsend" = "Unsend";
+"Reply to: %@" = "Reply to: %@";
+"“%@”" = "“%@”";
+"Unsend message?" = "Unsend message?";
+"It will be removed for everyone in the chat." = "It will be removed for everyone in the chat.";
+"Couldn't unsend the message." = "Couldn't unsend the message.";
+
+/* Saving photos and videos into the photo library */
+"Save to Photos" = "Save to Photos";
+"Saving..." = "Saving…";
+"Saved to Photos" = "Saved to Photos";
+"Nothing to save" = "Nothing to save";
+"Couldn't save it." = "Couldn't save it.";
+"This video can't be kept in the photo library of this device." = "This video can't be kept in the photo library of this device.";
+"Gramify may not use your photos. Allow it in Settings > Privacy > Photos." = "Gramify may not use your photos. Allow it in Settings > Privacy > Photos.";
+
+/* Settings: the look and the sounds */
+"Appearance" = "Appearance";
+"Dark" = "Dark";
+"Light" = "Light";
+"Sounds" = "Sounds";
+"Message sounds" = "Message sounds";

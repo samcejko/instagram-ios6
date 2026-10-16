@@ -236,3 +236,29 @@
 
 /* Someone typing in a chat (the live connection) */
 "Typing..." = "Píše…";
+
+/* A message held in a chat: its menu, a reply, unsending */
+"Reply" = "Odpovědět";
+"Save" = "Uložit";
+"Unsend" = "Zrušit odeslání";
+"Reply to: %@" = "Odpověď na: %@";
+"“%@”" = "„%@“";
+"Unsend message?" = "Zrušit odeslání zprávy?";
+"It will be removed for everyone in the chat." = "Zmizí všem v tomto chatu.";
+"Couldn't unsend the message." = "Odeslání zprávy se nepodařilo zrušit.";
+
+/* Saving photos and videos into the photo library */
+"Save to Photos" = "Uložit do Fotek";
+"Saving..." = "Ukládám…";
+"Saved to Photos" = "Uloženo do Fotek";
+"Nothing to save" = "Není co uložit";
+"Couldn't save it." = "Uložit se to nepodařilo.";
+"This video can't be kept in the photo library of this device." = "Toto video nejde v knihovně fotek tohoto zařízení uložit.";
+"Gramify may not use your photos. Allow it in Settings > Privacy > Photos." = "Gramify nemá přístup k fotkám. Povolte ho v Nastavení > Soukromí > Fotky.";
+
+/* Settings: the look and the sounds */
+"Appearance" = "Vzhled";
+"Dark" = "Tmavý";
+"Light" = "Světlý";
+"Sounds" = "Zvuky";
+"Message sounds" = "Zvuky zpráv";

@@ -137,6 +137,8 @@
 	<string>Gramify uses the microphone to record voice messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Gramify opens your photos so you can send them in Direct.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Gramify saves the photos and videos you choose to keep.</string>
 	<!-- the player loads http://127.0.0.1 from the app's own proxy: never a question for App Transport Security -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

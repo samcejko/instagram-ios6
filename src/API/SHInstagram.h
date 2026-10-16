@@ -116,6 +116,11 @@ typedef NS_ENUM(NSInteger, SHLoginStepKind) {
 + (SHHTTPTask *)directInboxWithCursor:(NSString *)cursor completion:(SHThreadsCompletion)completion;
 + (SHHTTPTask *)directThread:(NSString *)threadId cursor:(NSString *)cursor completion:(SHThreadCompletion)completion;
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion;
+// The same as a reply to a message of the chat (it is shown with a line of what it answers).
++ (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId replyTo:(SHDirectMessage *)reply
+                    completion:(SHActionCompletion)completion;
+// One of my messages taken back: gone for everyone in the chat.
++ (SHHTTPTask *)unsendDirectItem:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 // A chat read up to this message (Instagram shows the sender "Seen", and the thread is no longer unread).
 + (SHHTTPTask *)markDirectItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion;
 // A "view once" photo or video of a chat opened (the sender sees "Opened").

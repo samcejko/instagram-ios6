@@ -27,6 +27,8 @@
 
 + (BOOL)darkTheme;
 + (void)setDarkTheme:(BOOL)value;
++ (BOOL)messageSounds;                   // the sounds of a message coming in and going out (default on)
++ (void)setMessageSounds:(BOOL)value;
 + (BOOL)verifyTLS;
 + (void)setVerifyTLS:(BOOL)value;
 

@@ -2644,20 +2644,53 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
 
 + (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
+    return [self sendDirectText:text toThread:threadId replyTo:nil completion:completion];
+}
+
++ (SHHTTPTask *)sendDirectText:(NSString *)text toThread:(NSString *)threadId replyTo:(SHDirectMessage *)reply
+                    completion:(SHActionCompletion)completion
+{
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    NSDictionary *fields = @{
+    NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
         @"action": @"send_item",
         @"thread_ids": [NSString stringWithFormat:@"[%@]", threadId],
         @"client_context": [[NSUUID UUID] UUIDString],
         @"text": text,
         @"_uuid": [SHSettings deviceId],
         @"device_id": [SHSettings androidId],
-    };
+    }];
+    // a reply names the message it answers (as instagrapi's direct_send does)
+    if (reply.pk.length) {
+        fields[@"replied_to_action_source"] = @"swipe";
+        fields[@"replied_to_item_id"] = reply.pk;
+        if (reply.clientContext.length) fields[@"replied_to_client_context"] = reply.clientContext;
+    }
     NSString *url = [SHApiBase stringByAppendingString:@"/direct_v2/threads/broadcast/text/"];
     return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(NO, error); return; }
         completion([SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+    }];
+}
+
+// POST direct_v2/threads/<thread>/items/<item>/delete/ (signed, as instagrapi's direct_message_unsend): the message
+// is gone for everyone in the chat.
++ (SHHTTPTask *)unsendDirectItem:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion
+{
+    NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
+    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/%@/items/%@/delete/", SHApiBase, threadId ?: @"", itemId ?: @""];
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{ @"_uuid": [SHSettings deviceId] ?: @"" }];
+    if ([SHSettings csrfToken].length) params[@"_csrftoken"] = [SHSettings csrfToken];
+    return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
+                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
+        NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
+        if (error) { completion(NO, error); return; }
+        if (status >= 400 || ![SHStr(d[@"status"]) isEqualToString:@"ok"]) {
+            completion(NO, SHMakeError(status ?: SHErrorAPI, [SHHTTP messageFromErrorJSON:d] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status]));
+            return;
+        }
+        completion(YES, nil);
     }];
 }
 

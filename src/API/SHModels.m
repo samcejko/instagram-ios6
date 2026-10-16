@@ -390,6 +390,14 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
     NSTimeInterval ts = SHDbl(d[@"timestamp"]);   // microseconds
     if (ts > 1e14) ts /= 1e6;
     m.timestamp = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
+    m.clientContext = SHStr(d[@"client_context"]);
+    // a reply: a line of what it answers goes above it
+    NSDictionary *replied = SHDict(d[@"replied_to_message"]);
+    if (replied.count && replied != d) {
+        SHDirectMessage *r = [SHDirectMessage fromJSON:replied];
+        NSString *said = r.text.length ? r.text : r.placeholderText;
+        if (said.length) { m.repliedToText = said; m.repliedToSenderPk = r.senderPk; }
+    }
 
     if ([m.type isEqualToString:@"text"]) {
         m.text = SHStr(d[@"text"]) ?: @"";
@@ -402,6 +410,7 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
         // a photo or video sent directly
         NSDictionary *media = SHDict(d[@"media"]);
         m.previewURL = [SHMediaImage candidateFromCandidates:SHArr(media[@"image_versions2"][@"candidates"]) minWidth:300].url ?: @"";
+        m.fullImageURL = [SHMediaImage bestFromCandidates:SHArr(media[@"image_versions2"][@"candidates"])].url;
         NSDictionary *vv = SHDict([SHArr(media[@"video_versions"]) firstObject]);
         m.videoURL = SHStr(vv[@"url"]);
         m.placeholderText = m.videoURL.length ? L(@"Video") : L(@"Photo");
@@ -440,6 +449,7 @@ static NSString * const SHOpenedEphemeralKey = @"SHOpenedEphemeral";
                                               : (video ? L(@"Opened video") : L(@"Opened photo"));
         } else {
             m.previewURL = [SHMediaImage candidateFromCandidates:candidates minWidth:300].url ?: @"";
+            m.fullImageURL = [SHMediaImage bestFromCandidates:candidates].url;
             m.placeholderText = video ? L(@"Video") : L(@"Photo");
         }
         if (!m.videoURL.length) m.videoURL = nil;

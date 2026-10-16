@@ -7,6 +7,7 @@
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHModern.h"
+#import "SHMediaSaver.h"
 #import "SHCommon.h"
 #import <QuartzCore/QuartzCore.h>
 
@@ -143,7 +144,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     self.navigationItem.rightBarButtonItem.enabled = NO;
 
     CGFloat w = self.view.bounds.size.width;
-    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44 + 50 + 46)];
+    UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44 + 50 + 42 + 46)];
     header.backgroundColor = [UIColor clearColor];
     _searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
     _searchBar.placeholder = L(@"Search users...");
@@ -175,6 +176,11 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     more.frame = CGRectMake(20 + bw, 44 + 50, w - 30 - bw, 34);
     more.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleWidth;
     [header addSubview:more];
+    // the post's pictures and videos into the photo library
+    UIButton *save = [self glossyButton:L(@"Save to Photos") action:@selector(saveTapped)];
+    save.frame = CGRectMake(10, 44 + 50 + 42, w - 20, 34);
+    save.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [header addSubview:save];
 
     _tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -421,6 +427,8 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     [UIPasteboard generalPasteboard].string = url.absoluteString;
     [SHShareViewController flashMessage:L(@"Link copied")];
 }
+
+- (void)saveTapped { [SHMediaSaver savePost:_post]; }
 
 - (void)moreTapped:(UIButton *)button
 {

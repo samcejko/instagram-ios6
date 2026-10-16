@@ -17,6 +17,7 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
         @"searchHistory": @[],
         @"userId": @"",
         @"username": @"",
+        @"messageSounds": @YES,
     }];
     if (![DEF stringForKey:@"deviceId"].length)
         [DEF setObject:[[NSUUID UUID] UUIDString] forKey:@"deviceId"];
@@ -86,6 +87,8 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
 
 + (BOOL)darkTheme { return [DEF boolForKey:@"darkTheme"]; }
 + (void)setDarkTheme:(BOOL)value { [DEF setBool:value forKey:@"darkTheme"]; [self notify]; }
++ (BOOL)messageSounds { return [DEF boolForKey:@"messageSounds"]; }
++ (void)setMessageSounds:(BOOL)value { [DEF setBool:value forKey:@"messageSounds"]; [self notify]; }
 + (BOOL)verifyTLS { return [DEF boolForKey:@"verifyTLS"]; }
 + (void)setVerifyTLS:(BOOL)value { [DEF setBool:value forKey:@"verifyTLS"]; [self notify]; }
 

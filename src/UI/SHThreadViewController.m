@@ -16,6 +16,8 @@
 #import "SHDirectMonitor.h"
 #import "SHRealtime.h"
 #import "SHPoller.h"
+#import "SHSounds.h"
+#import "SHMediaSaver.h"
 #import "SHCommon.h"
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -45,6 +47,7 @@ static const CGFloat SHBarH          = 48.0;
 @protocol SHBubbleCellDelegate <NSObject>
 - (void)bubbleCell:(SHBubbleCell *)cell didTapAvatarOfUser:(SHUser *)user;
 - (void)bubbleCell:(SHBubbleCell *)cell didTapMessage:(SHDirectMessage *)message;
+- (void)bubbleCell:(SHBubbleCell *)cell didHoldMessage:(SHDirectMessage *)message;   // the menu of a message
 @end
 
 // One message the way iOS 6 Messages drew them: glossy bubbles with a tail (blue for mine), the sender's picture by
@@ -78,13 +81,21 @@ static const CGFloat SHBarH          = 48.0;
 
 static BOOL SHIsLike(SHDirectMessage *m) { return [m.type isEqualToString:@"like"]; }
 
-// What a text bubble says (a label in italics for what has no text of its own); the same measures and draws.
+// What a text bubble says (a label in italics for what has no text of its own), a reply with a smaller line of what
+// it answers above it; the same measures and draws.
 static NSAttributedString *SHBubbleText(SHDirectMessage *m)
 {
     BOOL placeholder = m.text.length == 0;
     NSString *s = [SHUtils displayText:placeholder ? (m.placeholderText ?: @"") : m.text];
     UIFont *font = placeholder ? [UIFont italicSystemFontOfSize:SHBubbleFont] : [UIFont systemFontOfSize:SHBubbleFont];
-    return [[NSAttributedString alloc] initWithString:s.length ? s : @" " attributes:@{ NSFontAttributeName: font }];
+    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] init];
+    if (m.repliedToText.length) {
+        NSString *quoted = [NSString stringWithFormat:L(@"“%@”"), [SHUtils truncate:[SHUtils displayText:m.repliedToText] to:60]];
+        [text appendAttributedString:[[NSAttributedString alloc] initWithString:[quoted stringByAppendingString:@"\n"]
+            attributes:@{ NSFontAttributeName: [UIFont italicSystemFontOfSize:SHBubbleFont - 3] }]];
+    }
+    [text appendAttributedString:[[NSAttributedString alloc] initWithString:s.length ? s : @" " attributes:@{ NSFontAttributeName: font }]];
+    return text;
 }
 
 // The size of the bubble for a message, given the table width.
@@ -125,6 +136,8 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
         _bubble.userInteractionEnabled = YES;
         _bubbleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(bubbleTapped)];
         [_bubble addGestureRecognizer:_bubbleTap];
+        // held: the message's menu (copy, reply, save, unsend), as iOS 6 Messages shows its Copy
+        [_bubble addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(bubbleHeld:)]];
         [self.contentView addSubview:_bubble];
 
         // a text's @names, #tags and links open on a tap
@@ -189,6 +202,10 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
 
 - (void)avatarTapped { if (_sender) [self.delegate bubbleCell:self didTapAvatarOfUser:_sender]; }
 - (void)bubbleTapped { if (_message) [self.delegate bubbleCell:self didTapMessage:_message]; }
+- (void)bubbleHeld:(UILongPressGestureRecognizer *)hold
+{
+    if (hold.state == UIGestureRecognizerStateBegan && _message) [self.delegate bubbleCell:self didHoldMessage:_message];
+}
 
 - (void)setVoiceProgress:(CGFloat)progress
 {
@@ -467,7 +484,8 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 }
 
 @interface SHThreadViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, SHBubbleCellDelegate,
-                                      UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+                                      UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
+                                      UIAlertViewDelegate>
 @property (nonatomic, strong) SHDirectThread *thread;
 @property (nonatomic, strong) NSMutableArray *messages;      // chronological (oldest first)
 @property (nonatomic, strong) NSMutableDictionary *usersByPk; // SHUser by pk, incl. me
@@ -508,7 +526,13 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 @property (nonatomic, copy) NSString *seenPk;                // my last message, once the other side has read it
 @property (nonatomic, strong) UIView *typingView;            // the other side types (the live connection says so)
 @property (nonatomic, strong) NSDate *typingUntil;
+@property (nonatomic, strong) SHDirectMessage *menuMessage;  // the message whose menu is up (held)
+@property (nonatomic, strong) SHDirectMessage *replyTo;      // the message the next text answers
+@property (nonatomic, strong) UIView *replyView;             // its strip over the bar
+@property (nonatomic, strong) UILabel *replyLabel;
 @end
+
+static const CGFloat SHReplyH = 40;   // the strip of the message being answered, above the bar
 
 @implementation SHThreadViewController
 
@@ -674,6 +698,32 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
     [_attachmentView addSubview:removeAttachment];
     [self.view addSubview:_attachmentView];
 
+    // the message the text answers, above the bar until it is sent (or the reply is cancelled)
+    _replyView = [[UIView alloc] initWithFrame:CGRectMake(0, _inputBar.frame.origin.y - SHReplyH, self.view.bounds.size.width, SHReplyH)];
+    _replyView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    _replyView.hidden = YES;
+    UIImageView *replyArt = [[UIImageView alloc] initWithImage:[theme barBackgroundImage]];
+    replyArt.frame = _replyView.bounds;
+    replyArt.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_replyView addSubview:replyArt];
+    _replyLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 0, self.view.bounds.size.width - 12 - 96, SHReplyH)];
+    _replyLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    _replyLabel.font = [UIFont boldSystemFontOfSize:13];
+    _replyLabel.textColor = [theme textColor];
+    _replyLabel.backgroundColor = [UIColor clearColor];
+    _replyLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    [theme embossLabel:_replyLabel];
+    [_replyView addSubview:_replyLabel];
+    UIButton *cancelReply = [self barGlyphButton:nil action:@selector(cancelReply)];
+    [cancelReply setTitle:L(@"Cancel") forState:UIControlStateNormal];
+    [cancelReply setTitleColor:[theme textColor] forState:UIControlStateNormal];
+    cancelReply.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [theme embossButton:cancelReply];
+    cancelReply.frame = CGRectMake(self.view.bounds.size.width - 90, 5, 80, 30);
+    cancelReply.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [_replyView addSubview:cancelReply];
+    [self.view addSubview:_replyView];
+
     if (_pendingRequest) [self showRequestBar];
 
     // The inbox preview only carried the last message; show it at once, then load the thread.
@@ -735,6 +785,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 // the app (UIKit raises in its dealloc), and both hold this controller as an unretained delegate.
 - (void)closeTransientUI
 {
+    [[UIMenuController sharedMenuController] setMenuVisible:NO animated:NO];
     if (_photoSheet) {
         _photoSheet.delegate = nil;
         [_photoSheet dismissWithClickedButtonIndex:_photoSheet.cancelButtonIndex animated:NO];
@@ -858,6 +909,15 @@ static BOOL SHIsCopyOfLocal(SHDirectMessage *m, SHDirectMessage *local)
     if (!same) {
         BOOL follow = firstLoad || [self isNearBottom];
         if (!firstLoad) SHLog(@"DM thread updated: %lu messages (was %lu)%@", (unsigned long)merged.count, (unsigned long)_messages.count, seenPk ? @", seen" : @"");
+        // a message of theirs new since the last look: the sound of Messages (the live connection plays its own)
+        if (!firstLoad && ![SHRealtime shared].live) {
+            for (SHDirectMessage *m in merged) {
+                if (SHIsLocalMessage(m) || m.systemRow || shown[m.pk ?: @""] || [m.senderPk isEqualToString:_myId ?: @""]) continue;
+                if (pageStart && m.timestamp && [m.timestamp compare:pageStart] == NSOrderedAscending) continue;
+                [SHSounds playReceived];
+                break;
+            }
+        }
         [_messages setArray:merged];
         _seenPk = seenPk;
         [_tableView reloadData];
@@ -1130,14 +1190,17 @@ static BOOL SHRealtimeLogging(void)
 
 #pragma mark - Keyboard
 
-// The bar over the keyboard, the picked photo's strip over the bar, the messages above both.
+// The bar over the keyboard, the strip of the message answered over the bar, the picked photo's strip over that,
+// the messages above them.
 - (void)layoutBars
 {
     CGFloat w = self.view.bounds.size.width, h = self.view.bounds.size.height;
     CGFloat attachH = _attachmentView.hidden ? 0 : SHAttachH;
+    CGFloat replyH = _replyView.hidden ? 0 : SHReplyH;
     _inputBar.frame = CGRectMake(0, h - SHBarH - _keyboardOverlap, w, SHBarH);
-    _attachmentView.frame = CGRectMake(0, _inputBar.frame.origin.y - SHAttachH, w, SHAttachH);
-    _tableView.frame = CGRectMake(0, 0, w, h - SHBarH - _keyboardOverlap - attachH);
+    _replyView.frame = CGRectMake(0, _inputBar.frame.origin.y - SHReplyH, w, SHReplyH);
+    _attachmentView.frame = CGRectMake(0, _inputBar.frame.origin.y - replyH - SHAttachH, w, SHAttachH);
+    _tableView.frame = CGRectMake(0, 0, w, h - SHBarH - _keyboardOverlap - attachH - replyH);
 }
 
 - (void)keyboardWillChange:(NSNotification *)note
@@ -1174,10 +1237,16 @@ static BOOL SHRealtimeLogging(void)
     local.senderPk = _myId;
     local.timestamp = [NSDate date];
     local.sending = YES;
+    SHDirectMessage *reply = _replyTo;
+    if (reply) {
+        local.repliedToText = reply.text.length ? reply.text : reply.placeholderText;
+        local.repliedToSenderPk = reply.senderPk;
+        [self cancelReply];
+    }
     [self appendLocal:local];
     _inputField.text = @"";
 
-    [SHInstagram sendDirectText:text toThread:_thread.threadId completion:^(BOOL ok, NSError *error) {
+    [SHInstagram sendDirectText:text toThread:_thread.threadId replyTo:reply completion:^(BOOL ok, NSError *error) {
         if (!ok && !self->_inputField.text.length) self->_inputField.text = text;   // (back in the field to try again)
         [self localMessage:local sent:ok error:error];
     }];
@@ -1309,6 +1378,7 @@ static BOOL SHRealtimeLogging(void)
         [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription ?: L(@"The message didn't send.")];
         return;
     }
+    [SHSounds playSent];
     [_tableView reloadData];
     [_poller speedUp];   // (an answer may come soon)
     // Instagram's copy takes the echo's place: by the live connection at once, else from the thread loaded again
@@ -1694,6 +1764,120 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
         for (NSTextCheckingResult *r in links) if (r.URL) [urls addObject:r.URL];
         if (urls.count) [SHLinkRouter openWebLinks:urls from:self anchor:cell];
     }
+}
+
+#pragma mark - The menu of a message (held)
+
+// What Copy puts on the clipboard: the text of a message (a link's too); a picture or a voice message has none.
+- (NSString *)copyTextOf:(SHDirectMessage *)m { return m.text.length ? m.text : nil; }
+
+- (BOOL)canReplyTo:(SHDirectMessage *)m
+{
+    return m.pk.length && !SHIsLocalMessage(m) && !m.systemRow && !_pendingRequest && _thread.threadId.length;
+}
+
+// A picture or video of the chat that can be kept: sent directly, a camera one meant to stay, a shared post.
+- (BOOL)canSave:(SHDirectMessage *)m
+{
+    if (m.ephemeral || m.systemRow) return NO;
+    return m.sharedPost != nil || m.videoURL.length > 0 || m.fullImageURL.length > 0;
+}
+
+- (BOOL)canUnsend:(SHDirectMessage *)m
+{
+    return m.pk.length && !SHIsLocalMessage(m) && !m.systemRow && [m.senderPk isEqualToString:_myId ?: @""];
+}
+
+- (void)bubbleCell:(SHBubbleCell *)cell didHoldMessage:(SHDirectMessage *)m
+{
+    if (m.systemRow) return;
+    NSMutableArray *items = [NSMutableArray array];
+    if ([self canReplyTo:m]) [items addObject:[[UIMenuItem alloc] initWithTitle:L(@"Reply") action:@selector(replyToHeldMessage:)]];
+    if ([self canSave:m]) [items addObject:[[UIMenuItem alloc] initWithTitle:L(@"Save") action:@selector(saveHeldMessage:)]];
+    if ([self canUnsend:m]) [items addObject:[[UIMenuItem alloc] initWithTitle:L(@"Unsend") action:@selector(unsendHeldMessage:)]];
+    if (!items.count && ![self copyTextOf:m].length) return;
+    _menuMessage = m;
+    [_inputField resignFirstResponder];   // (the menu needs this controller to answer it)
+    [self becomeFirstResponder];
+    UIMenuController *menu = [UIMenuController sharedMenuController];
+    menu.menuItems = items;
+    [menu setTargetRect:[cell.bubble convertRect:cell.bubble.bounds toView:self.view] inView:self.view];
+    [menu setMenuVisible:YES animated:YES];
+}
+
+- (BOOL)canBecomeFirstResponder { return YES; }
+
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender
+{
+    SHDirectMessage *m = _menuMessage;
+    if (!m) return NO;
+    if (action == @selector(copy:)) return [self copyTextOf:m].length > 0;
+    if (action == @selector(replyToHeldMessage:)) return [self canReplyTo:m];
+    if (action == @selector(saveHeldMessage:)) return [self canSave:m];
+    if (action == @selector(unsendHeldMessage:)) return [self canUnsend:m];
+    return NO;
+}
+
+- (void)copy:(id)sender
+{
+    NSString *text = [self copyTextOf:_menuMessage];
+    if (text.length) [UIPasteboard generalPasteboard].string = text;
+}
+
+// The next text answers this message: its strip over the bar says which, Cancel takes it back.
+- (void)replyToHeldMessage:(id)sender
+{
+    SHDirectMessage *m = _menuMessage;
+    if (!m) return;
+    _replyTo = m;
+    NSString *said = [SHUtils displayText:m.text.length ? m.text : (m.placeholderText ?: @"")];
+    _replyLabel.text = [NSString stringWithFormat:L(@"Reply to: %@"), said];
+    _replyView.hidden = NO;
+    [UIView animateWithDuration:0.2 animations:^{ [self layoutBars]; } completion:^(BOOL f) { [self scrollToBottom:YES]; }];
+    [_inputField becomeFirstResponder];
+}
+
+- (void)cancelReply
+{
+    _replyTo = nil;
+    if (_replyView.hidden) return;
+    _replyView.hidden = YES;
+    [self layoutBars];
+}
+
+- (void)saveHeldMessage:(id)sender
+{
+    SHDirectMessage *m = _menuMessage;
+    if (!m) return;
+    if (m.sharedPost) { [SHMediaSaver savePost:m.sharedPost]; return; }
+    [SHMediaSaver saveImageURL:m.fullImageURL ?: m.previewURL videoURL:m.videoURL];
+}
+
+- (void)unsendHeldMessage:(id)sender
+{
+    if (!_menuMessage) return;
+    UIAlertView *ask = [[UIAlertView alloc] initWithTitle:L(@"Unsend message?") message:L(@"It will be removed for everyone in the chat.")
+                                                 delegate:self cancelButtonTitle:L(@"Cancel") otherButtonTitles:L(@"Unsend"), nil];
+    [ask show];
+}
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
+{
+    SHDirectMessage *m = _menuMessage;
+    if (buttonIndex == alertView.cancelButtonIndex || ![self canUnsend:m]) return;
+    m.sending = YES;   // (faded while it goes)
+    [_tableView reloadData];
+    [SHInstagram unsendDirectItem:m.pk inThread:_thread.threadId completion:^(BOOL ok, NSError *error) {
+        m.sending = NO;
+        if (!ok) {
+            [self->_tableView reloadData];
+            [SHUtils alertWithTitle:L(@"Direct") message:error.localizedDescription ?: L(@"Couldn't unsend the message.")];
+            return;
+        }
+        [self->_messages removeObjectIdenticalTo:m];
+        [self updateSeenMarker];
+        [self->_tableView reloadData];
+    }];
 }
 
 #pragma mark - Table

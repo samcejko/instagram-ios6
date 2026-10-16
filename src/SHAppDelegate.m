@@ -15,6 +15,7 @@
 #import "SHUtils.h"
 #import "SHModern.h"
 #import "SHPoller.h"
+#import "SHSounds.h"
 #import "SHCommon.h"
 #import <QuartzCore/QuartzCore.h>
 #include <objc/runtime.h>
@@ -43,6 +44,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
                                                  name:SHHTTPChallengeRequiredNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(loginRequired:)
                                                  name:SHHTTPLoginRequiredNotification object:nil];
+    [SHSounds startObservingLiveMessages];   // (the sound of a message that comes in)
     // iOS 6 UILabels default to an opaque (white) background, which shows as boxes behind text on the dark theme.
     // Make the default transparent app-wide; labels that need a fill (chat bubbles) set their colour explicitly.
     [[UILabel appearance] setBackgroundColor:[UIColor clearColor]];
