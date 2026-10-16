@@ -27,6 +27,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
 @interface SHAppDelegate () <UIAlertViewDelegate>
 @property (nonatomic) BOOL checkpointPromptUp;       // one alert for the burst of failing calls, not one each
 @property (nonatomic) NSTimeInterval checkpointDismissedAt;
+@property (nonatomic) BOOL sessionEndHandled;           // a dead session goes back to the login screen once
 @end
 
 @implementation SHAppDelegate
@@ -40,6 +41,8 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     [SHInstagram registerChallengeObserver];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(challengeRequired:)
                                                  name:SHHTTPChallengeRequiredNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(loginRequired:)
+                                                 name:SHHTTPLoginRequiredNotification object:nil];
     // iOS 6 UILabels default to an opaque (white) background, which shows as boxes behind text on the dark theme.
     // Make the default transparent app-wide; labels that need a fill (chat bubbles) set their colour explicitly.
     [[UILabel appearance] setBackgroundColor:[UIColor clearColor]];
@@ -71,6 +74,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
 
 - (void)showFeed
 {
+    self.sessionEndHandled = NO;
     self.window.rootViewController = [[SHMainTabController alloc] init];
 }
 
@@ -269,6 +273,29 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
         return YES;
     }
     return YES;
+}
+
+#pragma mark - A session Instagram no longer takes
+
+// Every call answers login_required (logged out on another device, a password change, a sign-in Instagram did not
+// keep): back to the login screen once, with Instagram's own words when it gave any, instead of an app whose every
+// screen says "Your session expired". (During the sign-in itself the login screen handles it.)
+- (void)loginRequired:(NSNotification *)note
+{
+    if (self.sessionEndHandled || ![SHSettings isLoggedIn]) return;
+    if (![self.window.rootViewController isKindOfClass:[SHMainTabController class]]) return;
+    self.sessionEndHandled = YES;
+    NSDictionary *json = SHDict(note.userInfo[@"json"]);
+    NSString *title = SHStr(json[@"error_title"]);
+    NSString *body = SHStr(json[@"error_body"]);
+    NSString *reason = SHStr(json[@"logout_reason"]);
+    SHLog(@"Session ended by Instagram (logout_reason %@)", reason ?: @"-");
+    [SHInstagram clearResponseCache];
+    [SHSettings logout];
+    [self showLogin];
+    NSString *message = body.length ? body : L(@"Your session expired. Please log in again.");
+    if (reason.length) message = [message stringByAppendingFormat:@" (%@ %@)", L(@"Reason"), reason];
+    [SHUtils alertWithTitle:title.length ? title : L(@"Log In") message:message];
 }
 
 #pragma mark - Security check of a live session

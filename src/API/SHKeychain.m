@@ -13,7 +13,11 @@ static NSString * const SHKeychainService = @"com.samcejko.shutter";
                (__bridge id)kSecAttrAccount: key ?: @"" } mutableCopy];
 }
 
-+ (NSString *)stringForKey:(NSString *)key
+// Where a value lives when the keychain did not take it, and the mark that says so.
++ (NSString *)fallbackKey:(NSString *)key { return [@"kc." stringByAppendingString:key ?: @""]; }
++ (NSString *)fallbackMarkKey:(NSString *)key { return [@"kc-in-prefs." stringByAppendingString:key ?: @""]; }
+
++ (NSString *)keychainStringForKey:(NSString *)key
 {
     NSMutableDictionary *q = [self queryForKey:key];
     q[(__bridge id)kSecReturnData] = (__bridge id)kCFBooleanTrue;
@@ -23,25 +27,45 @@ static NSString * const SHKeychainService = @"com.samcejko.shutter";
         NSData *data = (__bridge_transfer NSData *)result;
         return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     }
-    NSString *fallback = [[NSUserDefaults standardUserDefaults] stringForKey:[@"kc." stringByAppendingString:key]];
-    return fallback;
+    return nil;
+}
+
++ (NSString *)stringForKey:(NSString *)key
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    // A value the keychain refused is in the preferences, and the keychain may still hold an older one (another
+    // install of the app left it there and it could not be removed): the newer one wins.
+    if ([defaults boolForKey:[self fallbackMarkKey:key]]) return [defaults stringForKey:[self fallbackKey:key]];
+    return [self keychainStringForKey:key] ?: [defaults stringForKey:[self fallbackKey:key]];
 }
 
 + (void)setString:(NSString *)value forKey:(NSString *)key
 {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *q = [self queryForKey:key];
     SecItemDelete((__bridge CFDictionaryRef)q);
-    if (!value.length) {
-        [[NSUserDefaults standardUserDefaults] removeObjectForKey:[@"kc." stringByAppendingString:key]];
-        return;
-    }
-    q[(__bridge id)kSecValueData] = [value dataUsingEncoding:NSUTF8StringEncoding];
+    [defaults removeObjectForKey:[self fallbackKey:key]];
+    [defaults removeObjectForKey:[self fallbackMarkKey:key]];
+    if (!value.length) { [defaults synchronize]; return; }
+
+    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+    q[(__bridge id)kSecValueData] = data;
     q[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
     OSStatus status = SecItemAdd((__bridge CFDictionaryRef)q, NULL);
-    if (status != errSecSuccess) {
-        [[NSUserDefaults standardUserDefaults] setObject:value forKey:[@"kc." stringByAppendingString:key]];
-        [[NSUserDefaults standardUserDefaults] synchronize];
+    if (status == errSecDuplicateItem) {   // an item that could not be deleted: written over instead
+        status = SecItemUpdate((__bridge CFDictionaryRef)[self queryForKey:key],
+                               (__bridge CFDictionaryRef)@{ (__bridge id)kSecValueData: data });
     }
+    // Only what the keychain gives back is left to it; anything else goes to the preferences, marked as the one
+    // that counts (an old session token read back from the keychain made every request "session expired").
+    if (status == errSecSuccess && [[self keychainStringForKey:key] isEqualToString:value]) {
+        [defaults synchronize];
+        return;
+    }
+    [defaults setObject:value forKey:[self fallbackKey:key]];
+    [defaults setBool:YES forKey:[self fallbackMarkKey:key]];
+    [defaults synchronize];
+    SHLog(@"Keychain: %@ kept in the preferences (status %d)", key, (int)status);
 }
 
 @end

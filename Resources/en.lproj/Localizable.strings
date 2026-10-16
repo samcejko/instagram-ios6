@@ -5,6 +5,8 @@
 "Log In" = "Log In";
 "Enter your username and password." = "Enter your username and password.";
 "Login failed." = "Login failed.";
+"Instagram didn't accept the sign-in from this app. Please try again in a few minutes." = "Instagram didn't accept the sign-in from this app. Please try again in a few minutes.";
+"Reason" = "Reason";
 "Two-Factor Authentication" = "Two-Factor Authentication";
 "Enter the code from your authenticator app or SMS." = "Enter the code from your authenticator app or SMS.";
 "Code" = "Code";

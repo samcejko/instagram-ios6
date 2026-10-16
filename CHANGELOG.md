@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 (2026-10-16)
+
+A fix for signing in.
+
+- Signing in could end in "Your session expired" on every screen. The session token was read out of Instagram's reply only up to the first character Instagram writes escaped (a "/" or the "=" at its end), and an older token kept by another install of the app could win over the new one. The token is now read whole, checked with Instagram before the app opens, and kept where it is read back from.
+- A session Instagram ends (signed out on another device, a password change) now leads back to the login screen once, with Instagram's reason, instead of an app whose every screen says the session expired.
+- The arm64 build's live connection has been tried on an iPhone X with iOS 16: it connects.
+
 ## 0.3.1 (2026-10-16)
 
 Direct over Instagram's live connection. Tested on an iPad 2 with iOS 6.1.3.

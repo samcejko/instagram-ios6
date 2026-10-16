@@ -5,6 +5,8 @@
 "Log In" = "Přihlásit se";
 "Enter your username and password." = "Zadejte uživatelské jméno a heslo.";
 "Login failed." = "Přihlášení se nezdařilo.";
+"Instagram didn't accept the sign-in from this app. Please try again in a few minutes." = "Instagram nepřijal přihlášení z této aplikace. Zkus to prosím za pár minut znovu.";
+"Reason" = "Důvod";
 "Two-Factor Authentication" = "Dvoufaktorové ověření";
 "Enter the code from your authenticator app or SMS." = "Zadejte kód z ověřovací aplikace nebo SMS.";
 "Code" = "Kód";

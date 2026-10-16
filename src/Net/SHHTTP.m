@@ -7,6 +7,7 @@
 static const NSInteger SHMaxRedirects = 5;
 
 NSString * const SHHTTPChallengeRequiredNotification = @"SHHTTPChallengeRequiredNotification";
+NSString * const SHHTTPLoginRequiredNotification = @"SHHTTPLoginRequiredNotification";
 
 // A completion that also gets the body already parsed as JSON (parsed on the network thread, not the main one).
 typedef void (^SHHTTPParsedCompletion)(NSInteger status, NSData *body, id json, NSDictionary *headers, NSError *error);
@@ -31,6 +32,17 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body, id parse
     if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
     NSDictionary *d = SHDict(parsed ?: [SHUtils JSONObjectFromData:body]);
     return [SHStr(d[@"message"]) isEqualToString:@"challenge_required"] ? d : nil;
+}
+
+// Instagram's "this session is not valid" ({"message":"login_required"}, HTTP 401/403), from its own API only.
+static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData *body, id parsed)
+{
+    if ((status != 401 && status != 403) || !body.length || body.length > 8192) return nil;
+    if (![[url.host lowercaseString] hasSuffix:@"instagram.com"]) return nil;
+    static const char marker[] = "login_required";
+    if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
+    NSDictionary *d = SHDict(parsed ?: [SHUtils JSONObjectFromData:body]);
+    return [SHStr(d[@"message"]) isEqualToString:@"login_required"] ? d : nil;
 }
 
 @interface SHHTTPTask ()
@@ -105,6 +117,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body, id parse
         id json = (parseJSON && !error && responseBody.length) ? [SHUtils JSONObjectFromData:responseBody] : nil;
         CFAbsoluteTime parseEnd = CFAbsoluteTimeGetCurrent();
         NSDictionary *challenge = error ? nil : SHChallengeInReply(status, responseBody, json);
+        NSDictionary *loggedOut = error ? nil : SHLoginRequiredInReply(url, status, responseBody, json);
         if (SHNetLogging() && ![url.host hasPrefix:@"127."]) {
             NSString *path = url.path ?: @"";
             if (path.length > 48) path = [[path substringToIndex:48] stringByAppendingString:@"..."];
@@ -121,6 +134,8 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body, id parse
                 if (path.length) info[@"path"] = path;
                 [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPChallengeRequiredNotification object:nil userInfo:info];
             }
+            if (loggedOut)
+                [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPLoginRequiredNotification object:nil userInfo:@{ @"json": loggedOut }];
             if (completion) completion(error ? 0 : status, responseBody, json, responseHeaders, error);
         });
     };

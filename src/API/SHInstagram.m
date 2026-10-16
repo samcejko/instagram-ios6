@@ -179,6 +179,8 @@ static NSString *SHEncryptPassword(NSString *password, NSString *pubKeyBase64, N
 
 #pragma mark - Response handling
 
+static NSString *SHValidSessionToken(NSString *token, NSString **userId);
+
 static void SHSaveTokensFromHeaders(NSDictionary *headers)
 {
     for (NSString *key in headers) {
@@ -186,13 +188,12 @@ static void SHSaveTokensFromHeaders(NSDictionary *headers)
         if ([lower isEqualToString:@"ig-set-authorization"]) {
             NSString *val = headers[key];
             if ([val hasPrefix:@"Bearer IGT:2:"]) {
-                NSString *token = [val substringFromIndex:@"Bearer IGT:2:".length];
+                // The token is base64(JSON) with ds_user_id/sessionid; pull the user id so the account loads
+                // without a separate request (the CAA login response carries no logged_in_user object).
+                NSString *uid = nil;
+                NSString *token = SHValidSessionToken([val substringFromIndex:@"Bearer IGT:2:".length], &uid);
                 if (token.length) {
                     [SHSettings setSessionToken:token];
-                    // The token is base64(JSON) with ds_user_id/sessionid; pull the user id so the account loads
-                    // without a separate request (the CAA login response carries no logged_in_user object).
-                    NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:token]]);
-                    NSString *uid = SHStr(claims[@"ds_user_id"]);
                     if (uid.length) [SHSettings setUserId:uid];
                 }
             }
@@ -257,17 +258,71 @@ static NSString *SHReadRun(NSString *s, NSUInteger start, NSCharacterSet *allowe
     return out;
 }
 
+// The run of allowed characters at `start` inside a JSON-escaped string: the escapes JSON puts into a string (\/ and
+// \uXXXX, behind any number of backslashes: the bloks body is JSON inside JSON inside JSON) are decoded, an escaped
+// quote or anything else ends it. A token's "/" arrives as \/ and its "=" padding can arrive as =: a plain run
+// stopped there and kept half a token.
+static NSString *SHReadEscapedRun(NSString *s, NSUInteger start, NSCharacterSet *allowed)
+{
+    NSMutableString *out = [NSMutableString string];
+    NSUInteger i = start, n = s.length;
+    while (i < n) {
+        unichar c = [s characterAtIndex:i];
+        if ([allowed characterIsMember:c]) { [out appendFormat:@"%C", c]; i++; continue; }
+        if (c != '\\') break;
+        NSUInteger j = i;
+        while (j < n && [s characterAtIndex:j] == '\\') j++;
+        if (j >= n) break;
+        unichar e = [s characterAtIndex:j], decoded = 0;
+        NSUInteger next = j + 1;
+        if (e == '/') {
+            decoded = '/';
+        } else if (e == 'u' && j + 4 < n) {
+            unsigned v = 0;
+            NSString *hex = [s substringWithRange:NSMakeRange(j + 1, 4)];
+            if ([hex rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"] invertedSet]].location == NSNotFound
+                && [[NSScanner scannerWithString:hex] scanHexInt:&v]) { decoded = (unichar)v; next = j + 5; }
+        }
+        if (!decoded || ![allowed characterIsMember:decoded]) break;
+        [out appendFormat:@"%C", decoded];
+        i = next;
+    }
+    return out;
+}
+
+// A session token is base64 of {"ds_user_id": …, "sessionid": …}. Only one that decodes to that counts (a cut one
+// signed in "successfully" and then every request answered login_required: "Your session expired"); the base64
+// padding is put back when it went missing. Answers the token to keep (and its user id), or nil.
+static NSString *SHValidSessionToken(NSString *token, NSString **userId)
+{
+    if (token.length < 20) return nil;
+    NSString *t = token;
+    while (t.length % 4) t = [t stringByAppendingString:@"="];
+    NSString *standard = [[t stringByReplacingOccurrencesOfString:@"-" withString:@"+"] stringByReplacingOccurrencesOfString:@"_" withString:@"/"];
+    NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:standard]]);
+    NSString *uid = SHStr(claims[@"ds_user_id"]);
+    if (!uid.length || !SHStr(claims[@"sessionid"]).length) return nil;
+    if (userId) *userId = uid;
+    return t;
+}
+
 // On a successful CAA login the session arrives INSIDE the bloks payload (not in an ig-set-authorization header)
 // as an embedded "IG-Set-Authorization: Bearer IGT:2:<b64>" string. Lift the base64 token out (SHSettings stores
-// the part after "Bearer IGT:2:"). nil when the body has no token (a failure / 2FA / challenge screen).
-static NSString *SHExtractBearerFromBody(NSString *body)
+// the part after "Bearer IGT:2:"): the first one in the body that is a whole, valid token. nil when there is none
+// (a failure / 2FA / challenge screen).
+static NSString *SHExtractBearerFromBody(NSString *body, NSString **userId)
 {
-    NSRange r = [body rangeOfString:@"Bearer IGT:2:"];
-    if (r.location == NSNotFound) return nil;
     NSCharacterSet *tok = [NSCharacterSet characterSetWithCharactersInString:
         @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"];
-    NSString *t = SHReadRun(body, r.location + r.length, tok);
-    return t.length > 20 ? t : nil;
+    NSRange search = NSMakeRange(0, body.length);
+    while (search.length) {
+        NSRange r = [body rangeOfString:@"Bearer IGT:2:" options:0 range:search];
+        if (r.location == NSNotFound) break;
+        NSString *valid = SHValidSessionToken(SHReadEscapedRun(body, NSMaxRange(r), tok), userId);
+        if (valid) return valid;
+        search = NSMakeRange(NSMaxRange(r), body.length - NSMaxRange(r));
+    }
+    return nil;
 }
 
 // The www-claim ("hmac....") is embedded in the same block; keep it for later requests.
@@ -278,8 +333,8 @@ static NSString *SHExtractClaimFromBody(NSString *body)
     NSRange h = [body rangeOfString:@"hmac." options:0 range:NSMakeRange(r.location, MIN((NSUInteger)220, body.length - r.location))];
     if (h.location == NSNotFound) return nil;
     NSCharacterSet *claim = [NSCharacterSet characterSetWithCharactersInString:
-        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"];
-    NSString *c = SHReadRun(body, h.location, claim);
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-+/="];
+    NSString *c = SHReadEscapedRun(body, h.location, claim);
     return c.length > 5 ? c : nil;
 }
 
@@ -572,21 +627,35 @@ static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
                 // A successful CAA login carries the session INSIDE the bloks payload (no ig-set-authorization
                 // header), so lift the token / www-claim out of the body when the header path gave nothing.
                 if (![SHSettings isLoggedIn]) {
-                    NSString *tok = SHExtractBearerFromBody(bodyStr);
+                    NSString *uid = nil;
+                    NSString *tok = SHExtractBearerFromBody(bodyStr, &uid);
                     if (tok.length) {
                         [SHSettings setSessionToken:tok];
-                        NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:tok]]);
-                        NSString *uid = SHStr(claims[@"ds_user_id"]);
                         if (uid.length) [SHSettings setUserId:uid];
                         NSString *claim = SHExtractClaimFromBody(bodyStr);
                         if (claim.length) [SHSettings setWwwClaim:claim];
                     }
+                    if (SHDebugLogging())
+                        SHLog(@"CAALOGIN token %@ (%lu chars, %@)", tok.length ? @"valid" : @"none", (unsigned long)tok.length,
+                              [bodyStr rangeOfString:@"Bearer IGT:2:"].location != NSNotFound ? @"marker present" : @"no marker");
                 }
 
                 if ([SHSettings isLoggedIn]) {
                     [SHSettings setUsername:username];
                     [SHSettings save];
-                    completion(nil, nil, nil);      // signed in; the feed/profile load the account from the token
+                    // One look at the account before the app opens: a session Instagram does not take (it answers
+                    // login_required) is a failed sign-in here, not an app full of "Your session expired".
+                    [self currentUserWithCompletion:^(SHUser *user, NSError *verifyError) {
+                        if (verifyError && (verifyError.code == 401 || verifyError.code == 403) && verifyError.code != SHErrorChallenge
+                            && [verifyError.localizedDescription isEqualToString:L(@"Your session expired. Please log in again.")]) {
+                            if (SHDebugLogging()) SHLog(@"CAALOGIN session refused by current_user (HTTP %ld)", (long)verifyError.code);
+                            [SHSettings logout];
+                            completion(nil, nil, SHMakeError(SHErrorAuth, L(@"Instagram didn't accept the sign-in from this app. Please try again in a few minutes.")));
+                            return;
+                        }
+                        if (user.username.length) [SHSettings setUsername:user.username];
+                        completion(nil, nil, nil);   // signed in (a network hiccup here is not a failed sign-in)
+                    }];
                     return;
                 }
 
