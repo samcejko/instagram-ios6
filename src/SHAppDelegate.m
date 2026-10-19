@@ -444,6 +444,12 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
             SHLog(@"press -> tap recognizer of %@", NSStringFromClass([v class]));
             return;
         }
+        if ([v isKindOfClass:[UISwitch class]]) {
+            UISwitch *control = (UISwitch *)v;
+            [control setOn:!control.on animated:YES];
+            [control sendActionsForControlEvents:UIControlEventValueChanged];
+            return;
+        }
         if ([v isKindOfClass:[UIControl class]]) {
             [(UIControl *)v sendActionsForControlEvents:UIControlEventTouchUpInside];
             return;
