@@ -1445,6 +1445,15 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 {
     NSString *from = nil;
     BOOL session = SHKeepSessionFromAnswer(answer, bodyStr, nil, &from);
+    // The short login endpoint can reject its request format as obsolete.
+    // Use the existing current-app preflight once before presenting that
+    // refusal. The full attempt has no retry block, so this cannot loop.
+    BOOL needsUpgrade = [SHStr(answer[@"error_type"]) isEqualToString:@"needs_upgrade"] ||
+        (bodyStr.length && [bodyStr rangeOfString:@"out of date" options:NSCaseInsensitiveSearch].location != NSNotFound);
+    if (!session && needsUpgrade && retry && !task.isCancelled) {
+        retry();
+        return;
+    }
     // a plain refusal (a wrong password, no such account) is that, whatever screens the answer also names
     NSString *refusal = session ? nil : SHExtractBloksError(bodyStr);
     if (refusal.length) { completion(nil, SHMakeError(status ?: SHErrorAPI, refusal)); return; }

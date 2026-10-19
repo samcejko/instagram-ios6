@@ -213,6 +213,7 @@ jobs:
           ls -la packages/
 
       - name: Upload packages
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -236,6 +237,7 @@ jobs:
 
       - name: Upload build log
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ matrix.name }}
