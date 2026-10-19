@@ -243,3 +243,12 @@ jobs:
           name: build-log-${{ matrix.name }}
           path: build.log
           if-no-files-found: ignore
+
+      - name: Save verification packages in a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="feedback-${{ github.run_id }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Feedback verification ${{ github.run_id }}" --notes "Unpublished packages for device verification." || true
+          gh release upload "$TAG" packages/*.ipa packages/*.deb --clobber
