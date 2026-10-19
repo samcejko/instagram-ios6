@@ -222,19 +222,6 @@ jobs:
             packages/*.deb
           if-no-files-found: error
 
-      - name: Upload to release (artifact quota fallback)
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ls packages/*.ipa packages/*.deb 2>/dev/null || exit 0
-          TAG="ci-${{ matrix.name }}"
-          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          gh release create "$TAG" packages/*.ipa packages/*.deb \
-            --title "CI ${{ matrix.name }}" \
-            --notes "run=${{ github.run_id }} sha=${{ github.sha }}" \
-            --prerelease
-
       - name: Upload build log
         if: always()
         continue-on-error: true
@@ -249,6 +236,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          TAG="feedback-${{ github.run_id }}"
+          TAG="feedback-${{ github.run_id }}-${{ matrix.name }}"
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Feedback verification ${{ github.run_id }}" --notes "Unpublished packages for device verification." || true
           gh release upload "$TAG" packages/*.ipa packages/*.deb --clobber
