@@ -115,7 +115,7 @@
 {
     SHTheme *theme = [SHTheme shared];
     UITextField *f = [[UITextField alloc] initWithFrame:frame];
-    f.placeholder = placeholder;
+    f.attributedPlaceholder = [[NSAttributedString alloc] initWithString:placeholder attributes:@{NSForegroundColorAttributeName: [theme secondaryTextColor]}];
     f.borderStyle = UITextBorderStyleNone;   // (the rounded group around both is the field's frame)
     f.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     f.font = [UIFont systemFontOfSize:16];
