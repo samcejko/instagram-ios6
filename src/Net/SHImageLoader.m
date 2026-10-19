@@ -1,4 +1,5 @@
 #import "SHImageLoader.h"
+#import "SHSettings.h"
 #import "SHHTTP.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
@@ -105,19 +106,24 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
     if (!result && count > 0) {
         CGFloat limit = maxPixels > 0 ? maxPixels : 1024;
         CGImageRef image = NULL;
-        CGImageRef raw = CGImageSourceCreateImageAtIndex(source, 0, NULL);
-        if (raw && (CGFloat)MAX(CGImageGetWidth(raw), CGImageGetHeight(raw)) > limit) {
+        NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
+        CGFloat width = [properties[(__bridge id)kCGImagePropertyPixelWidth] doubleValue];
+        CGFloat height = [properties[(__bridge id)kCGImagePropertyPixelHeight] doubleValue];
+        if (MAX(width, height) > limit) {
             NSDictionary *options = @{
                 (__bridge id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
                 (__bridge id)kCGImageSourceThumbnailMaxPixelSize: @(limit),
                 (__bridge id)kCGImageSourceCreateThumbnailWithTransform: @YES,
             };
             image = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
-        } else if (raw) {
-            image = SHCreateDecodedImage(raw);
-            if (!image) image = CGImageRetain(raw);
+        } else {
+            CGImageRef raw = CGImageSourceCreateImageAtIndex(source, 0, NULL);
+            if (raw) {
+                image = SHCreateDecodedImage(raw);
+                if (!image) image = CGImageRetain(raw);
+                CGImageRelease(raw);
+            }
         }
-        if (raw) CGImageRelease(raw);
         if (image) {
             if (costOut) *costOut = CGImageGetBytesPerRow(image) * CGImageGetHeight(image);
             result = [UIImage imageWithCGImage:image scale:1.0 orientation:UIImageOrientationUp];
@@ -139,6 +145,7 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
 @end
 
 @interface SHImageJob : NSObject
+@property (nonatomic) BOOL dataSaver;
 @property (nonatomic, copy) NSString *url;
 @property (nonatomic) CGFloat maxPixels;
 @property (nonatomic, strong) NSMutableArray *tokens;
@@ -222,6 +229,7 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
     if (!job) {
         job = [[SHImageJob alloc] init];
         job.url = url;
+        job.dataSaver = [SHSettings dataSaver];
         job.maxPixels = maxPixels;
         job.tokens = [NSMutableArray array];
         self.jobs[url] = job;
@@ -297,8 +305,8 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
 {
     NSString *url = job.url;
     NSString *path = [self pathForURL:url];
-    CGFloat maxPixels = job.maxPixels;
-    BOOL animate = self.animationAllowed;
+    CGFloat maxPixels = job.dataSaver ? MIN(job.maxPixels > 0 ? job.maxPixels : 1024, 480) : job.maxPixels;
+    BOOL animate = self.animationAllowed && !job.dataSaver;
     NSUInteger budget = [self animationBudget];
     dispatch_async(self.workQueue, ^{
         @autoreleasepool {
@@ -317,8 +325,8 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
 
 - (void)downloadJob:(SHImageJob *)job path:(NSString *)path
 {
-    CGFloat maxPixels = job.maxPixels;
-    BOOL animate = self.animationAllowed;
+    CGFloat maxPixels = job.dataSaver ? MIN(job.maxPixels > 0 ? job.maxPixels : 1024, 480) : job.maxPixels;
+    BOOL animate = self.animationAllowed && !job.dataSaver;
     NSUInteger budget = [self animationBudget];
     NSDictionary *headers = @{ @"Accept": @"image/png,image/gif,image/jpeg,image/*;q=0.8,*/*;q=0.5" };
     [SHHTTP get:job.url headers:headers completion:^(NSInteger status, NSData *body, NSDictionary *responseHeaders, NSError *error) {
@@ -342,7 +350,7 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
     self.running--;
     if (self.jobs[job.url] == job) [self.jobs removeObjectForKey:job.url];
     if (image) {
-        [self.memory setObject:image forKey:job.url cost:MAX(cost, (NSUInteger)1024)];
+        if (job.dataSaver == [SHSettings dataSaver]) [self.memory setObject:image forKey:job.url cost:MAX(cost, (NSUInteger)1024)];
         [self.failed removeObjectForKey:job.url];
     } else {
         self.failed[job.url] = [NSDate date];

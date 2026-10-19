@@ -18,6 +18,7 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
         @"userId": @"",
         @"username": @"",
         @"messageSounds": @YES,
+        @"dataSaver": @NO,
     }];
     if (![DEF stringForKey:@"deviceId"].length)
         [DEF setObject:[[NSUUID UUID] UUIDString] forKey:@"deviceId"];
@@ -85,6 +86,25 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
 
 #pragma mark - Appearance / network
 
++ (BOOL)dataSaver { return [DEF boolForKey:@"dataSaver"]; }
++ (void)setDataSaver:(BOOL)value { [DEF setBool:value forKey:@"dataSaver"]; [self save]; [self notify]; }
++ (NSString *)threadThemeKey:(NSString *)threadId
+{
+    return [NSString stringWithFormat:@"chatTheme.%@.%@", [self userId], threadId];
+}
++ (NSInteger)themeForThread:(NSString *)threadId
+{
+    if (!threadId.length || ![self userId].length) return 0;
+    NSInteger value = [DEF integerForKey:[self threadThemeKey:threadId]];
+    return value >= 0 && value <= 3 ? value : 0;
+}
++ (void)setTheme:(NSInteger)theme forThread:(NSString *)threadId
+{
+    if (!threadId.length || ![self userId].length || theme < 0 || theme > 3) return;
+    NSString *key = [self threadThemeKey:threadId];
+    if (theme) [DEF setInteger:theme forKey:key]; else [DEF removeObjectForKey:key];
+    [self save];
+}
 + (BOOL)darkTheme { return [DEF boolForKey:@"darkTheme"]; }
 + (void)setDarkTheme:(BOOL)value { [DEF setBool:value forKey:@"darkTheme"]; [self notify]; }
 + (BOOL)messageSounds { return [DEF boolForKey:@"messageSounds"]; }

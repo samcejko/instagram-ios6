@@ -514,6 +514,7 @@ static NSData *SHJPEGForSending(UIImage *image, UIImage **thumb)
 @property (nonatomic, strong) NSData *pendingJPEG;
 @property (nonatomic, strong) UIImage *pendingImage;
 @property (nonatomic, strong) UIPopoverController *pickerPopover;
+@property (nonatomic, strong) UIActionSheet *themeSheet;
 @property (nonatomic, strong) UIActionSheet *photoSheet;     // "Take Photo / Choose Existing" while it is up
 @property (nonatomic) CGFloat keyboardOverlap;
 @property (nonatomic, strong) UIView *requestBar;            // a message request: Accept / Delete over the bar
@@ -576,6 +577,9 @@ static const CGFloat SHReplyH = 40;   // the strip of the message being answered
     titleButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [titleButton addTarget:self action:@selector(titleTapped) forControlEvents:UIControlEventTouchUpInside];
     self.navigationItem.titleView = titleButton;
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:L(@"Chat theme")
+        style:UIBarButtonItemStyleBordered target:self action:@selector(chooseConversationTheme)];
+    self.navigationItem.rightBarButtonItem.enabled = _thread.threadId.length > 0;
 
     _tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, self.view.bounds.size.height - SHBarH) style:UITableViewStylePlain];
     _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -583,6 +587,7 @@ static const CGFloat SHReplyH = 40;   // the strip of the message being answered
     _tableView.delegate = self;
     _tableView.allowsSelection = NO;
     [theme applyToTableView:_tableView];
+    [self applyConversationTheme];
     _tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     [self.view addSubview:_tableView];
 
@@ -786,6 +791,11 @@ static const CGFloat SHReplyH = 40;   // the strip of the message being answered
 - (void)closeTransientUI
 {
     [[UIMenuController sharedMenuController] setMenuVisible:NO animated:NO];
+    if (_themeSheet) {
+        _themeSheet.delegate = nil;
+        [_themeSheet dismissWithClickedButtonIndex:_themeSheet.cancelButtonIndex animated:NO];
+        _themeSheet = nil;
+    }
     if (_photoSheet) {
         _photoSheet.delegate = nil;
         [_photoSheet dismissWithClickedButtonIndex:_photoSheet.cancelButtonIndex animated:NO];
@@ -1394,6 +1404,25 @@ static BOOL SHRealtimeLogging(void)
 
 #pragma mark - Photos
 
+- (void)applyConversationTheme
+{
+    UIColor *color = [[SHTheme shared] conversationBackground:[SHSettings themeForThread:_thread.threadId]];
+    self.view.backgroundColor = color;
+    _tableView.backgroundView = nil;
+    _tableView.backgroundColor = color;
+    [_tableView reloadData];
+}
+
+- (void)chooseConversationTheme
+{
+    if (_themeSheet) return;
+    [_inputField resignFirstResponder];
+    _themeSheet = [[UIActionSheet alloc] initWithTitle:L(@"Chat theme local") delegate:self
+        cancelButtonTitle:L(@"Cancel") destructiveButtonTitle:nil
+        otherButtonTitles:L(@"Default theme"), L(@"Ocean"), L(@"Forest"), L(@"Lavender"), nil];
+    [_themeSheet showFromBarButtonItem:self.navigationItem.rightBarButtonItem animated:YES];
+}
+
 - (void)cameraTapped:(UIButton *)button
 {
     [_inputField resignFirstResponder];
@@ -1408,6 +1437,14 @@ static BOOL SHRealtimeLogging(void)
 
 - (void)actionSheet:(UIActionSheet *)sheet didDismissWithButtonIndex:(NSInteger)index
 {
+    if (sheet == _themeSheet) {
+        _themeSheet = nil;
+        if (index >= 0 && index < 4 && index != sheet.cancelButtonIndex) {
+            [SHSettings setTheme:index forThread:_thread.threadId];
+            [self applyConversationTheme];
+        }
+        return;
+    }
     if (sheet == _photoSheet) _photoSheet = nil;
     if (index < 0 || index == sheet.cancelButtonIndex) return;
     NSString *title = [sheet buttonTitleAtIndex:index];
@@ -1915,6 +1952,7 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
     if (_seenPk && [m.pk isEqualToString:_seenPk]) timeText = [NSString stringWithFormat:@"%@  %@", timeText, L(@"Seen")];
     [cell configureWithMessage:m outgoing:outgoing sender:_usersByPk[m.senderPk ?: @""] showAvatar:lastOfRun
                          width:tableView.bounds.size.width playing:playing progress:playing ? _voiceProgress : 0 timeText:timeText];
+    if (cell.bubble.image) cell.bubble.image = [[SHTheme shared] bubbleImageOutgoing:outgoing palette:[SHSettings themeForThread:_thread.threadId]];
     return cell;
 }
 

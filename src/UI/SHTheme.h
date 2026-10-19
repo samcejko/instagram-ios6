@@ -64,6 +64,8 @@
 - (UIImage *)cellSelectedBackgroundImage;   // the blue selection of iOS 6
 - (UIImage *)headerBarImage;                // the glossy strip above a post
 - (UIImage *)bubbleImageOutgoing:(BOOL)outgoing;   // glossy chat bubbles with their tail (stretchable)
+- (UIImage *)bubbleImageOutgoing:(BOOL)outgoing palette:(NSInteger)palette;
+- (UIColor *)conversationBackground:(NSInteger)palette;
 - (CGFloat)bubbleTailWidth;
 - (UIImage *)statBoxImage;                  // the box behind the counts of a profile
 - (UIImage *)storyRingImageWithSize:(CGFloat)size seen:(BOOL)seen;

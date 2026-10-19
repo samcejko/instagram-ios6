@@ -5,6 +5,7 @@
 #import "SHTheme.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
+#import "SHImageLoader.h"
 
 @interface SHSettingsViewController () <UITableViewDataSource, UITableViewDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
@@ -40,7 +41,8 @@ enum { SHSectionAccount, SHSectionLook, SHSectionSounds, SHSectionNetwork, SHSec
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-    if (section == SHSectionLook || section == SHSectionNetwork) return 2;
+    if (section == SHSectionNetwork) return 3;
+    if (section == SHSectionLook) return 2;
     return 1;
 }
 
@@ -51,6 +53,11 @@ enum { SHSectionAccount, SHSectionLook, SHSectionSounds, SHSectionNetwork, SHSec
     if (section == SHSectionSounds) return L(@"Sounds");
     if (section == SHSectionNetwork) return L(@"Network");
     return nil;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
+{
+    return section == SHSectionNetwork ? L(@"Data saver details") : nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -90,6 +97,15 @@ enum { SHSectionAccount, SHSectionLook, SHSectionSounds, SHSectionNetwork, SHSec
             UISwitch *sw = [[UISwitch alloc] init];
             sw.on = [SHSettings verifyTLS];
             sw.tag = 1;
+            [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = sw;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (indexPath.row == 2) {
+            cell.textLabel.text = L(@"Data saver");
+            cell.detailTextLabel.text = nil;
+            UISwitch *sw = [[UISwitch alloc] init];
+            sw.on = [SHSettings dataSaver];
+            sw.tag = 3;
             [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = sw;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -137,6 +153,10 @@ enum { SHSectionAccount, SHSectionLook, SHSectionSounds, SHSectionNetwork, SHSec
 {
     if (sw.tag == 1) [SHSettings setVerifyTLS:sw.on];
     if (sw.tag == 2) [SHSettings setMessageSounds:sw.on];
+    if (sw.tag == 3) {
+        [SHSettings setDataSaver:sw.on];
+        [[SHImageLoader shared] clearMemory];
+    }
 }
 
 #pragma mark - UIAlertViewDelegate

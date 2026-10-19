@@ -25,6 +25,10 @@
 
 + (void)logout;
 
++ (BOOL)dataSaver;
++ (void)setDataSaver:(BOOL)value;
++ (NSInteger)themeForThread:(NSString *)threadId;
++ (void)setTheme:(NSInteger)theme forThread:(NSString *)threadId;
 + (BOOL)darkTheme;
 + (void)setDarkTheme:(BOOL)value;
 + (BOOL)messageSounds;                   // the sounds of a message coming in and going out (default on)

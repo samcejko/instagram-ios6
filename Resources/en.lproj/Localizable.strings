@@ -262,3 +262,12 @@
 "Light" = "Light";
 "Sounds" = "Sounds";
 "Message sounds" = "Message sounds";
+
+"Data saver" = "Data saver";
+"Data saver details" = "Smaller images and videos, with still previews for animated images. Quality changes apply when content is loaded again.";
+"Chat theme" = "Chat theme";
+"Chat theme local" = "Theme for this chat on this device only";
+"Default theme" = "Default theme";
+"Ocean" = "Ocean";
+"Forest" = "Forest";
+"Lavender" = "Lavender";

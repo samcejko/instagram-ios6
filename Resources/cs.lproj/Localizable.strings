@@ -262,3 +262,12 @@
 "Light" = "Světlý";
 "Sounds" = "Zvuky";
 "Message sounds" = "Zvuky zpráv";
+
+"Data saver" = "Úsporné načítání";
+"Data saver details" = "Menší obrázky a videa, animované obrázky bez pohybu. Změna kvality se projeví při novém načtení obsahu.";
+"Chat theme" = "Vzhled chatu";
+"Chat theme local" = "Vzhled pouze pro tento chat na tomto zařízení";
+"Default theme" = "Výchozí vzhled";
+"Ocean" = "Oceán";
+"Forest" = "Les";
+"Lavender" = "Levandule";

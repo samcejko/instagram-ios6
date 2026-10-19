@@ -955,7 +955,21 @@ static UIImage *SHRowImage(UIColor *top, UIColor *bottom, UIColor *highlight, UI
 // tail swept out of the bottom corner on the speaker's side. Stretchable around a small middle.
 - (UIImage *)bubbleImageOutgoing:(BOOL)outgoing
 {
-    return [self cachedImage:outgoing ? @"bubble-out" : @"bubble-in" builder:^UIImage *{
+    return [self bubbleImageOutgoing:outgoing palette:0];
+}
+
+- (UIColor *)conversationBackground:(NSInteger)palette
+{
+    if (palette == 1) return self.dark ? RGB(22, 34, 49) : RGB(222, 235, 248);
+    if (palette == 2) return self.dark ? RGB(23, 39, 33) : RGB(226, 241, 229);
+    if (palette == 3) return self.dark ? RGB(39, 28, 49) : RGB(238, 228, 246);
+    return [self linenColor];
+}
+
+- (UIImage *)bubbleImageOutgoing:(BOOL)outgoing palette:(NSInteger)palette
+{
+    NSString *key = [NSString stringWithFormat:@"bubble-%d-%ld", outgoing, (long)palette];
+    return [self cachedImage:key builder:^UIImage *{
         CGFloat r = 14, tail = [self bubbleTailWidth], w = r * 2 + tail + 8, h = r * 2 + 6;
         CGFloat x0 = 0.5, x1 = w - tail - 0.5, y0 = 0.5, y1 = h - 0.5;
         UIBezierPath *path = [UIBezierPath bezierPath];
@@ -976,6 +990,8 @@ static UIImage *SHRowImage(UIColor *top, UIColor *bottom, UIColor *highlight, UI
         if (outgoing) { top = RGB(96, 178, 255); bottom = RGB(20, 108, 228); rim = RGB(12, 74, 166); gloss = 0.36; }
         else if (self.dark) { top = RGB(86, 87, 94); bottom = RGB(55, 56, 62); rim = RGB(20, 20, 24); gloss = 0.17; }
         else { top = RGB(243, 243, 246); bottom = RGB(217, 218, 225); rim = RGB(168, 170, 178); gloss = 0.7; }
+        if (outgoing && palette == 2) { top = RGB(66, 152, 113); bottom = RGB(24, 102, 67); rim = RGB(15, 68, 43); }
+        if (outgoing && palette == 3) { top = RGB(151, 107, 192); bottom = RGB(100, 59, 148); rim = RGB(66, 37, 99); }
 
         UIImage *image = SHDrawImage(CGSizeMake(w, h), ^(CGContextRef ctx) {
             CGContextSaveGState(ctx);
