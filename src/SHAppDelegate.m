@@ -438,16 +438,20 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     UIWindow *win = [UIApplication sharedApplication].keyWindow;
     UIView *hit = [win hitTest:pt withEvent:nil];
     SHLog(@"press (%.0f,%.0f) -> %@", pt.x, pt.y, NSStringFromClass([hit class]));
+    // On iOS 6 the hit is a private control inside UISwitch. Find the public
+    // switch before dispatching a button event to that internal control.
+    for (UIView *ancestor = hit; ancestor; ancestor = ancestor.superview) {
+        if ([ancestor isKindOfClass:[UISwitch class]]) {
+            UISwitch *control = (UISwitch *)ancestor;
+            [control setOn:!control.on animated:YES];
+            [control sendActionsForControlEvents:UIControlEventValueChanged];
+            return;
+        }
+    }
     UIView *v = hit;
     while (v) {
         if (SHDebugFireTapRecognizers(v)) {
             SHLog(@"press -> tap recognizer of %@", NSStringFromClass([v class]));
-            return;
-        }
-        if ([v isKindOfClass:[UISwitch class]]) {
-            UISwitch *control = (UISwitch *)v;
-            [control setOn:!control.on animated:YES];
-            [control sendActionsForControlEvents:UIControlEventValueChanged];
             return;
         }
         if ([v isKindOfClass:[UIControl class]]) {
