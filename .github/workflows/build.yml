@@ -184,7 +184,7 @@ jobs:
         run: |
           export PATH="$THEOS/toolchain/linux/iphone/bin:$THEOS/bin:$PATH"
           SDK="$THEOS/sdks/iPhoneOS9.3.sdk"
-          FLAGS="-target armv7-apple-ios6.0 -isysroot $SDK -fsyntax-only -w -ferror-limit=0 \
+          FLAGS="-target armv7-apple-ios${COMPATIBILITY_MIN:-6.0} -isysroot $SDK -fsyntax-only -Wunguarded-availability -Werror=unguarded-availability -ferror-limit=0 \
                  -Isrc -Isrc/Net -Isrc/API -Isrc/UI -Isrc/Util -Ivendor -Ivendor/mbedtls/include -Ivendor/mbedtls/library"
           status=0
           for f in $(find src -name '*.m' | sort); do
