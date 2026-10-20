@@ -229,8 +229,12 @@ static NSString *SHShortcodeFromPk(NSString *pk)
 - (void)closePopover
 {
     if (!_popover) return;
-    if ([_popover.contentViewController isKindOfClass:[UIActivityViewController class]])
+    Class activityClass = NSClassFromString(@"UIActivityViewController");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+    if (activityClass && [_popover.contentViewController isKindOfClass:activityClass])
         [(UIActivityViewController *)_popover.contentViewController setCompletionHandler:nil];
+#pragma clang diagnostic pop
     [_popover dismissPopoverAnimated:NO];
     _popover = nil;
 }
@@ -436,7 +440,13 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     NSURL *url = [SHShareViewController webURLForPost:_post];
     if (!url) return;
     if (SHModernIOS()) { [SHExternalOpen presentShareSheetForURL:url from:self anchor:button]; return; }
+    if (!NSClassFromString(@"UIActivityViewController")) {
+        [SHExternalOpen presentShareSheetForURL:url from:self anchor:button];
+        return;
+    }
     // iOS 6: the system's own sheet (Mail, Messages, Twitter, Facebook, Copy); in a popover on the iPad
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[ url ] applicationActivities:nil];
     if (SHIsPad()) {
         _popover = [[UIPopoverController alloc] initWithContentViewController:activity];
@@ -449,6 +459,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
         return;
     }
     [self presentViewController:activity animated:YES completion:nil];
+#pragma clang diagnostic pop
 }
 
 - (BOOL)shouldAutorotateToInterfaceOrientation:(UIInterfaceOrientation)orient

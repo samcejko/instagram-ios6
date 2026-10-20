@@ -285,9 +285,9 @@ static const CGFloat SHDetailHeaderH = 50;
         NSString *user = _post.user.username ?: @"";
         NSString *text = [NSString stringWithFormat:@"%@ %@", user, [SHUtils displayText:_post.captionText]];
         NSMutableAttributedString *cap = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
-            NSFontAttributeName: [UIFont systemFontOfSize:14], NSForegroundColorAttributeName: [theme textColor] }];
+            SHTextFontAttributeName: [UIFont systemFontOfSize:14], SHTextColorAttributeName: [theme textColor] }];
         NSRange nameRange = NSMakeRange(0, MIN(user.length, text.length));
-        [cap addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:14], NSForegroundColorAttributeName: [theme linkColor] }
+        [cap addAttributes:@{ SHTextFontAttributeName: [UIFont boldSystemFontOfSize:14], SHTextColorAttributeName: [theme linkColor] }
                      range:nameRange];
         caption.attributedText = cap;
         [caption addUserLinkWithRange:nameRange username:user pk:_post.user.pk];

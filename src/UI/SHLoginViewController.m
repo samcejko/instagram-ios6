@@ -115,7 +115,14 @@
 {
     SHTheme *theme = [SHTheme shared];
     UITextField *f = [[UITextField alloc] initWithFrame:frame];
-    f.attributedPlaceholder = [[NSAttributedString alloc] initWithString:placeholder attributes:@{NSForegroundColorAttributeName: [theme secondaryTextColor]}];
+    if ([f respondsToSelector:@selector(setAttributedPlaceholder:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        f.attributedPlaceholder = [[NSAttributedString alloc] initWithString:placeholder attributes:@{NSForegroundColorAttributeName: [theme secondaryTextColor]}];
+#pragma clang diagnostic pop
+    } else {
+        f.placeholder = placeholder;
+    }
     f.borderStyle = UITextBorderStyleNone;   // (the rounded group around both is the field's frame)
     f.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     f.font = [UIFont systemFontOfSize:16];

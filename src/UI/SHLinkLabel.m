@@ -1,4 +1,6 @@
 #import "SHLegacyCollections.h"
+NSString * const SHTextFontAttributeName = @"SHTextFont";
+NSString * const SHTextColorAttributeName = @"SHTextColor";
 #import "SHLinkLabel.h"
 #import "SHLinkRouter.h"
 #import "SHTheme.h"
@@ -48,8 +50,8 @@ static id SHParagraph(UITextAlignment alignment)
     NSNumber *key = @(alignment);
     id style = [styles objectForKey:key];
     if (!style) {
-        CTTextAlignment a = alignment == UITextAlignmentCenter ? kCTTextAlignmentCenter
-                          : alignment == UITextAlignmentRight ? kCTTextAlignmentRight : kCTTextAlignmentLeft;
+        CTTextAlignment a = alignment == UITextAlignmentCenter ? kCTCenterTextAlignment
+                          : alignment == UITextAlignmentRight ? kCTRightTextAlignment : kCTLeftTextAlignment;
         CTLineBreakMode lb = kCTLineBreakByWordWrapping;
         CTParagraphStyleSetting settings[2] = {
             { kCTParagraphStyleSpecifierAlignment, sizeof(a), &a },
@@ -78,8 +80,8 @@ static NSAttributedString *SHCoreTextString(NSAttributedString *text, UIFont *fo
     NSString *colorKey = (__bridge NSString *)kCTForegroundColorAttributeName;
     NSString *paragraphKey = (__bridge NSString *)kCTParagraphStyleAttributeName;
     [text enumerateAttributesInRange:NSMakeRange(0, s.length) options:0 usingBlock:^(NSDictionary *attrs, NSRange range, BOOL *stop) {
-        UIFont *f = [[attrs objectForKey:NSFontAttributeName] isKindOfClass:[UIFont class]] ? [attrs objectForKey:NSFontAttributeName] : font;
-        UIColor *c = [[attrs objectForKey:NSForegroundColorAttributeName] isKindOfClass:[UIColor class]] ? [attrs objectForKey:NSForegroundColorAttributeName] : color;
+        UIFont *f = [[attrs objectForKey:SHTextFontAttributeName] isKindOfClass:[UIFont class]] ? [attrs objectForKey:SHTextFontAttributeName] : font;
+        UIColor *c = [[attrs objectForKey:SHTextColorAttributeName] isKindOfClass:[UIColor class]] ? [attrs objectForKey:SHTextColorAttributeName] : color;
         id ctFont = SHCTFont(f);
         NSMutableDictionary *a = [NSMutableDictionary dictionaryWithObject:paragraph forKey:paragraphKey];
         if (ctFont) SHLegacyDictionarySet(a, fontKey, ctFont);
@@ -318,7 +320,7 @@ static CGFloat SHDistanceToRect(CGRect r, CGPoint p)
 static NSString *SHMeasureKey(NSAttributedString *text, CGFloat width, NSInteger lines)
 {
     NSMutableString *key = [NSMutableString stringWithFormat:@"%.1f|%ld|", width, (long)lines];
-    [text enumerateAttribute:NSFontAttributeName inRange:NSMakeRange(0, text.length) options:0 usingBlock:^(id value, NSRange range, BOOL *stop) {
+    [text enumerateAttribute:SHTextFontAttributeName inRange:NSMakeRange(0, text.length) options:0 usingBlock:^(id value, NSRange range, BOOL *stop) {
         UIFont *f = [value isKindOfClass:[UIFont class]] ? value : nil;
         [key appendFormat:@"%@%.1f@%lu+%lu,", f.fontName ?: @"-", f ? f.pointSize : 0, (unsigned long)range.location, (unsigned long)range.length];
     }];
@@ -344,7 +346,7 @@ static NSString *SHMeasureKey(NSAttributedString *text, CGFloat width, NSInteger
 + (CGSize)sizeForText:(NSString *)text font:(UIFont *)font width:(CGFloat)width lines:(NSInteger)lines
 {
     if (!text.length) return CGSizeZero;
-    NSAttributedString *a = [[NSAttributedString alloc] initWithString:text attributes:@{ NSFontAttributeName: font ?: [UIFont systemFontOfSize:14] }];
+    NSAttributedString *a = [[NSAttributedString alloc] initWithString:text attributes:@{ SHTextFontAttributeName: font ?: [UIFont systemFontOfSize:14] }];
     return [self sizeForAttributedText:a width:width lines:lines];
 }
 

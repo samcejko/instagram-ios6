@@ -93,9 +93,9 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
     if (m.repliedToText.length) {
         NSString *quoted = [NSString stringWithFormat:L(@"“%@”"), [SHUtils truncate:[SHUtils displayText:m.repliedToText] to:60]];
         [text appendAttributedString:[[NSAttributedString alloc] initWithString:[quoted stringByAppendingString:@"\n"]
-            attributes:@{ NSFontAttributeName: [UIFont italicSystemFontOfSize:SHBubbleFont - 3] }]];
+            attributes:@{ SHTextFontAttributeName: [UIFont italicSystemFontOfSize:SHBubbleFont - 3] }]];
     }
-    [text appendAttributedString:[[NSAttributedString alloc] initWithString:s.length ? s : @" " attributes:@{ NSFontAttributeName: font }]];
+    [text appendAttributedString:[[NSAttributedString alloc] initWithString:s.length ? s : @" " attributes:@{ SHTextFontAttributeName: font }]];
     return text;
 }
 

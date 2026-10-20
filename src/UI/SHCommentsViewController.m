@@ -20,8 +20,8 @@ static NSAttributedString *SHCommentText(SHComment *c)
     NSString *body = [SHUtils displayText:c.text] ?: @"";
     NSString *s = name.length ? [NSString stringWithFormat:@"%@ %@", name, body] : body;
     NSMutableAttributedString *a = [[NSMutableAttributedString alloc] initWithString:s attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:SHCommentFont], NSForegroundColorAttributeName: tc }];
-    if (name.length) [a addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:SHCommentFont] range:NSMakeRange(0, name.length)];
+        SHTextFontAttributeName: [UIFont systemFontOfSize:SHCommentFont], SHTextColorAttributeName: tc }];
+    if (name.length) [a addAttribute:SHTextFontAttributeName value:[UIFont boldSystemFontOfSize:SHCommentFont] range:NSMakeRange(0, name.length)];
     return a;
 }
 

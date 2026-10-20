@@ -5,6 +5,17 @@
 #import "SHModern.h"
 #import "SHCommon.h"
 
+static UIImage *SHStretchImage(UIImage *image, UIEdgeInsets caps)
+{
+    if ([image respondsToSelector:@selector(resizableImageWithCapInsets:resizingMode:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        return [image resizableImageWithCapInsets:caps resizingMode:UIImageResizingModeStretch];
+#pragma clang diagnostic pop
+    }
+    return [image stretchableImageWithLeftCapWidth:(NSInteger)caps.left topCapHeight:(NSInteger)caps.top];
+}
+
 static UIColor *RGB(NSInteger r, NSInteger g, NSInteger b)
 {
     return [UIColor colorWithRed:r / 255.0 green:g / 255.0 blue:b / 255.0 alpha:1.0];
@@ -47,7 +58,7 @@ static UIImage *SHRoundedGradientImage(UIColor *top, UIColor *bottom, UIColor *s
     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
     CGFloat cap = radius + 5;
-    return [image resizableImageWithCapInsets:UIEdgeInsetsMake(cap, cap, cap, cap) resizingMode:UIImageResizingModeStretch];
+    return SHStretchImage(image, UIEdgeInsetsMake(cap, cap, cap, cap));
 }
 
 // A bar background: top highlight hairline, gradient body, bottom line.
@@ -63,7 +74,7 @@ static UIImage *SHBarImage(UIColor *top, UIColor *bottom, UIColor *line, CGFloat
     UIRectFill(CGRectMake(0, height - 1, size.width, 1));
     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
-    return [image resizableImageWithCapInsets:UIEdgeInsetsMake(2, 1, 2, 1) resizingMode:UIImageResizingModeStretch];
+    return SHStretchImage(image, UIEdgeInsetsMake(2, 1, 2, 1));
 }
 
 // Draws with a block into an image of the given size (transparent background)
@@ -299,7 +310,7 @@ static UIImage *SHDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
             UIColor *a = [UIColor colorWithWhite:0 alpha:top ? 0.75 : 0.0], *b = [UIColor colorWithWhite:0 alpha:top ? 0.0 : 0.75];
             SHDrawVerticalGradient(ctx, CGRectMake(0, 0, 4, 64), a, b);
         });
-        return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, 1, 0, 1) resizingMode:UIImageResizingModeStretch];
+        return SHStretchImage(image, UIEdgeInsetsMake(0, 1, 0, 1));
     }];
 }
 
@@ -312,7 +323,7 @@ static UIImage *SHDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
             if (self.dark) SHDrawVerticalGradient(ctx, CGRectMake(0, 0, 4, 512), RGB(52, 53, 59), RGB(17, 17, 19));
             else SHDrawVerticalGradient(ctx, CGRectMake(0, 0, 4, 512), RGB(236, 238, 243), RGB(201, 205, 214));
         });
-        return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, 1, 0, 1) resizingMode:UIImageResizingModeStretch];
+        return SHStretchImage(image, UIEdgeInsetsMake(0, 1, 0, 1));
     }];
 }
 
@@ -359,7 +370,7 @@ static UIImage *SHCapsuleImage(UIColor *top, UIColor *bottom, UIColor *stroke, C
     [path stroke];
     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
-    return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, r, 0, r) resizingMode:UIImageResizingModeStretch];
+    return SHStretchImage(image, UIEdgeInsetsMake(0, r, 0, r));
 }
 
 - (UIImage *)capsuleImageSelected:(BOOL)selected highlighted:(BOOL)highlighted height:(CGFloat)height
@@ -924,7 +935,7 @@ static UIImage *SHRowImage(UIColor *top, UIColor *bottom, UIColor *highlight, UI
         [shadow setFill];
         UIRectFill(CGRectMake(0, 43, 4, 1));
     });
-    return [image resizableImageWithCapInsets:UIEdgeInsetsMake(2, 1, 2, 1) resizingMode:UIImageResizingModeStretch];
+    return SHStretchImage(image, UIEdgeInsetsMake(2, 1, 2, 1));
 }
 
 - (UIImage *)cellBackgroundImage
@@ -1012,7 +1023,7 @@ static UIImage *SHRowImage(UIColor *top, UIColor *bottom, UIColor *highlight, UI
         });
         CGFloat near = r + 1, far = r + tail + 1;
         UIEdgeInsets caps = outgoing ? UIEdgeInsetsMake(r + 1, near, r + 1, far) : UIEdgeInsetsMake(r + 1, far, r + 1, near);
-        return [image resizableImageWithCapInsets:caps resizingMode:UIImageResizingModeStretch];
+        return SHStretchImage(image, caps);
     }];
 }
 
@@ -1166,7 +1177,7 @@ static UIImage *SHShadowedGlyph(CGSize size, void (^draw)(CGContextRef ctx))
                 UIRectFill(CGRectMake(2, 5, 6, 1));
             }
         });
-        return [image resizableImageWithCapInsets:UIEdgeInsetsMake(0, 3, 0, 3) resizingMode:UIImageResizingModeStretch];
+        return SHStretchImage(image, UIEdgeInsetsMake(0, 3, 0, 3));
     }];
 }
 

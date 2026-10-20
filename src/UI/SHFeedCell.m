@@ -70,8 +70,8 @@ static NSAttributedString *SHCaptionAttributed(SHPost *post)
     SHTheme *theme = [SHTheme shared];
     NSUInteger nameLength = MIN(caption.length, post.user.username.length);
     NSMutableAttributedString *cap = [[NSMutableAttributedString alloc] initWithString:caption attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:SHCaptionFont], NSForegroundColorAttributeName: [theme textColor] }];
-    [cap addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:SHCaptionFont], NSForegroundColorAttributeName: [theme linkColor] }
+        SHTextFontAttributeName: [UIFont systemFontOfSize:SHCaptionFont], SHTextColorAttributeName: [theme textColor] }];
+    [cap addAttributes:@{ SHTextFontAttributeName: [UIFont boldSystemFontOfSize:SHCaptionFont], SHTextColorAttributeName: [theme linkColor] }
                  range:NSMakeRange(0, nameLength)];
     return cap;
 }

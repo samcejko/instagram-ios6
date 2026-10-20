@@ -1,3 +1,4 @@
+#import "SHLinkLabel.h"
 #import "SHActivityViewController.h"
 #import "SHProfileViewController.h"
 #import "SHPostDetailViewController.h"
@@ -14,7 +15,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
 
 @interface SHNewsCell : UITableViewCell
 @property (nonatomic, strong) SHImageView *avatar;
-@property (nonatomic, strong) UILabel *textView2;
+@property (nonatomic, strong) SHLinkLabel *textView2;
 @property (nonatomic, strong) UIImageView *clockView;
 @property (nonatomic, strong) UILabel *dateLabel;
 @property (nonatomic, strong) SHImageView *thumb;
@@ -29,13 +30,15 @@ static NSString * const SHNewsCellId = @"NewsCell";
         [theme styleAvatar:_avatar radius:5];
         _avatar.maxPixels = 128;
         [self.contentView addSubview:_avatar];
-        _textView2 = [[UILabel alloc] init];
+        _textView2 = [[SHLinkLabel alloc] init];
+        _textView2.userInteractionEnabled = NO;
+        _textView2.linkColor = [theme textColor];
         _textView2.numberOfLines = 2;
         _textView2.font = [UIFont systemFontOfSize:13];
         _textView2.textColor = [theme textColor];
-        _textView2.highlightedTextColor = [UIColor whiteColor];
         _textView2.backgroundColor = [UIColor clearColor];
-        [theme embossLabel:_textView2];
+        _textView2.shadowColor = theme.isDark ? [UIColor colorWithWhite:0 alpha:0.85] : [UIColor colorWithWhite:1 alpha:0.9];
+        _textView2.shadowOffset = theme.isDark ? CGSizeMake(0, -1) : CGSizeMake(0, 1);
         [self.contentView addSubview:_textView2];
         _clockView = [[UIImageView alloc] initWithImage:[theme clockGlyph]];
         [self.contentView addSubview:_clockView];
@@ -164,8 +167,8 @@ static NSString * const SHNewsCellId = @"NewsCell";
         NSString *who = [names componentsJoinedByString:@", "];
         if (n.requestUsers.count > names.count) who = [NSString stringWithFormat:L(@"%@ and others"), who];
         NSMutableAttributedString *a = [[NSMutableAttributedString alloc] initWithString:[NSString stringWithFormat:@"%@\n%@", n.text, who]
-            attributes:@{ NSFontAttributeName: [UIFont systemFontOfSize:13], NSForegroundColorAttributeName: [[SHTheme shared] secondaryTextColor] }];
-        [a addAttributes:@{ NSFontAttributeName: [UIFont boldSystemFontOfSize:14], NSForegroundColorAttributeName: [[SHTheme shared] textColor] }
+            attributes:@{ SHTextFontAttributeName: [UIFont systemFontOfSize:13], SHTextColorAttributeName: [[SHTheme shared] secondaryTextColor] }];
+        [a addAttributes:@{ SHTextFontAttributeName: [UIFont boldSystemFontOfSize:14], SHTextColorAttributeName: [[SHTheme shared] textColor] }
                    range:NSMakeRange(0, n.text.length)];
         cell.textView2.attributedText = a;
         cell.accessoryView = [[UIImageView alloc] initWithImage:[[SHTheme shared] disclosureChevronImage]];

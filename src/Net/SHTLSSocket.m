@@ -276,10 +276,21 @@ static int SHCopyAddrinfo(struct addrinfo *res, struct sockaddr_storage *out, in
     int gai;
 }
 @property (nonatomic, copy) NSString *host;
+#if OS_OBJECT_USE_OBJC
 @property (nonatomic, strong) dispatch_semaphore_t done;
+#else
+@property (nonatomic, assign) dispatch_semaphore_t done;
+#endif
 @end
 
 @implementation SHDNSJob
+
+- (void)dealloc
+{
+#if !OS_OBJECT_USE_OBJC
+    if (_done) dispatch_release(_done);
+#endif
+}
 @end
 
 static void SHSystemLookupStart(SHDNSJob *job)

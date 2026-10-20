@@ -1,5 +1,9 @@
 #import <UIKit/UIKit.h>
 
+// App-owned attributes translated to Core Text, available before UIKit rich text.
+extern NSString * const SHTextFontAttributeName;
+extern NSString * const SHTextColorAttributeName;
+
 typedef enum {
     SHTextLinkMention,   // "@name": the profile
     SHTextLinkHashtag,   // "#tag": the tag's posts
@@ -21,7 +25,7 @@ typedef enum {
 // lies under the label (a cell, a bubble), unless textTapHandler is set.
 @interface SHLinkLabel : UIView
 @property (nonatomic, copy) NSString *text;                       // in font and textColor
-@property (nonatomic, copy) NSAttributedString *attributedText;   // NSFontAttributeName / NSForegroundColorAttributeName kept
+@property (nonatomic, copy) NSAttributedString *attributedText;   // SHTextFontAttributeName / SHTextColorAttributeName kept
 @property (nonatomic, strong) UIFont *font;                       // default: system 14
 @property (nonatomic, strong) UIColor *textColor;
 @property (nonatomic, strong) UIColor *linkColor;                 // default: the theme's
