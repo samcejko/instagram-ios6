@@ -1371,7 +1371,7 @@ static BOOL SHRealtimeLogging(void)
 
 - (void)appendLocal:(SHDirectMessage *)m
 {
-    m.pk = [@"local-" stringByAppendingString:[[NSUUID UUID] UUIDString]];
+    m.pk = [@"local-" stringByAppendingString:SHUniqueIdentifier()];
     [_messages addObject:m];
     [_tableView reloadData];
     [self scrollToBottom:YES];

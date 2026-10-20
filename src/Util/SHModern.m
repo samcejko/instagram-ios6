@@ -19,7 +19,7 @@ static NSInteger SHMajorVersion(void)
     static NSInteger major = 0;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        major = [[[[UIDevice currentDevice] systemVersion] componentsSeparatedByString:@"."][0] integerValue];
+        major = [[[UIDevice currentDevice] systemVersion] integerValue];
         if (major < 1) major = 6;
     });
     return major;

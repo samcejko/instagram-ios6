@@ -1,3 +1,4 @@
+#include <limits.h>
 #import "SHHTTPRequest.h"
 #import "SHTLSSocket.h"
 #import "SHConnectionPool.h"
@@ -351,16 +352,33 @@ static dispatch_semaphore_t SHConnectionSlots(void)
                 if (bytes[i] == '\r' && bytes[i + 1] == '\n') { lineEnd = i; break; }
             }
             if (lineEnd == NSNotFound) return NO;   // need more data
-            NSString *line = [[NSString alloc] initWithBytes:bytes length:lineEnd encoding:NSASCIIStringEncoding] ?: @"";
+            NSString *line = [[NSString alloc] initWithBytes:bytes length:lineEnd encoding:NSASCIIStringEncoding];
+            if (!line) { self.bodyError = YES; return YES; }
             [buffer replaceBytesInRange:NSMakeRange(0, lineEnd + 2) withBytes:NULL length:0];
             if (self.chunkState == SHChunkStateTrailer) {
                 if (line.length == 0) { self.chunkState = SHChunkStateDone; return YES; }
                 continue;
             }
-            if (line.length == 0) continue;   // tolerate stray blank lines
+            if (line.length == 0) { self.bodyError = YES; return YES; }
             NSRange semi = [line rangeOfString:@";"];
             NSString *hex = semi.location == NSNotFound ? line : [line substringToIndex:semi.location];
-            unsigned long long size = strtoull([hex UTF8String], NULL, 16);
+            // Parse every digit and reject overflow before narrowing to signed storage.
+            const char *digits = [hex UTF8String];
+            unsigned long long size = 0;
+            if (!digits || !*digits) { self.bodyError = YES; return YES; }
+            NSUInteger digitCount = [hex lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+            for (NSUInteger i = 0; i < digitCount; i++) {
+                unsigned char c = (unsigned char)digits[i];
+                unsigned int digit;
+                if (c >= '0' && c <= '9') digit = c - '0';
+                else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+                else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+                else { self.bodyError = YES; return YES; }
+                if (size > ((unsigned long long)LLONG_MAX - digit) / 16) {
+                    self.bodyError = YES; return YES;
+                }
+                size = size * 16 + digit;
+            }
             if (size == 0) {
                 self.chunkState = SHChunkStateTrailer;
                 continue;
@@ -380,6 +398,9 @@ static dispatch_semaphore_t SHConnectionSlots(void)
         }
         if (self.chunkState == SHChunkStateDataEnd) {
             if (len < 2) return NO;
+            if (bytes[0] != '\r' || bytes[1] != '\n') {
+                self.bodyError = YES; return YES;
+            }
             [buffer replaceBytesInRange:NSMakeRange(0, 2) withBytes:NULL length:0];   // CRLF after the chunk
             self.chunkState = SHChunkStateSize;
             continue;
@@ -536,6 +557,10 @@ static dispatch_semaphore_t SHConnectionSlots(void)
             }
             // The body ends with the connection (also for incomplete chunked / content-length bodies).
             [self consumeBody:buffer];
+            if (self.bodyError) {
+                if (error) *error = SHMakeError(SHErrorBadResponse, L(@"Content decoding failed."));
+                goto out;
+            }
             if ((self.chunked || self.contentLength >= 0) && !self.isCancelled) {
                 SHLog(@"HTTP body ended early (chunked=%d, received=%lld) for %@", self.chunked, self.bodyReceived, self.url);
             }

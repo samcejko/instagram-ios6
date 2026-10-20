@@ -123,7 +123,7 @@
 - (void)saveVideoData:(NSData *)data
 {
     NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
-                      [NSString stringWithFormat:@"gramify-%@.mp4", [[NSUUID UUID] UUIDString]]];
+                      [NSString stringWithFormat:@"gramify-%@.mp4", SHUniqueIdentifier()]];
     if (![data writeToFile:path atomically:YES]) { [self finished:NO problem:L(@"Couldn't save it.")]; return; }
     if (!UIVideoAtPathIsCompatibleWithSavedPhotosAlbum(path)) {
         [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];

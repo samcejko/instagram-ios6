@@ -69,3 +69,13 @@ NSDate *SHDateFromISO(NSString *string)
     if (seconds == (time_t)-1) return nil;
     return [NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)seconds + (s - (int)s)];
 }
+
+
+// CFUUID is available before iOS 6 and preserves the UUID string format.
+NSString *SHUniqueIdentifier(void)
+{
+    CFUUIDRef uuid = CFUUIDCreate(kCFAllocatorDefault);
+    CFStringRef value = CFUUIDCreateString(kCFAllocatorDefault, uuid);
+    CFRelease(uuid);
+    return (__bridge_transfer NSString *)value;
+}

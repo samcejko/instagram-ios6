@@ -21,9 +21,9 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
         @"dataSaver": @NO,
     }];
     if (![DEF stringForKey:@"deviceId"].length)
-        [DEF setObject:[[NSUUID UUID] UUIDString] forKey:@"deviceId"];
+        [DEF setObject:SHUniqueIdentifier() forKey:@"deviceId"];
     if (![DEF stringForKey:@"phoneId"].length)
-        [DEF setObject:[[NSUUID UUID] UUIDString] forKey:@"phoneId"];
+        [DEF setObject:SHUniqueIdentifier() forKey:@"phoneId"];
     if (![DEF stringForKey:@"androidId"].length) {
         uint64_t r = 0;
         arc4random_buf(&r, sizeof(r));

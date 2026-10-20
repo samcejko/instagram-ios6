@@ -172,7 +172,7 @@ static unichar SHPlainLetter(UTF32Char c)
             BOOL spaceBefore = out.length == 0 || [spaces characterIsMember:[out characterAtIndex:out.length - 1]];
             // "DRUHÁ ⚔️ OPENING": with a space on both sides one of them goes with the emoji
             if (spaceBefore && out.length && i + len < n && [spaces characterIsMember:[text characterAtIndex:i + len]]) len++;
-            // an emoji squeezed between two words stood for a space ("LIVE🧢DRAMA"): one is left in its place
+            // an emoji squeezed between two words stood for a space (a live event title): one is left in its place
             BOOL spaceAfter = i + len >= n || [spaces characterIsMember:[text characterAtIndex:i + len]];
             NSUInteger kept = 0;
             if (!spaceBefore && !spaceAfter) {

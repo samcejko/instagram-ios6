@@ -51,3 +51,5 @@ BOOL SHBool(id value);
 
 // "2026-10-02T17:31:00Z" and "2026-10-02T17:31:05.042684Z"
 NSDate *SHDateFromISO(NSString *string);
+
+NSString *SHUniqueIdentifier(void);

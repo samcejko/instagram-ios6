@@ -975,7 +975,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"should_trigger_override_login_success_action": @0,
         @"login_credential_type": @"none",
         @"server_login_source": @"login",
-        @"waterfall_id": [[NSUUID UUID] UUIDString],
+        @"waterfall_id": SHUniqueIdentifier(),
         @"login_source": @"Login",
         @"is_platform_login": @0,
         @"INTERNAL__latency_qpl_marker_id": @36707139,
@@ -1386,7 +1386,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     NSString *mid = [SHSettings machineId];
     NSNull *none = [NSNull null];
     // short input ids like the current login screen's ("<4 hex>ig"; hex-only ones can answer a null payload)
-    NSString *hex = [[[[NSUUID UUID] UUIDString] stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
+    NSString *hex = [[SHUniqueIdentifier() stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
     NSString *inputId = [[hex substringToIndex:4] stringByAppendingString:@"ig"];
     BOOL ascii = [password ?: @"" canBeConvertedToEncoding:NSASCIIStringEncoding];
     NSDictionary *client = @{
@@ -1642,7 +1642,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         task.cancelBlock = ^{ [inner cancel]; };
         return;
     }
-    NSString *waterfall = [[[NSUUID UUID] UUIDString] lowercaseString];
+    NSString *waterfall = [SHUniqueIdentifier() lowercaseString];
     g_loginFamilyId = [SHSettings phoneId];
     [self prepareLoginForUsername:username waterfall:waterfall task:task done:^(NSString *aac, NSString *nonce) {
         if (task.isCancelled) return;
@@ -1709,7 +1709,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"battery_level": @"100",
         @"timezone_offset": @"0",
         @"device_id": [SHSettings deviceId],
-        @"request_id": [[NSUUID UUID] UUIDString],
+        @"request_id": SHUniqueIdentifier(),
         @"_uuid": [SHSettings deviceId],
         @"is_charging": @"1",
         @"will_sound_on": @"0",
@@ -2732,7 +2732,7 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
     NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
         @"action": @"send_item",
         @"thread_ids": [NSString stringWithFormat:@"[%@]", threadId],
-        @"client_context": [[NSUUID UUID] UUIDString],
+        @"client_context": SHUniqueIdentifier(),
         @"text": text,
         @"_uuid": [SHSettings deviceId],
         @"device_id": [SHSettings androidId],
@@ -3047,7 +3047,7 @@ static NSArray *SHParseTagSections(NSDictionary *d)
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
     h[@"Content-Type"] = @"application/x-www-form-urlencoded";
     NSDictionary *fields = @{ @"media_recency_filter": @"default", @"tab": @"top", @"_uuid": [SHSettings deviceId],
-                              @"include_persistent": @"false", @"rank_token": [[[NSUUID UUID] UUIDString] lowercaseString] };
+                              @"include_persistent": @"false", @"rank_token": [SHUniqueIdentifier() lowercaseString] };
     __block SHHTTPTask *task = nil;
     task = [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
         NSDictionary *d = SHDict(json);
@@ -3078,7 +3078,7 @@ static NSArray *SHParseTagSections(NSDictionary *d)
 {
     NSString *q = [query hasPrefix:@"#"] ? [query substringFromIndex:1] : query;
     NSString *url = [NSString stringWithFormat:@"%@/tags/search/?q=%@&count=30&rank_token=%@", SHApiBase, [SHUtils urlEncode:q ?: @""],
-                     [[[NSUUID UUID] UUIDString] lowercaseString]];
+                     [SHUniqueIdentifier() lowercaseString]];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSMutableArray *tags = [NSMutableArray array];
