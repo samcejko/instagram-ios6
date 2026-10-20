@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHInboxViewController.h"
 #import "SHThreadViewController.h"
 #import "SHProfileViewController.h"
@@ -112,7 +113,7 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 30, 0)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _statusLabel.numberOfLines = 0;
-    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.textAlignment = UITextAlignmentCenter;
     _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [theme secondaryTextColor];
     _statusLabel.backgroundColor = [UIColor clearColor];
@@ -262,12 +263,12 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 - (void)realtimeItem:(NSNotification *)note
 {
     NSDictionary *info = note.userInfo;
-    NSString *op = info[SHRealtimeOpKey];
-    SHDirectThread *thread = [self threadWithId:info[SHRealtimeThreadKey]];
+    NSString *op = [info objectForKey:SHRealtimeOpKey];
+    SHDirectThread *thread = [self threadWithId:[info objectForKey:SHRealtimeThreadKey]];
     if ([op isEqualToString:@"remove"]) { if (thread) [self reloadSoon]; return; }   // (perhaps the line shown)
     if (![op isEqualToString:@"add"]) return;                                       // (reactions, edits)
     if (!thread) { [self reloadSoon]; return; }
-    SHDirectMessage *m = [SHDirectMessage fromJSON:info[SHRealtimeItemKey]];
+    SHDirectMessage *m = [SHDirectMessage fromJSON:[info objectForKey:SHRealtimeItemKey]];
     if (!m) return;
     thread.lastText = m.text.length ? m.text : (m.placeholderText ?: @"");
     if (m.timestamp) thread.lastActivity = m.timestamp;
@@ -282,21 +283,21 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 - (void)realtimeTyping:(NSNotification *)note
 {
     NSDictionary *info = note.userInfo;
-    NSString *threadId = info[SHRealtimeThreadKey];
-    if (!threadId.length || [info[SHRealtimeUserKey] isEqualToString:[SHSettings userId] ?: @""] || ![self threadWithId:threadId]) return;
-    if ([info[SHRealtimeTypingKey] boolValue]) {
-        NSTimeInterval ttl = MAX(1, [info[SHRealtimeTTLKey] doubleValue]);
-        _typingUntil[threadId] = [NSDate dateWithTimeIntervalSinceNow:ttl];
+    NSString *threadId = [info objectForKey:SHRealtimeThreadKey];
+    if (!threadId.length || [[info objectForKey:SHRealtimeUserKey] isEqualToString:[SHSettings userId] ?: @""] || ![self threadWithId:threadId]) return;
+    if ([[info objectForKey:SHRealtimeTypingKey] boolValue]) {
+        NSTimeInterval ttl = MAX(1, [[info objectForKey:SHRealtimeTTLKey] doubleValue]);
+        SHLegacyDictionarySet(_typingUntil, threadId, [NSDate dateWithTimeIntervalSinceNow:ttl]);
         __weak SHInboxViewController *weakSelf = self;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((ttl + 0.2) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             SHInboxViewController *s = weakSelf;
-            NSDate *until = s.typingUntil[threadId];
+            NSDate *until = [s.typingUntil objectForKey:threadId];
             if (!s || !until || [until timeIntervalSinceNow] > 0) return;
             [s.typingUntil removeObjectForKey:threadId];
             [s.tableView reloadData];
         });
     } else {
-        if (!_typingUntil[threadId]) return;
+        if (![_typingUntil objectForKey:threadId]) return;
         [_typingUntil removeObjectForKey:threadId];
     }
     [_tableView reloadData];
@@ -305,8 +306,8 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 // A chat itself changed: a new one is loaded, a removed one leaves the list (renames and the like wait for a poll).
 - (void)realtimeInboxChanged:(NSNotification *)note
 {
-    NSString *threadId = note.userInfo[SHRealtimeThreadKey];
-    NSString *op = note.userInfo[SHRealtimeOpKey];
+    NSString *threadId = [note.userInfo objectForKey:SHRealtimeThreadKey];
+    NSString *op = [note.userInfo objectForKey:SHRealtimeOpKey];
     SHDirectThread *thread = threadId.length ? [self threadWithId:threadId] : nil;
     if ([op isEqualToString:@"remove"] && thread) {
         [_threads removeObjectIdenticalTo:thread];
@@ -380,7 +381,7 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     SHThreadRowCell *cell = [tableView dequeueReusableCellWithIdentifier:SHThreadCellId];
     if (!cell) cell = [[SHThreadRowCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:SHThreadCellId];
     [[SHTheme shared] styleCell:cell];
-    SHDirectThread *t = _threads[(NSUInteger)indexPath.row];
+    SHDirectThread *t = [_threads objectAtIndex:(NSUInteger)indexPath.row];
     SHUser *first = [t.users firstObject];
     [cell.avatar setImageURL:first.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:50]];
     __weak SHInboxViewController *weakSelf = self;
@@ -392,7 +393,7 @@ static NSString * const SHThreadCellId = @"ThreadCell";
     cell.titleLabel.text = [SHUtils displayText:t.title];
     BOOL unread = [[SHDirectMonitor shared] threadIsUnread:t];   // (also off at once for a chat just read here)
     cell.unreadDot.hidden = !unread;
-    NSDate *typingUntil = _typingUntil[t.threadId ?: @""];
+    NSDate *typingUntil = [_typingUntil objectForKey:t.threadId ?: @""];
     if (typingUntil && [typingUntil timeIntervalSinceNow] > 0) {
         // someone types there (the live connection says so)
         cell.previewLabel.text = L(@"Typing...");
@@ -413,7 +414,7 @@ static NSString * const SHThreadCellId = @"ThreadCell";
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    SHDirectThread *t = _threads[(NSUInteger)indexPath.row];
+    SHDirectThread *t = [_threads objectAtIndex:(NSUInteger)indexPath.row];
     SHThreadViewController *vc = [[SHThreadViewController alloc] initWithThread:t];
     if (_pending) {
         // a request: read it first, then Accept or Delete in place of the bar

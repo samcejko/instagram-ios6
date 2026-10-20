@@ -55,7 +55,7 @@
     CGFloat w = self.contentView.bounds.size.width;
     CGFloat cell = floorf((w - SH_GRID_GAP * (SH_GRID_COLS - 1)) / SH_GRID_COLS);
     for (NSUInteger i = 0; i < SH_GRID_COLS; i++) {
-        SHGridThumb *t = _thumbs[i];
+        SHGridThumb *t = [_thumbs objectAtIndex:i];
         t.frame = CGRectMake((cell + SH_GRID_GAP) * (CGFloat)i, 0, cell, cell);
     }
 }
@@ -63,9 +63,9 @@
 - (void)configureWithPosts:(NSArray *)posts
 {
     for (NSUInteger i = 0; i < SH_GRID_COLS; i++) {
-        SHGridThumb *t = _thumbs[i];
+        SHGridThumb *t = [_thumbs objectAtIndex:i];
         if (i < posts.count) {
-            SHPost *p = posts[i];
+            SHPost *p = [posts objectAtIndex:i];
             t.post = p;
             t.hidden = NO;
             t.maxPixels = 320;

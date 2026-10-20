@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHRealtime.h"
 #import "SHTLSSocket.h"
 #import "SHInstagram.h"
@@ -195,7 +196,7 @@ static uint64_t SHTZigzag64(int64_t v) { return ((uint64_t)v << 1) ^ (uint64_t)(
     [self put:(SHTCBinary << 4) | SHTCBinary];
     for (NSString *key in map) {
         [self raw:key];
-        [self raw:map[key]];
+        [self raw:[map objectForKey:key]];
     }
 }
 
@@ -404,40 +405,40 @@ static id SHRTValue(id value)
 //   inbox   anything else under /direct_v2/inbox
 static NSDictionary *SHRTPatchEvent(NSDictionary *patch)
 {
-    NSString *op = [SHStr(patch[@"op"]) lowercaseString] ?: @"";
-    NSString *path = SHStr(patch[@"path"]) ?: @"";
+    NSString *op = [SHStr([patch objectForKey:@"op"]) lowercaseString] ?: @"";
+    NSString *path = SHStr([patch objectForKey:@"path"]) ?: @"";
     NSArray *parts = [path componentsSeparatedByString:@"/"];   // "", "direct_v2", …
-    if (parts.count < 3 || ![parts[1] isEqualToString:@"direct_v2"]) return @{ @"kind": @"other", @"path": path };
-    if ([parts[2] isEqualToString:@"threads"] && parts.count >= 4) {
-        NSString *thread = parts[3];
+    if (parts.count < 3 || ![[parts objectAtIndex:1] isEqualToString:@"direct_v2"]) return @{ @"kind": @"other", @"path": path };
+    if ([[parts objectAtIndex:2] isEqualToString:@"threads"] && parts.count >= 4) {
+        NSString *thread = [parts objectAtIndex:3];
         NSArray *rest = parts.count > 4 ? [parts subarrayWithRange:NSMakeRange(4, parts.count - 4)] : @[];
-        if (rest.count == 2 && [rest[0] isEqualToString:@"items"]) {
-            NSMutableDictionary *e = [@{ @"kind": @"item", @"thread": thread, @"item": rest[1], @"op": op } mutableCopy];
-            NSDictionary *json = SHDict(SHRTValue(patch[@"value"]));
-            if (json && ![op isEqualToString:@"remove"]) e[@"json"] = json;
+        if (rest.count == 2 && [[rest objectAtIndex:0] isEqualToString:@"items"]) {
+            NSMutableDictionary *e = [@{ @"kind": @"item", @"thread": thread, @"item": [rest objectAtIndex:1], @"op": op } mutableCopy];
+            NSDictionary *json = SHDict(SHRTValue([patch objectForKey:@"value"]));
+            if (json && ![op isEqualToString:@"remove"]) SHLegacyDictionarySet(e, @"json", json);
             return e;
         }
-        if (rest.count >= 3 && [rest[0] isEqualToString:@"participants"] && [rest[2] isEqualToString:@"has_seen"]) {
-            NSMutableDictionary *e = [@{ @"kind": @"seen", @"thread": thread, @"user": rest[1] } mutableCopy];
-            NSDictionary *v = SHDict(SHRTValue(patch[@"value"]));
-            if (SHStr(v[@"item_id"]).length) e[@"item"] = SHStr(v[@"item_id"]);
-            NSDate *date = SHRTDate(v[@"timestamp"]);
-            if (date) e[@"date"] = date;
+        if (rest.count >= 3 && [[rest objectAtIndex:0] isEqualToString:@"participants"] && [[rest objectAtIndex:2] isEqualToString:@"has_seen"]) {
+            NSMutableDictionary *e = [@{ @"kind": @"seen", @"thread": thread, @"user": [rest objectAtIndex:1] } mutableCopy];
+            NSDictionary *v = SHDict(SHRTValue([patch objectForKey:@"value"]));
+            if (SHStr([v objectForKey:@"item_id"]).length) SHLegacyDictionarySet(e, @"item", SHStr([v objectForKey:@"item_id"]));
+            NSDate *date = SHRTDate([v objectForKey:@"timestamp"]);
+            if (date) SHLegacyDictionarySet(e, @"date", date);
             return e;
         }
-        if (rest.count >= 1 && [rest[0] isEqualToString:@"activity_indicator_id"]) {
-            NSDictionary *v = SHDict(SHRTValue(patch[@"value"]));
-            NSString *sender = SHStr(v[@"sender_id"]);
+        if (rest.count >= 1 && [[rest objectAtIndex:0] isEqualToString:@"activity_indicator_id"]) {
+            NSDictionary *v = SHDict(SHRTValue([patch objectForKey:@"value"]));
+            NSString *sender = SHStr([v objectForKey:@"sender_id"]);
             if (!sender.length) return nil;
-            NSInteger status = [op isEqualToString:@"remove"] ? 0 : SHInt(v[@"activity_status"]);
-            double ttl = SHDbl(v[@"ttl"]);
+            NSInteger status = [op isEqualToString:@"remove"] ? 0 : SHInt([v objectForKey:@"activity_status"]);
+            double ttl = SHDbl([v objectForKey:@"ttl"]);
             return @{ @"kind": @"typing", @"thread": thread, @"user": sender, @"status": @(status),
                       @"ttl": @(ttl > 0 ? MAX(1.0, ttl / 1000.0) : 12.0) };
         }
         return @{ @"kind": @"thread", @"thread": thread, @"op": op, @"path": path };
     }
-    if ([parts[2] isEqualToString:@"inbox"]) {
-        if (parts.count >= 5 && [parts[3] isEqualToString:@"threads"]) return @{ @"kind": @"thread", @"thread": parts[4], @"op": op, @"path": path };
+    if ([[parts objectAtIndex:2] isEqualToString:@"inbox"]) {
+        if (parts.count >= 5 && [[parts objectAtIndex:3] isEqualToString:@"threads"]) return @{ @"kind": @"thread", @"thread": [parts objectAtIndex:4], @"op": op, @"path": path };
         return @{ @"kind": @"inbox", @"op": op, @"path": path };
     }
     return @{ @"kind": @"other", @"path": path };
@@ -452,11 +453,11 @@ static NSArray *SHRTDecode(NSString *topic, NSData *payload)
         NSArray *batches = SHArr(json) ?: (SHDict(json) ? @[ json ] : @[]);
         for (id b in batches) {
             NSDictionary *batch = SHDict(b);
-            for (id p in SHArr(batch[@"data"])) {
+            for (id p in SHArr([batch objectForKey:@"data"])) {
                 NSDictionary *e = SHDict(p) ? SHRTPatchEvent(p) : nil;
                 if (e) [events addObject:e];
             }
-            long long seq = [SHStr(batch[@"seq_id"]) longLongValue];
+            long long seq = [SHStr([batch objectForKey:@"seq_id"]) longLongValue];
             if (seq > 0) [events addObject:@{ @"kind": @"seq", @"seq": @(seq) }];
         }
     } else if ([topic isEqualToString:SHRTTopicIrisAnswer]) {
@@ -467,9 +468,9 @@ static NSArray *SHRTDecode(NSString *topic, NSData *payload)
         NSString *inner = nil;
         NSData *body = nil;
         id json = SHTReadEnvelope(payload, &inner, &body) ? [SHUtils JSONObjectFromData:body] : nil;
-        for (id p in SHArr(SHDict(json)[@"data"])) {
+        for (id p in SHArr([SHDict(json) objectForKey:@"data"])) {
             NSDictionary *e = SHDict(p) ? SHRTPatchEvent(p) : nil;
-            if ([e[@"kind"] isEqualToString:@"typing"]) [events addObject:e];
+            if ([[e objectForKey:@"kind"] isEqualToString:@"typing"]) [events addObject:e];
         }
         if (!events.count) [events addObject:@{ @"kind": @"other", @"path": inner ?: (json ? @"json" : @"?") }];
     } else if ([topic isEqualToString:SHRTTopicReconnect]) {
@@ -990,11 +991,11 @@ typedef enum {
     NSString *token = [SHSettings sessionToken];
     if (!token.length) return nil;
     NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:token]]);
-    NSString *uid = [SHSettings userId].length ? [SHSettings userId] : SHStr(claims[@"ds_user_id"]);
+    NSString *uid = [SHSettings userId].length ? [SHSettings userId] : SHStr([claims objectForKey:@"ds_user_id"]);
     if (!uid.length) return nil;
     NSString *password = nil;
     if (form == 1) {
-        NSString *sid = SHStr(claims[@"sessionid"]);
+        NSString *sid = SHStr([claims objectForKey:@"sessionid"]);
         if (!sid.length) return nil;
         password = [@"sessionid=" stringByAppendingString:sid];
     } else {
@@ -1089,10 +1090,10 @@ typedef enum {
 - (void)irisAnswered:(NSDictionary *)json
 {
     _irisGeneration++;   // (the wait is over)
-    NSString *errorType = SHStr(json[@"error_type"]);
-    BOOL ok = json[@"succeeded"] ? SHBool(json[@"succeeded"]) : !errorType.length;
+    NSString *errorType = SHStr([json objectForKey:@"error_type"]);
+    BOOL ok = [json objectForKey:@"succeeded"] ? SHBool([json objectForKey:@"succeeded"]) : !errorType.length;
     if (!ok) {
-        RTLog(@"iris subscribe refused: %@ %@", errorType ?: @"-", SHStr(json[@"error_message"]) ?: @"");
+        RTLog(@"iris subscribe refused: %@ %@", errorType ?: @"-", SHStr([json objectForKey:@"error_message"]) ?: @"");
         _seqStale = YES;
         if (!_freshInboxAsked) {
             _freshInboxAsked = YES;   // a fresh inbox brings a fresh position (noteInboxSeqId subscribes again)
@@ -1100,11 +1101,11 @@ typedef enum {
         }
         return;
     }
-    long long latest = [SHStr(json[@"latest_seq_id"]) longLongValue];
+    long long latest = [SHStr([json objectForKey:@"latest_seq_id"]) longLongValue];
     if (latest > _seqId) {
         RTLog(@"iris: Instagram is at seq_id %lld (from %lld)", latest, _seqId);
         _seqId = latest;
-        long long at = [SHStr(json[@"subscribed_at_ms"]) longLongValue];
+        long long at = [SHStr([json objectForKey:@"subscribed_at_ms"]) longLongValue];
         _snapshotMs = at > 0 ? at : SHRTNowMs();
     }
     [self setState:SHRTLive];
@@ -1160,13 +1161,13 @@ typedef enum {
     if (connection != _conn) return;
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     for (NSDictionary *e in events) {
-        NSString *kind = e[@"kind"];
-        NSString *thread = e[@"thread"];
+        NSString *kind = [e objectForKey:@"kind"];
+        NSString *thread = [e objectForKey:@"thread"];
         if ([kind isEqualToString:@"seq"]) {
-            long long seq = [e[@"seq"] longLongValue];
+            long long seq = [[e objectForKey:@"seq"] longLongValue];
             if (seq > _seqId) { _seqId = seq; _snapshotMs = SHRTNowMs(); }
         } else if ([kind isEqualToString:@"iris"]) {
-            [self irisAnswered:e[@"json"]];
+            [self irisAnswered:[e objectForKey:@"json"]];
         } else if ([kind isEqualToString:@"reconnect"]) {
             RTLog(@"<- %@: the server asks for a new connection", topic);
             BOOL stable = _state == SHRTLive && CFAbsoluteTimeGetCurrent() - _liveSince > 60;
@@ -1176,41 +1177,41 @@ typedef enum {
             return;
         } else if ([kind isEqualToString:@"item"]) {
             NSMutableDictionary *info = [NSMutableDictionary dictionary];
-            info[SHRealtimeThreadKey] = thread;
-            info[SHRealtimeOpKey] = e[@"op"] ?: @"add";
-            info[SHRealtimeItemIdKey] = e[@"item"];
-            if (e[@"json"]) info[SHRealtimeItemKey] = e[@"json"];
+            SHLegacyDictionarySet(info, SHRealtimeThreadKey, thread);
+            SHLegacyDictionarySet(info, SHRealtimeOpKey, [e objectForKey:@"op"] ?: @"add");
+            SHLegacyDictionarySet(info, SHRealtimeItemIdKey, [e objectForKey:@"item"]);
+            if ([e objectForKey:@"json"]) SHLegacyDictionarySet(info, SHRealtimeItemKey, [e objectForKey:@"json"]);
             if (SHRTDebug()) {
                 // (how long after Instagram's own time of the message it got here: this device's clock is right)
-                double sent = SHDbl(SHDict(e[@"json"])[@"timestamp"]);
+                double sent = SHDbl([SHDict([e objectForKey:@"json"]) objectForKey:@"timestamp"]);
                 if (sent > 1e14) sent /= 1e6;
                 NSString *age = sent > 0 ? [NSString stringWithFormat:@", %.1f s after it was sent", [[NSDate date] timeIntervalSince1970] - sent] : @"";
-                RTLog(@"<- item %@ thread %@ item %@ type %@%@", info[SHRealtimeOpKey], thread, e[@"item"],
-                      SHStr(SHDict(e[@"json"])[@"item_type"]) ?: @"-", age);
+                RTLog(@"<- item %@ thread %@ item %@ type %@%@", [info objectForKey:SHRealtimeOpKey], thread, [e objectForKey:@"item"],
+                      SHStr([SHDict([e objectForKey:@"json"]) objectForKey:@"item_type"]) ?: @"-", age);
             }
             [nc postNotificationName:SHRealtimeDirectItemNotification object:self userInfo:info];
         } else if ([kind isEqualToString:@"seen"]) {
             NSMutableDictionary *info = [NSMutableDictionary dictionary];
-            info[SHRealtimeThreadKey] = thread;
-            info[SHRealtimeUserKey] = e[@"user"];
-            if (e[@"item"]) info[SHRealtimeItemIdKey] = e[@"item"];
-            if (e[@"date"]) info[SHRealtimeDateKey] = e[@"date"];
-            RTLog(@"<- seen thread %@ by %@", thread, e[@"user"]);
+            SHLegacyDictionarySet(info, SHRealtimeThreadKey, thread);
+            SHLegacyDictionarySet(info, SHRealtimeUserKey, [e objectForKey:@"user"]);
+            if ([e objectForKey:@"item"]) SHLegacyDictionarySet(info, SHRealtimeItemIdKey, [e objectForKey:@"item"]);
+            if ([e objectForKey:@"date"]) SHLegacyDictionarySet(info, SHRealtimeDateKey, [e objectForKey:@"date"]);
+            RTLog(@"<- seen thread %@ by %@", thread, [e objectForKey:@"user"]);
             [nc postNotificationName:SHRealtimeDirectSeenNotification object:self userInfo:info];
         } else if ([kind isEqualToString:@"typing"]) {
-            BOOL typing = [e[@"status"] integerValue] != 0;
-            RTLog(@"<- typing %d thread %@ by %@", typing, thread, e[@"user"]);
+            BOOL typing = [[e objectForKey:@"status"] integerValue] != 0;
+            RTLog(@"<- typing %d thread %@ by %@", typing, thread, [e objectForKey:@"user"]);
             [nc postNotificationName:SHRealtimeDirectTypingNotification object:self
-                            userInfo:@{ SHRealtimeThreadKey: thread, SHRealtimeUserKey: e[@"user"], SHRealtimeTypingKey: @(typing),
-                                        SHRealtimeTTLKey: e[@"ttl"] ?: @12 }];
+                            userInfo:@{ SHRealtimeThreadKey: thread, SHRealtimeUserKey: [e objectForKey:@"user"], SHRealtimeTypingKey: @(typing),
+                                        SHRealtimeTTLKey: [e objectForKey:@"ttl"] ?: @12 }];
         } else if ([kind isEqualToString:@"thread"] || [kind isEqualToString:@"inbox"]) {
             NSMutableDictionary *info = [NSMutableDictionary dictionary];
-            if (thread) info[SHRealtimeThreadKey] = thread;
-            info[SHRealtimeOpKey] = e[@"op"] ?: @"";
-            RTLog(@"<- %@ %@ %@", kind, e[@"op"] ?: @"", e[@"path"] ?: @"");
+            if (thread) SHLegacyDictionarySet(info, SHRealtimeThreadKey, thread);
+            SHLegacyDictionarySet(info, SHRealtimeOpKey, [e objectForKey:@"op"] ?: @"");
+            RTLog(@"<- %@ %@ %@", kind, [e objectForKey:@"op"] ?: @"", [e objectForKey:@"path"] ?: @"");
             [nc postNotificationName:SHRealtimeInboxChangedNotification object:self userInfo:info];
         } else {
-            RTLog(@"<- topic %@ (%lu B) %@", topic, (unsigned long)bytes, e[@"path"] ?: @"");
+            RTLog(@"<- topic %@ (%lu B) %@", topic, (unsigned long)bytes, [e objectForKey:@"path"] ?: @"");
         }
     }
 }

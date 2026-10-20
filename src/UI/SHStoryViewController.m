@@ -54,7 +54,7 @@ static const CGFloat SHStoryAvatar = 34;
         _reels = reels;
         _reelIndex = index;
         _startIndex = index;
-        SHStoryReel *reel = index < reels.count ? reels[index] : nil;
+        SHStoryReel *reel = index < reels.count ? [reels objectAtIndex:index] : nil;
         _itemIndex = [reel firstUnseenIndex];   // where the viewer left off last time
         _pendingSeen = [NSMutableArray array];
         _segmentTracks = [NSMutableArray array];
@@ -186,14 +186,14 @@ static const CGFloat SHStoryAvatar = 34;
 - (SHStoryReel *)currentReel
 {
     if (_reelIndex >= _reels.count) return nil;
-    return _reels[_reelIndex];
+    return [_reels objectAtIndex:_reelIndex];
 }
 
 - (SHStoryItem *)currentItem
 {
     SHStoryReel *reel = [self currentReel];
     if (!reel || _itemIndex >= reel.items.count) return nil;
-    return reel.items[_itemIndex];
+    return [reel.items objectAtIndex:_itemIndex];
 }
 
 - (void)dealloc
@@ -260,7 +260,7 @@ static const CGFloat SHStoryAvatar = 34;
     if (!item.mentions.count) return;
     CGRect media = [self mediaRectForItem:item];
     for (NSUInteger i = 0; i < item.mentions.count; i++) {
-        SHStoryMention *m = item.mentions[i];
+        SHStoryMention *m = [item.mentions objectAtIndex:i];
         CGFloat w = MAX(44, (CGFloat)m.width * media.size.width), h = MAX(32, (CGFloat)m.height * media.size.height);
         CGPoint c = CGPointMake(media.origin.x + (CGFloat)m.x * media.size.width, media.origin.y + (CGFloat)m.y * media.size.height);
         UIButton *area = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -278,7 +278,7 @@ static const CGFloat SHStoryAvatar = 34;
 {
     SHStoryItem *item = [self currentItem];
     if (area.tag < 0 || area.tag >= (NSInteger)item.mentions.count) return;
-    SHStoryMention *m = item.mentions[(NSUInteger)area.tag];
+    SHStoryMention *m = [item.mentions objectAtIndex:(NSUInteger)area.tag];
     [self pauseStory];
     [_mentionBubble removeFromSuperview];
     _mentionUser = m.user;
@@ -367,8 +367,8 @@ static const CGFloat SHStoryAvatar = 34;
 {
     CGFloat p = MAX(0, MIN(1, progress));
     for (NSUInteger i = 0; i < _segmentFills.count; i++) {
-        UIView *fill = _segmentFills[i];
-        CGFloat full = [_segmentTracks[i] bounds].size.width;
+        UIView *fill = [_segmentFills objectAtIndex:i];
+        CGFloat full = [[_segmentTracks objectAtIndex:i] bounds].size.width;
         CGFloat width = i < _itemIndex ? full : (i == _itemIndex ? floorf(full * p) : 0);
         fill.frame = CGRectMake(0, 0, width, 3);
     }

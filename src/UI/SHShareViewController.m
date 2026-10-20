@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHShareViewController.h"
 #import "SHInstagram.h"
 #import "SHModels.h"
@@ -92,7 +93,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
     label.text = text;
     label.font = font;
     label.textColor = [UIColor whiteColor];
-    label.textAlignment = NSTextAlignmentCenter;
+    label.textAlignment = UITextAlignmentCenter;
     label.backgroundColor = [UIColor clearColor];
     label.shadowColor = [UIColor blackColor];
     label.shadowOffset = CGSizeMake(0, -1);
@@ -192,7 +193,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
 
     _emptyLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, header.frame.size.height + 30, w - 40, 40)];
     _emptyLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    _emptyLabel.textAlignment = NSTextAlignmentCenter;
+    _emptyLabel.textAlignment = UITextAlignmentCenter;
     _emptyLabel.font = [UIFont boldSystemFontOfSize:15];
     _emptyLabel.textColor = [theme secondaryTextColor];
     _emptyLabel.backgroundColor = [UIColor clearColor];
@@ -246,7 +247,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
         r.pictureURL = first.profilePicURL;
         if (t.users.count == 1) {
             r.subtitle = [SHUtils displayText:first.fullName];
-            if (first.pk.length) _threadByUser[first.pk] = t.threadId;
+            if (first.pk.length) SHLegacyDictionarySet(_threadByUser, first.pk, t.threadId);
         } else {
             r.subtitle = L(@"Group");
         }
@@ -280,7 +281,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
         for (SHUser *u in users) {
             if (!u.pk.length) continue;
             SHShareRecipient *r = [[SHShareRecipient alloc] init];
-            r.threadId = self->_threadByUser[u.pk];   // the chat with them when there is one
+            r.threadId = [self->_threadByUser objectForKey:u.pk];   // the chat with them when there is one
             r.userPk = u.pk;
             r.title = u.username;
             r.subtitle = [SHUtils displayText:u.fullName];
@@ -324,13 +325,13 @@ static NSString *SHShortcodeFromPk(NSString *pk)
         [[SHTheme shared] styleAvatar:cell.imageView radius:5];
     }
     [[SHTheme shared] styleCell:cell];
-    SHShareRecipient *r = [self rows][(NSUInteger)indexPath.row];
+    SHShareRecipient *r = [[self rows] objectAtIndex:(NSUInteger)indexPath.row];
     cell.textLabel.text = r.title;
     cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
     cell.detailTextLabel.text = r.subtitle;
     cell.detailTextLabel.font = [UIFont systemFontOfSize:13];
     cell.detailTextLabel.textColor = [[SHTheme shared] secondaryTextColor];
-    cell.accessoryView = _selected[r.key] ? [[UIImageView alloc] initWithImage:[[SHTheme shared] checkmarkImage]] : nil;
+    cell.accessoryView = [_selected objectForKey:r.key] ? [[UIImageView alloc] initWithImage:[[SHTheme shared] checkmarkImage]] : nil;
     cell.imageView.image = [[SHTheme shared] avatarPlaceholderWithSize:40];
     NSString *url = r.pictureURL;
     if (url.length) {
@@ -341,7 +342,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
             if (!settingUp) {
                 NSIndexPath *now = [tableView indexPathForCell:cell];
                 NSArray *rows = [self rows];
-                if (!now || (NSUInteger)now.row >= rows.count || ![[rows[(NSUInteger)now.row] pictureURL] isEqualToString:url]) return;
+                if (!now || (NSUInteger)now.row >= rows.count || ![[[rows objectAtIndex:(NSUInteger)now.row] pictureURL] isEqualToString:url]) return;
             }
             CGFloat scale = image.size.width > 0 ? image.size.width * image.scale / 40.0f : 1;   // shown 40 points wide
             cell.imageView.image = [UIImage imageWithCGImage:image.CGImage scale:scale orientation:UIImageOrientationUp];
@@ -356,12 +357,12 @@ static NSString *SHShortcodeFromPk(NSString *pk)
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (_sending) return;
-    SHShareRecipient *r = [self rows][(NSUInteger)indexPath.row];
-    if (_selected[r.key]) {
+    SHShareRecipient *r = [[self rows] objectAtIndex:(NSUInteger)indexPath.row];
+    if ([_selected objectForKey:r.key]) {
         [_selected removeObjectForKey:r.key];
         for (SHShareRecipient *o in [_order copy]) if ([o.key isEqualToString:r.key]) [_order removeObject:o];
     } else {
-        _selected[r.key] = r;
+        SHLegacyDictionarySet(_selected, r.key, r);
         [_order addObject:r];
     }
     [tableView reloadRowsAtIndexPaths:@[ indexPath ] withRowAnimation:UITableViewRowAnimationNone];
@@ -393,7 +394,7 @@ static NSString *SHShortcodeFromPk(NSString *pk)
 - (void)sendTo:(NSUInteger)i message:(NSString *)message failures:(NSUInteger)failures lastError:(NSError *)lastError
 {
     if (i >= _order.count) { [self finishedWithFailures:failures error:lastError]; return; }
-    SHShareRecipient *r = _order[i];
+    SHShareRecipient *r = [_order objectAtIndex:i];
     void (^next)(BOOL, NSError *) = ^(BOOL ok, NSError *error) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [self sendTo:i + 1 message:message failures:failures + (ok ? 0 : 1) lastError:ok ? lastError : error];

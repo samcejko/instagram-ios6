@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHKeychain.h"
 #import "SHCommon.h"
 #import <Security/Security.h>
@@ -20,8 +21,8 @@ static NSString * const SHKeychainService = @"com.samcejko.shutter";
 + (NSString *)keychainStringForKey:(NSString *)key
 {
     NSMutableDictionary *q = [self queryForKey:key];
-    q[(__bridge id)kSecReturnData] = (__bridge id)kCFBooleanTrue;
-    q[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+    SHLegacyDictionarySet(q, (__bridge id)kSecReturnData, (__bridge id)kCFBooleanTrue);
+    SHLegacyDictionarySet(q, (__bridge id)kSecMatchLimit, (__bridge id)kSecMatchLimitOne);
     CFTypeRef result = NULL;
     if (SecItemCopyMatching((__bridge CFDictionaryRef)q, &result) == errSecSuccess && result) {
         NSData *data = (__bridge_transfer NSData *)result;
@@ -50,8 +51,8 @@ static NSString * const SHKeychainService = @"com.samcejko.shutter";
     OSStatus status = errSecSuccess;
     if (value.length) {
         NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
-        q[(__bridge id)kSecValueData] = data;
-        q[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
+        SHLegacyDictionarySet(q, (__bridge id)kSecValueData, data);
+        SHLegacyDictionarySet(q, (__bridge id)kSecAttrAccessible, (__bridge id)kSecAttrAccessibleAfterFirstUnlock);
         status = SecItemAdd((__bridge CFDictionaryRef)q, NULL);
         if (status == errSecDuplicateItem) {   // an item that could not be deleted: written over instead
             status = SecItemUpdate((__bridge CFDictionaryRef)[self queryForKey:key],

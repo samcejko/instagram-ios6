@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHInstagram.h"
 #import "SHDirectMonitor.h"
 #import "SHRealtime.h"
@@ -51,15 +52,15 @@ static NSString *SHUserAgent(void)
 static NSDictionary *SHCommonHeaders(void)
 {
     NSMutableDictionary *h = [NSMutableDictionary dictionary];
-    h[@"User-Agent"]            = SHUserAgent();
-    h[@"X-IG-App-ID"]           = SHAppId;
-    h[@"X-IG-Device-ID"]        = [SHSettings deviceId];
-    h[@"X-IG-Android-ID"]       = [SHSettings androidId];
-    h[@"X-IG-Connection-Type"]  = @"WIFI";
-    h[@"X-IG-Capabilities"]     = SHCapabilities;
-    h[@"X-Bloks-Version-Id"]    = SHBloksVersion;
-    h[@"Accept-Language"]       = @"en-US";
-    h[@"Accept"]                = @"application/json";
+    SHLegacyDictionarySet(h, @"User-Agent", SHUserAgent());
+    SHLegacyDictionarySet(h, @"X-IG-App-ID", SHAppId);
+    SHLegacyDictionarySet(h, @"X-IG-Device-ID", [SHSettings deviceId]);
+    SHLegacyDictionarySet(h, @"X-IG-Android-ID", [SHSettings androidId]);
+    SHLegacyDictionarySet(h, @"X-IG-Connection-Type", @"WIFI");
+    SHLegacyDictionarySet(h, @"X-IG-Capabilities", SHCapabilities);
+    SHLegacyDictionarySet(h, @"X-Bloks-Version-Id", SHBloksVersion);
+    SHLegacyDictionarySet(h, @"Accept-Language", @"en-US");
+    SHLegacyDictionarySet(h, @"Accept", @"application/json");
     return h;
 }
 
@@ -67,13 +68,13 @@ static NSDictionary *SHAuthHeaders(void)
 {
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
     NSString *token = [SHSettings sessionToken];
-    if (token.length) h[@"Authorization"] = [@"Bearer IGT:2:" stringByAppendingString:token];
+    if (token.length) SHLegacyDictionarySet(h, @"Authorization", [@"Bearer IGT:2:" stringByAppendingString:token]);
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
     NSString *claim = [SHSettings wwwClaim];
-    h[@"X-IG-WWW-Claim"] = claim.length ? claim : @"0";
+    SHLegacyDictionarySet(h, @"X-IG-WWW-Claim", claim.length ? claim : @"0");
     NSString *uid = [SHSettings userId];
-    if (uid.length) h[@"IG-U-DS-User-ID"] = uid;
+    if (uid.length) SHLegacyDictionarySet(h, @"IG-U-DS-User-ID", uid);
     return h;
 }
 
@@ -195,7 +196,7 @@ static NSString *SHSessionTokenInHeaders(NSDictionary *headers, NSString **userI
 {
     for (NSString *key in headers) {
         if (![[key lowercaseString] isEqualToString:@"ig-set-authorization"]) continue;
-        NSString *val = SHStr(headers[key]);
+        NSString *val = SHStr([headers objectForKey:key]);
         if (![val hasPrefix:@"Bearer IGT:2:"]) continue;
         NSString *token = SHValidSessionToken([val substringFromIndex:@"Bearer IGT:2:".length], userId);
         if (token.length) return token;
@@ -209,12 +210,12 @@ static void SHSaveSessionExtrasFromHeaders(NSDictionary *headers)
     for (NSString *key in headers) {
         NSString *lower = [key lowercaseString];
         if ([lower isEqualToString:@"x-ig-set-www-claim"]) {
-            NSString *claim = SHStr(headers[key]);
+            NSString *claim = SHStr([headers objectForKey:key]);
             // The server hands back "0" before login and a real "hmac....." claim afterwards; keep the real one,
             // which every subsequent request must echo in X-IG-WWW-Claim or it is rejected with login_required.
             if (claim.length && ![claim isEqualToString:@"0"]) [SHSettings setWwwClaim:claim];
         }
-        if ([lower isEqualToString:@"ig-set-x-mid"]) [SHSettings setMachineId:SHStr(headers[key])];
+        if ([lower isEqualToString:@"ig-set-x-mid"]) [SHSettings setMachineId:SHStr([headers objectForKey:key])];
     }
 }
 
@@ -234,7 +235,7 @@ static NSString *SHExtractCSRF(NSDictionary *headers)
 {
     for (NSString *key in headers) {
         if ([[key lowercaseString] isEqualToString:@"set-cookie"]) {
-            NSString *val = headers[key];
+            NSString *val = [headers objectForKey:key];
             NSRange r = [val rangeOfString:@"csrftoken="];
             if (r.location != NSNotFound) {
                 NSString *rest = [val substringFromIndex:r.location + r.length];
@@ -323,8 +324,8 @@ static NSString *SHValidSessionToken(NSString *token, NSString **userId)
     while (t.length % 4) t = [t stringByAppendingString:@"="];
     NSString *standard = [[t stringByReplacingOccurrencesOfString:@"-" withString:@"+"] stringByReplacingOccurrencesOfString:@"_" withString:@"/"];
     NSDictionary *claims = SHDict([SHUtils JSONObjectFromData:[SHUtils base64Decode:standard]]);
-    NSString *uid = SHStr(claims[@"ds_user_id"]);
-    if (!uid.length || !SHStr(claims[@"sessionid"]).length) return nil;
+    NSString *uid = SHStr([claims objectForKey:@"ds_user_id"]);
+    if (!uid.length || !SHStr([claims objectForKey:@"sessionid"]).length) return nil;
     if (userId) *userId = uid;
     return t;
 }
@@ -430,7 +431,7 @@ static void SHBloksCollectStrings(id value, NSMutableArray *out, NSInteger depth
 {
     if (depth > 64) return;
     if ([value isKindOfClass:[NSString class]]) [out addObject:value];
-    else if ([value isKindOfClass:[NSDictionary class]]) for (id key in value) SHBloksCollectStrings(value[key], out, depth + 1);
+    else if ([value isKindOfClass:[NSDictionary class]]) for (id key in value) SHBloksCollectStrings([value objectForKey:key], out, depth + 1);
     else if ([value isKindOfClass:[NSArray class]]) for (id item in value) SHBloksCollectStrings(item, out, depth + 1);
 }
 
@@ -452,7 +453,7 @@ static NSString *SHBloksDecodeLiteral(NSString *literal)
 {
     if (literal.length < 2 || [literal characterAtIndex:0] != '"') return nil;
     NSArray *wrapped = SHArr([SHUtils JSONObjectFromData:[[NSString stringWithFormat:@"[%@]", literal] dataUsingEncoding:NSUTF8StringEncoding]]);
-    return wrapped.count == 1 && [wrapped[0] isKindOfClass:[NSString class]] ? wrapped[0] : nil;
+    return wrapped.count == 1 && [[wrapped objectAtIndex:0] isKindOfClass:[NSString class]] ? [wrapped objectAtIndex:0] : nil;
 }
 
 // The balanced "( … )" expression that opens at `start`, quoted strings respected; nil when it does not close.
@@ -530,14 +531,14 @@ static NSString *SHBloksContextValue(id answer, NSString *appId, NSString *key)
             while (expression.length) {
                 NSArray *items = SHBloksItems(expression);
                 expression = nil;
-                if (items.count != 3 || ![items[0] isEqualToString:@"f4i"]) break;
-                NSArray *keys = SHBloksItems(items[1]), *values = SHBloksItems(items[2]);
+                if (items.count != 3 || ![[items objectAtIndex:0] isEqualToString:@"f4i"]) break;
+                NSArray *keys = SHBloksItems([items objectAtIndex:1]), *values = SHBloksItems([items objectAtIndex:2]);
                 if (!keys.count || !values.count || keys.count != values.count
-                    || ![keys[0] isEqualToString:@"dkc"] || ![values[0] isEqualToString:@"dkc"]) break;
+                    || ![[keys objectAtIndex:0] isEqualToString:@"dkc"] || ![[values objectAtIndex:0] isEqualToString:@"dkc"]) break;
                 for (NSUInteger k = 1; k < keys.count; k++) {
-                    NSString *name = SHBloksDecodeLiteral(keys[k]);
-                    if ([name isEqualToString:key]) return [values[k] hasPrefix:@"\""] ? SHBloksDecodeLiteral(values[k]) : nil;
-                    if ([name isEqualToString:@"server_params"]) expression = values[k];
+                    NSString *name = SHBloksDecodeLiteral([keys objectAtIndex:k]);
+                    if ([name isEqualToString:key]) return [[values objectAtIndex:k] hasPrefix:@"\""] ? SHBloksDecodeLiteral([values objectAtIndex:k]) : nil;
+                    if ([name isEqualToString:@"server_params"]) expression = [values objectAtIndex:k];
                 }
             }
         }
@@ -559,9 +560,9 @@ static id SHBloksFindValue(id data, NSString *key, NSInteger depth)
 {
     if (depth > 40) return nil;
     if ([data isKindOfClass:[NSDictionary class]]) {
-        id value = data[key];
+        id value = [data objectForKey:key];
         if (SHBloksTruthy(value)) return value;
-        for (id k in data) { id found = SHBloksFindValue(data[k], key, depth + 1); if (found) return found; }
+        for (id k in data) { id found = SHBloksFindValue([data objectForKey:k], key, depth + 1); if (found) return found; }
     } else if ([data isKindOfClass:[NSArray class]]) {
         for (id item in data) { id found = SHBloksFindValue(item, key, depth + 1); if (found) return found; }
     } else if ([data isKindOfClass:[NSString class]] && [data length] < 10000 && [data rangeOfString:key].location != NSNotFound) {
@@ -573,7 +574,7 @@ static id SHBloksFindValue(id data, NSString *key, NSInteger depth)
 
 static NSString *SHBloksAction(NSDictionary *answer)
 {
-    return SHStr(SHDict(SHDict(answer[@"layout"])[@"bloks_payload"])[@"action"]);
+    return SHStr([SHDict([SHDict([answer objectForKey:@"layout"]) objectForKey:@"bloks_payload"]) objectForKey:@"action"]);
 }
 
 // The context of Instagram's two-factor screens when a sign-in leads there; nil otherwise.
@@ -606,8 +607,8 @@ static NSDictionary *SHBloksLoginHeaders(NSDictionary *answer)
         NSString *value = SHBloksDecodeLiteral([action substringWithRange:literal]);
         if (!value) { i = quote.location + 1; continue; }
         NSDictionary *raw = SHDict([SHUtils JSONObjectFromData:[value dataUsingEncoding:NSUTF8StringEncoding]]);
-        if (!SHStr(raw[@"login_response"]).length) continue;
-        NSString *headers = SHStr(raw[@"headers"]);
+        if (!SHStr([raw objectForKey:@"login_response"]).length) continue;
+        NSString *headers = SHStr([raw objectForKey:@"headers"]);
         return SHDict(headers.length ? [SHUtils JSONObjectFromData:[headers dataUsingEncoding:NSUTF8StringEncoding]] : nil) ?: @{};
     }
     return nil;
@@ -762,9 +763,9 @@ static void SHResponseCacheLoad(NSString *key, void (^use)(NSDictionary *json))
 static NSArray *SHParseTimeline(NSDictionary *d)
 {
     NSMutableArray *posts = [NSMutableArray array];
-    for (id item in SHArr(d[@"feed_items"]) ?: SHArr(d[@"items"])) {
+    for (id item in SHArr([d objectForKey:@"feed_items"]) ?: SHArr([d objectForKey:@"items"])) {
         NSDictionary *node = SHDict(item);
-        SHPost *p = [SHPost fromJSON:SHDict(node[@"media_or_ad"]) ?: node];
+        SHPost *p = [SHPost fromJSON:SHDict([node objectForKey:@"media_or_ad"]) ?: node];
         if (p && p.pk.length) [posts addObject:p];
     }
     return posts;
@@ -775,7 +776,7 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen);
 static NSArray *SHParseExplore(NSDictionary *d)
 {
     NSMutableArray *posts = [NSMutableArray array];
-    SHCollectMedia(d[@"sectional_items"] ?: d[@"items"] ?: d, posts, [NSMutableSet set]);
+    SHCollectMedia([d objectForKey:@"sectional_items"] ?: [d objectForKey:@"items"] ?: d, posts, [NSMutableSet set]);
     return posts;
 }
 
@@ -785,10 +786,10 @@ static NSArray *SHParseReels(NSDictionary *d)
     NSMutableArray *all = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
     for (NSString *key in @[ @"items", @"items_with_ads" ]) {
-        for (id entry in SHArr(d[key])) {
+        for (id entry in SHArr([d objectForKey:key])) {
             NSDictionary *e = SHDict(entry);
-            NSDictionary *media = SHDict(e[@"media"]);
-            if (e[@"ad"] || e[@"ad_id"] || media[@"ad_id"] || media[@"ad_action"] || e[@"dr_ad_type"]) continue;
+            NSDictionary *media = SHDict([e objectForKey:@"media"]);
+            if ([e objectForKey:@"ad"] || [e objectForKey:@"ad_id"] || [media objectForKey:@"ad_id"] || [media objectForKey:@"ad_action"] || [e objectForKey:@"dr_ad_type"]) continue;
             SHCollectMedia(e, all, seen);
         }
     }
@@ -801,10 +802,10 @@ static NSArray *SHParseNews(NSDictionary *d)
 {
     NSMutableArray *stories = [NSMutableArray array];
     // the pinned row on top: people who asked to follow this (private) account
-    for (id s in SHArr(d[@"friend_request_stories"])) {
-        NSDictionary *args = SHDict(SHDict(s)[@"args"]);
+    for (id s in SHArr([d objectForKey:@"friend_request_stories"])) {
+        NSDictionary *args = SHDict([SHDict(s) objectForKey:@"args"]);
         NSMutableArray *users = [NSMutableArray array];
-        for (id u in SHArr(args[@"users"])) { SHUser *user = [SHUser fromJSON:SHDict(u)]; if (user.pk.length) [users addObject:user]; }
+        for (id u in SHArr([args objectForKey:@"users"])) { SHUser *user = [SHUser fromJSON:SHDict(u)]; if (user.pk.length) [users addObject:user]; }
         if (!users.count) continue;
         SHNewsStory *n = [[SHNewsStory alloc] init];
         n.requestUsers = users;
@@ -814,20 +815,20 @@ static NSArray *SHParseNews(NSDictionary *d)
         break;
     }
     for (NSString *key in @[ @"new_stories", @"old_stories", @"stories" ]) {
-        for (id s in SHArr(d[key])) { SHNewsStory *n = [SHNewsStory fromJSON:SHDict(s)]; if (n) [stories addObject:n]; }
+        for (id s in SHArr([d objectForKey:key])) { SHNewsStory *n = [SHNewsStory fromJSON:SHDict(s)]; if (n) [stories addObject:n]; }
     }
     return stories;
 }
 
 static NSArray *SHParseInbox(NSDictionary *json, NSString **cursor)
 {
-    NSDictionary *inbox = SHDict(json[@"inbox"]);
+    NSDictionary *inbox = SHDict([json objectForKey:@"inbox"]);
     NSMutableArray *threads = [NSMutableArray array];
-    for (id t in SHArr(inbox[@"threads"])) {
+    for (id t in SHArr([inbox objectForKey:@"threads"])) {
         SHDirectThread *thread = [SHDirectThread fromJSON:SHDict(t)];
         if (thread.threadId.length) [threads addObject:thread];
     }
-    if (cursor) *cursor = SHBool(inbox[@"has_older"]) ? SHStr(inbox[@"oldest_cursor"]) : nil;
+    if (cursor) *cursor = SHBool([inbox objectForKey:@"has_older"]) ? SHStr([inbox objectForKey:@"oldest_cursor"]) : nil;
     return threads;
 }
 
@@ -857,12 +858,12 @@ static NSString *g_loginFamilyId = nil;
 // The "aac" the CAA login homepage hands out (instagrapi's bloks_extract_aac).
 static NSString *SHBloksAAC(NSDictionary *answer)
 {
-    for (id node in SHArr(SHDict(SHDict(answer[@"layout"])[@"bloks_payload"])[@"data"])) {
-        NSDictionary *payload = SHDict(SHDict(node)[@"data"]);
-        if (![SHStr(payload[@"key"]) isEqualToString:@"CAA_ACCOUNT_ACCESS_CONTEXT:aac"]) continue;
-        NSString *initial = [payload[@"initial"] isKindOfClass:[NSString class]] ? payload[@"initial"] : nil;
+    for (id node in SHArr([SHDict([SHDict([answer objectForKey:@"layout"]) objectForKey:@"bloks_payload"]) objectForKey:@"data"])) {
+        NSDictionary *payload = SHDict([SHDict(node) objectForKey:@"data"]);
+        if (![SHStr([payload objectForKey:@"key"]) isEqualToString:@"CAA_ACCOUNT_ACCESS_CONTEXT:aac"]) continue;
+        NSString *initial = [[payload objectForKey:@"initial"] isKindOfClass:[NSString class]] ? [payload objectForKey:@"initial"] : nil;
         if ([initial stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length) return initial;
-        NSString *lispy = [payload[@"initial_lispy"] isKindOfClass:[NSString class]] ? payload[@"initial_lispy"] : nil;
+        NSString *lispy = [[payload objectForKey:@"initial_lispy"] isKindOfClass:[NSString class]] ? [payload objectForKey:@"initial_lispy"] : nil;
         NSRange quote = lispy.length ? [lispy rangeOfString:@"\""] : NSMakeRange(NSNotFound, 0);
         if (quote.location == NSNotFound) continue;
         NSUInteger end = SHBloksStringEnd(lispy, quote.location);
@@ -1001,9 +1002,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     NSString *bkJSON = [[NSString alloc] initWithData:[SHUtils JSONDataFromObject:@{ @"bloks_version": SHBloksVersion, @"styles_id": @"instagram" }] encoding:NSUTF8StringEncoding];
 
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
 
     NSString *bodyStr = [NSString stringWithFormat:@"params=%@&bk_client_context=%@&bloks_versioning_id=%@",
         [SHUtils urlEncode:paramsJSON], [SHUtils urlEncode:bkJSON], SHBloksVersion];
@@ -1018,7 +1019,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"experiments": @"ig_android_fci_onboarding_friend_search,ig_android_device_detection_info_upload",
     };
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
 
     return [SHHTTP request:@"POST" url:[SHApiBase stringByAppendingString:@"/qe/sync/"]
                    headers:h body:SHSignedBodyData(params) retries:1
@@ -1031,9 +1032,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         for (NSString *key in headers) {
             NSString *lower = [key lowercaseString];
             if ([lower isEqualToString:@"ig-set-password-encryption-pub-key"])
-                pubKey = headers[key];
+                pubKey = [headers objectForKey:key];
             if ([lower isEqualToString:@"ig-set-password-encryption-key-id"])
-                keyId = [headers[key] integerValue];
+                keyId = [[headers objectForKey:key] integerValue];
         }
         SHSaveSessionExtrasFromHeaders(headers);   // (the device's mid)
         completion(pubKey, keyId, nil);
@@ -1052,11 +1053,11 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
                        done:(void (^)(NSDictionary *answer, NSString *body, NSDictionary *headers, NSError *error))done
 {
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    h[@"X-MID"] = [SHSettings machineId];
-    if (isAction) h[@"X-FB-Friendly-Name"] = [NSString stringWithFormat:@"IgApi: bloks/async_action/%@/", app];
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
+    SHLegacyDictionarySet(h, @"X-MID", [SHSettings machineId]);
+    if (isAction) SHLegacyDictionarySet(h, @"X-FB-Friendly-Name", [NSString stringWithFormat:@"IgApi: bloks/async_action/%@/", app]);
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
     NSString *url = [NSString stringWithFormat:@"%@/bloks/%@/%@/", SHApiBase, isAction ? @"async_action" : @"apps", app];
     return [SHHTTP request:@"POST" url:url headers:h body:SHBloksFormBody(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
@@ -1066,7 +1067,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         if (newCsrf) [SHSettings setCsrfToken:newCsrf];
         SHSaveSessionExtrasFromHeaders(headers);
         if (!error && status >= 400) {
-            BOOL challenge = [SHStr(answer[@"message"]) isEqualToString:@"challenge_required"];
+            BOOL challenge = [SHStr([answer objectForKey:@"message"]) isEqualToString:@"challenge_required"];
             error = SHMakeError(challenge ? SHErrorChallenge : status,
                                 [SHHTTP messageFromErrorJSON:answer] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status]);
         }
@@ -1277,9 +1278,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"google_tokens": @"[]", @"login_attempt_count": @"0",
     };
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
     SHHTTPTask *request = [SHHTTP request:@"POST" url:[SHApiBase stringByAppendingString:@"/accounts/login/"] headers:h
                                      body:SHSignedBodyData(params) retries:0
                                completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
@@ -1287,17 +1288,17 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         NSString *newCsrf = SHExtractCSRF(headers);
         if (newCsrf) [SHSettings setCsrfToken:newCsrf];
         NSDictionary *d = SHDict([SHUtils JSONObjectFromData:body]);
-        NSString *errorType = SHStr(d[@"error_type"]), *message = SHStr(d[@"message"]);
+        NSString *errorType = SHStr([d objectForKey:@"error_type"]), *message = SHStr([d objectForKey:@"message"]);
         if (SHDebugLogging()) SHLog(@"LEGACYLOGIN HTTP %ld error_type=%@ message=%@", (long)status, errorType ?: @"-", message ?: @"-");
         if (error) { completion(nil, error); return; }
         if (SHSaveTokensFromHeaders(headers)) {
-            SHUser *user = [SHUser fromJSON:SHDict(d[@"logged_in_user"])];
+            SHUser *user = [SHUser fromJSON:SHDict([d objectForKey:@"logged_in_user"])];
             if (user.pk.length) [SHSettings setUserId:user.pk];
             [SHSettings save];
             [self verifyNewSessionForTask:task completion:^(NSError *e) { completion(nil, e); }];
             return;
         }
-        NSString *identifier = SHStr(SHDict(d[@"two_factor_info"])[@"two_factor_identifier"]);
+        NSString *identifier = SHStr([SHDict([d objectForKey:@"two_factor_info"]) objectForKey:@"two_factor_identifier"]);
         if (identifier.length) {
             SHLoginStep *step = [[SHLoginStep alloc] init];
             step.kind = SHLoginStepLegacyTwoFactor;
@@ -1342,15 +1343,15 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         if (task.isCancelled) return;
         NSString *aac = e1 ? nil : SHBloksAAC(a1);
         NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-        h[@"X-FB-Friendly-Name"] = @"IgApi: attestation/create_android_keystore/";
-        h[@"X-MID"] = [SHSettings machineId];
+        SHLegacyDictionarySet(h, @"X-FB-Friendly-Name", @"IgApi: attestation/create_android_keystore/");
+        SHLegacyDictionarySet(h, @"X-MID", [SHSettings machineId]);
         NSString *csrf = [SHSettings csrfToken];
-        if (csrf.length) h[@"X-CSRFToken"] = csrf;
+        if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
         SHHTTPTask *second = [SHHTTP postForm:[SHApiBase stringByAppendingString:@"/attestation/create_android_keystore/"] headers:h
                                        fields:@{ @"app_scoped_device_id": uuid, @"key_hash": @"" }
                                    completion:^(id json, NSInteger status, NSError *e2) {
             if (task.isCancelled) return;
-            NSString *nonce = e2 ? nil : SHStr(SHDict(json)[@"challenge_nonce"]);
+            NSString *nonce = e2 ? nil : SHStr([SHDict(json) objectForKey:@"challenge_nonce"]);
             if (SHDebugLogging()) SHLog(@"LOGINSTEP preflight: aac %@, attestation nonce %@", aac.length ? @"yes" : @"no", nonce.length ? @"yes" : @"no");
             if (!aac.length) { done(aac, nonce); return; }
             NSDictionary *oauth = @{
@@ -1419,16 +1420,16 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"is_from_logged_in_switcher": @0,
     };
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    h[@"X-MID"] = mid;
-    h[@"X-FB-Friendly-Name"] = @"IgApi: bloks/async_action/com.bloks.www.bloks.caa.login.async.send_login_request/";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
+    SHLegacyDictionarySet(h, @"X-MID", mid);
+    SHLegacyDictionarySet(h, @"X-FB-Friendly-Name", @"IgApi: bloks/async_action/com.bloks.www.bloks.caa.login.async.send_login_request/");
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
     if (nonce.length) {
         NSDictionary *attest = @{ @"attestation": @[ @{ @"version": @2, @"type": @"keystore", @"errors": @[ @(-1013) ],
                                                          @"challenge_nonce": nonce, @"signed_nonce": @"", @"key_hash": @"" } ] };
         NSString *value = [[NSString alloc] initWithData:[SHUtils JSONDataFromObject:attest] encoding:NSUTF8StringEncoding];
-        if (value.length) h[@"X-IG-Attest-Params"] = value;
+        if (value.length) SHLegacyDictionarySet(h, @"X-IG-Attest-Params", value);
     }
     NSString *url = [SHApiBase stringByAppendingString:@"/bloks/async_action/com.bloks.www.bloks.caa.login.async.send_login_request/"];
     return [SHHTTP request:@"POST" url:url headers:h body:SHBloksFormBody(@{ @"client_input_params": client, @"server_params": server })
@@ -1448,7 +1449,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     // The short login endpoint can reject its request format as obsolete.
     // Use the existing current-app preflight once before presenting that
     // refusal. The full attempt has no retry block, so this cannot loop.
-    BOOL needsUpgrade = [SHStr(answer[@"error_type"]) isEqualToString:@"needs_upgrade"] ||
+    BOOL needsUpgrade = [SHStr([answer objectForKey:@"error_type"]) isEqualToString:@"needs_upgrade"] ||
         (bodyStr.length && [bodyStr rangeOfString:@"out of date" options:NSCaseInsensitiveSearch].location != NSNotFound);
     if (!session && needsUpgrade && retry && !task.isCancelled) {
         retry();
@@ -1664,9 +1665,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"device_id": [SHSettings androidId],
     };
     NSMutableDictionary *h = [SHCommonHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) h[@"X-CSRFToken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(h, @"X-CSRFToken", csrf);
 
     return [SHHTTP request:@"POST"
         url:[SHApiBase stringByAppendingString:@"/accounts/two_factor_login/"]
@@ -1678,12 +1679,12 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 
             id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
             NSDictionary *d = SHDict(json);
-            if (error || !SHBool(d[@"authenticated"])) {
-                NSString *msg = SHStr(d[@"message"]) ?: (error.localizedDescription ?: L(@"Verification failed."));
+            if (error || !SHBool([d objectForKey:@"authenticated"])) {
+                NSString *msg = SHStr([d objectForKey:@"message"]) ?: (error.localizedDescription ?: L(@"Verification failed."));
                 completion(nil, SHMakeError(status ?: SHErrorAPI, msg));
                 return;
             }
-            SHUser *user = [SHUser fromJSON:SHDict(d[@"logged_in_user"])];
+            SHUser *user = [SHUser fromJSON:SHDict([d objectForKey:@"logged_in_user"])];
             if (user) {
                 [SHSettings setUserId:user.pk];
                 [SHSettings setUsername:user.username];
@@ -1699,8 +1700,8 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 {
     // The timeline is a POST (a GET returns HTTP 405); plain form body, not signed.
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    h[@"X-Ig-Nav-Chain"] = @"com.bloks.www.caa.login.login_homepage:com.bloks.www.caa.login.login_homepage:1:button:0";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
+    SHLegacyDictionarySet(h, @"X-Ig-Nav-Chain", @"com.bloks.www.caa.login.login_homepage:com.bloks.www.caa.login.login_homepage:1:button:0");
     NSMutableDictionary *fields = [@{
         @"has_camera_permission": @"1",
         @"feed_view_info": @"[]",
@@ -1715,9 +1716,9 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"will_sound_on": @"0",
         @"is_pull_to_refresh": @"0",
     } mutableCopy];
-    if (maxId.length) fields[@"max_id"] = maxId;
+    if (maxId.length) SHLegacyDictionarySet(fields, @"max_id", maxId);
     NSString *csrf = [SHSettings csrfToken];
-    if (csrf.length) fields[@"_csrftoken"] = csrf;
+    if (csrf.length) SHLegacyDictionarySet(fields, @"_csrftoken", csrf);
 
     return [SHHTTP postForm:[SHApiBase stringByAppendingString:@"/feed/timeline/"] headers:h fields:fields
                  completion:^(id json, NSInteger status, NSError *error) {
@@ -1726,11 +1727,11 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         NSArray *posts = SHParseTimeline(d);
         if (!maxId.length) SHResponseCacheStore(@"timeline", d);
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
-            SHLog(@"FEED status=%ld msg=%@ feed_items=%lu parsed=%lu more=%@", (long)status, SHStr(d[@"message"]) ?: @"-",
-                  (unsigned long)(SHArr(d[@"feed_items"]) ?: SHArr(d[@"items"])).count, (unsigned long)posts.count,
-                  SHStr(d[@"next_max_id"]).length ? @"yes" : @"no");
+            SHLog(@"FEED status=%ld msg=%@ feed_items=%lu parsed=%lu more=%@", (long)status, SHStr([d objectForKey:@"message"]) ?: @"-",
+                  (unsigned long)(SHArr([d objectForKey:@"feed_items"]) ?: SHArr([d objectForKey:@"items"])).count, (unsigned long)posts.count,
+                  SHStr([d objectForKey:@"next_max_id"]).length ? @"yes" : @"no");
         }
-        completion(posts, SHStr(d[@"next_max_id"]), nil);
+        completion(posts, SHStr([d objectForKey:@"next_max_id"]), nil);
     }];
 }
 
@@ -1771,13 +1772,13 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 {
     NSString *url = [NSString stringWithFormat:@"%@/users/%@/usernameinfo/", SHApiBase, [SHUtils urlEncode:username]];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
-        SHUser *user = [SHUser fromJSON:SHDict(SHDict(json)[@"user"])];
+        SHUser *user = [SHUser fromJSON:SHDict([SHDict(json) objectForKey:@"user"])];
         if (user.pk.length && !error && status < 400) { completion(user, nil); return; }
         NSString *webUrl = [NSString stringWithFormat:@"%@/users/web_profile_info/?username=%@", SHApiBase, [SHUtils urlEncode:username]];
         [SHHTTP getJSON:webUrl headers:SHAuthHeaders() completion:^(id json2, NSInteger status2, NSError *error2) {
             if (error2) { completion(nil, error2); return; }
             NSDictionary *d = SHDict(json2);
-            NSDictionary *userData = SHDict(SHDict(d[@"data"])[@"user"]) ?: SHDict(d[@"user"]);
+            NSDictionary *userData = SHDict([SHDict([d objectForKey:@"data"]) objectForKey:@"user"]) ?: SHDict([d objectForKey:@"user"]);
             SHUser *webUser = [SHUser fromJSON:userData];
             if (!webUser.pk.length) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"User not found."))); return; }
             completion(webUser, nil);
@@ -1790,7 +1791,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     NSString *url = [NSString stringWithFormat:@"%@/users/%@/info/", SHApiBase, pk];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
-        SHUser *user = [SHUser fromJSON:SHDict(SHDict(json)[@"user"])];
+        SHUser *user = [SHUser fromJSON:SHDict([SHDict(json) objectForKey:@"user"])];
         if (!user) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"User not found."))); return; }
         completion(user, nil);
     }];
@@ -1804,11 +1805,11 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *posts = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(d[@"items"])) {
+        for (NSDictionary *item in SHArr([d objectForKey:@"items"])) {
             SHPost *p = [SHPost fromJSON:item];
             if (p && p.pk.length) [posts addObject:p];
         }
-        completion(posts, SHStr(d[@"next_max_id"]), nil);
+        completion(posts, SHStr([d objectForKey:@"next_max_id"]), nil);
     }];
 }
 
@@ -1825,28 +1826,28 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         NSUInteger withItems = 0;
         BOOL debug = [[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]];
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-        for (id entry in SHArr(d[@"tray"])) {
+        for (id entry in SHArr([d objectForKey:@"tray"])) {
             NSDictionary *tray = SHDict(entry);
             SHStoryReel *r = [SHStoryReel fromJSON:tray];
             if (debug) {
                 // what the tray says about each circle (a circle without a story to show is the question)
                 SHLog(@"TRAYREEL %@ type=%@ items=%lu media_count=%@ media_ids=%lu latest=%.0fh ago expires=%.0fh seen=%@ besties=%@ nux=%@",
-                      r.user.username ?: @"?", SHStr(tray[@"reel_type"]) ?: @"-", (unsigned long)SHArr(tray[@"items"]).count,
-                      SHStr(tray[@"media_count"]) ?: @"-", (unsigned long)SHArr(tray[@"media_ids"]).count,
-                      SHDbl(tray[@"latest_reel_media"]) > 0 ? (now - SHDbl(tray[@"latest_reel_media"])) / 3600 : -1,
-                      SHDbl(tray[@"expiring_at"]) > 0 ? (SHDbl(tray[@"expiring_at"]) - now) / 3600 : -1,
-                      SHStr(tray[@"seen"]) ?: @"-", SHStr(tray[@"has_besties_media"]) ?: @"-", SHStr(tray[@"is_nux"]) ?: @"-");
+                      r.user.username ?: @"?", SHStr([tray objectForKey:@"reel_type"]) ?: @"-", (unsigned long)SHArr([tray objectForKey:@"items"]).count,
+                      SHStr([tray objectForKey:@"media_count"]) ?: @"-", (unsigned long)SHArr([tray objectForKey:@"media_ids"]).count,
+                      SHDbl([tray objectForKey:@"latest_reel_media"]) > 0 ? (now - SHDbl([tray objectForKey:@"latest_reel_media"])) / 3600 : -1,
+                      SHDbl([tray objectForKey:@"expiring_at"]) > 0 ? (SHDbl([tray objectForKey:@"expiring_at"]) - now) / 3600 : -1,
+                      SHStr([tray objectForKey:@"seen"]) ?: @"-", SHStr([tray objectForKey:@"has_besties_media"]) ?: @"-", SHStr([tray objectForKey:@"is_nux"]) ?: @"-");
             }
             // Not every circle is a story: for an account that follows few people Instagram fills the tray with
             // accounts it suggests following ("suggested_user": no story, nothing to open). Only reels stay; also
             // none that already ran out.
-            if ([SHStr(tray[@"reel_type"]) isEqualToString:@"suggested_user"]) continue;
+            if ([SHStr([tray objectForKey:@"reel_type"]) isEqualToString:@"suggested_user"]) continue;
             // "highlight_rewind_reel" is a look back at someone's old highlights, a second circle next to their
             // stories (no latest_reel_media, never "seen"); what reels_media gives for the person is their stories,
             // so it would only show them twice. One circle per person, the stories one.
-            if ([SHStr(tray[@"reel_type"]) hasPrefix:@"highlight"]) continue;
-            if (SHDbl(tray[@"expiring_at"]) > 0 && SHDbl(tray[@"expiring_at"]) < now) continue;
-            if (SHDbl(tray[@"latest_reel_media"]) > 0 && now - SHDbl(tray[@"latest_reel_media"]) > 26 * 3600) continue;
+            if ([SHStr([tray objectForKey:@"reel_type"]) hasPrefix:@"highlight"]) continue;
+            if (SHDbl([tray objectForKey:@"expiring_at"]) > 0 && SHDbl([tray objectForKey:@"expiring_at"]) < now) continue;
+            if (SHDbl([tray objectForKey:@"latest_reel_media"]) > 0 && now - SHDbl([tray objectForKey:@"latest_reel_media"]) > 26 * 3600) continue;
             if (r.user.pk.length && [people containsObject:r.user.pk]) continue;
             if (r && r.user) {
                 if (r.user.pk.length) [people addObject:r.user.pk];
@@ -1871,39 +1872,39 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     NSDictionary *params = @{ @"user_ids": ids, @"_uuid": [SHSettings deviceId], @"_csrftoken": [SHSettings csrfToken] ?: @"",
                               @"source": @"feed_timeline", @"supported_capabilities_new": capabilities };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
 
     return [SHHTTP request:@"POST" url:[NSString stringWithFormat:@"%@/feed/reels_media/", SHApiBase]
                    headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]]) {
-            id reelsNode = SHDict(json)[@"reels_media"] ?: SHDict(json)[@"reels"];
+            id reelsNode = [SHDict(json) objectForKey:@"reels_media"] ?: [SHDict(json) objectForKey:@"reels"];
             id firstReel = [reelsNode isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)reelsNode allValues].firstObject
                          : [reelsNode isKindOfClass:[NSArray class]] ? [(NSArray *)reelsNode firstObject] : nil;
             SHLog(@"STORIES ids=%@ status=%ld error=%@ keys=%@ reels=%@ n=%lu firstReelKeys=%@ items=%lu", [ids componentsJoinedByString:@","],
                   (long)status, error.localizedDescription ?: @"-", [[SHDict(json) allKeys] componentsJoinedByString:@","],
                   NSStringFromClass([reelsNode class]), (unsigned long)[reelsNode count],
-                  [[SHDict(firstReel) allKeys] componentsJoinedByString:@","], (unsigned long)SHArr(SHDict(firstReel)[@"items"]).count);
+                  [[SHDict(firstReel) allKeys] componentsJoinedByString:@","], (unsigned long)SHArr([SHDict(firstReel) objectForKey:@"items"]).count);
         }
         if (error) { completion(nil, error); return; }
         if (status >= 400) { completion(nil, SHMakeError(status, [SHHTTP messageFromErrorJSON:json] ?: L(@"Couldn't load the story."))); return; }
         NSDictionary *d = SHDict(json);
-        NSDictionary *reelsMedia = SHDict(d[@"reels_media"]) ?: SHDict(d[@"reels"]);
+        NSDictionary *reelsMedia = SHDict([d objectForKey:@"reels_media"]) ?: SHDict([d objectForKey:@"reels"]);
         NSMutableArray *reels = [NSMutableArray array];
         if ([reelsMedia isKindOfClass:[NSDictionary class]]) {
             for (NSString *key in reelsMedia) {
-                SHStoryReel *r = [SHStoryReel fromJSON:SHDict(reelsMedia[key])];
+                SHStoryReel *r = [SHStoryReel fromJSON:SHDict([reelsMedia objectForKey:key])];
                 if (r) [reels addObject:r];
             }
         } else {
-            for (NSDictionary *reel in SHArr(d[@"reels_media"]) ?: SHArr(d[@"reels"])) {
+            for (NSDictionary *reel in SHArr([d objectForKey:@"reels_media"]) ?: SHArr([d objectForKey:@"reels"])) {
                 SHStoryReel *r = [SHStoryReel fromJSON:reel];
                 if (r) [reels addObject:r];
             }
         }
-        if (reels.count == 0 && ids.count == 1 && ![ids[0] hasPrefix:@"highlight:"]) {   // reels_media answers {"reels":{}} for this account: ask per user
-            [self userStoryFeed:ids[0] completion:completion];
+        if (reels.count == 0 && ids.count == 1 && ![[ids objectAtIndex:0] hasPrefix:@"highlight:"]) {   // reels_media answers {"reels":{}} for this account: ask per user
+            [self userStoryFeed:[ids objectAtIndex:0] completion:completion];
             return;
         }
         completion(reels, nil);
@@ -1923,7 +1924,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
                      70 + (int)arc4random_uniform(30)];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         NSMutableArray *reels = [NSMutableArray array];
-        for (id entry in SHArr(SHDict(json)[@"tray"])) {
+        for (id entry in SHArr([SHDict(json) objectForKey:@"tray"])) {
             SHStoryReel *r = [SHStoryReel fromJSON:SHDict(entry)];
             if (r.isHighlight) [reels addObject:r];
         }
@@ -1942,14 +1943,14 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     for (SHStoryItem *item in items) {
         if (!item.pk.length || !owner.length) continue;
         long long taken = (long long)[item.takenAt timeIntervalSince1970];
-        seen[[NSString stringWithFormat:@"%@_%@_%@", item.pk, owner, owner]] = @[ [NSString stringWithFormat:@"%lld_%lld", taken, MAX(taken, now)] ];
+        SHLegacyDictionarySet(seen, [NSString stringWithFormat:@"%@_%@_%@", item.pk, owner, owner], @[ [NSString stringWithFormat:@"%lld_%lld", taken, MAX(taken, now)] ]);
     }
     if (!seen.count) { if (completion) completion(NO, nil); return nil; }
     NSDictionary *params = @{ @"_uuid": [SHSettings deviceId], @"_uid": [SHSettings userId] ?: @"", @"_csrftoken": [SHSettings csrfToken] ?: @"",
                               @"container_module": @"feed_timeline", @"reels": seen, @"reel_media_skipped": @{},
                               @"live_vods": @{}, @"live_vods_skipped": @{}, @"nuxes": @{}, @"nuxes_skipped": @{} };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *v2 = [SHApiBase stringByReplacingOccurrencesOfString:@"/api/v1" withString:@"/api/v2"];
     return [SHHTTP request:@"POST" url:[v2 stringByAppendingString:@"/media/seen/?reel=1&live_vod=0"] headers:h body:SHSignedBodyData(params)
                    retries:0 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
@@ -1980,12 +1981,12 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     return [self storiesForUserIds:ids completion:^(NSArray *fetched, NSError *error) {
         if (error) { completion(reels); return; }
         NSMutableDictionary *byPk = [NSMutableDictionary dictionary];
-        for (SHStoryReel *f in fetched) if (f.user.pk.length && f.items.count) byPk[f.user.pk] = f;
-        BOOL trustworthy = control ? byPk[control.user.pk] != nil : byPk.count > 0;
+        for (SHStoryReel *f in fetched) if (f.user.pk.length && f.items.count) SHLegacyDictionarySet(byPk, f.user.pk, f);
+        BOOL trustworthy = control ? [byPk objectForKey:control.user.pk] != nil : byPk.count > 0;
         if (!trustworthy) { completion(reels); return; }
         NSMutableArray *viewable = [NSMutableArray array];
         for (SHStoryReel *r in reels) {
-            SHStoryReel *f = byPk[r.user.pk ?: @""];
+            SHStoryReel *f = [byPk objectForKey:r.user.pk ?: @""];
             if (!r.items.count && f) r.items = f.items;
             if (r.items.count) [viewable addObject:r];
         }
@@ -2001,7 +2002,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     NSString *url = [NSString stringWithFormat:@"%@/feed/user/%@/story/", SHApiBase, userId];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         NSDictionary *d = SHDict(json);
-        SHStoryReel *r = [SHStoryReel fromJSON:SHDict(d[@"reel"])];
+        SHStoryReel *r = [SHStoryReel fromJSON:SHDict([d objectForKey:@"reel"])];
         if (debug) SHLog(@"USERSTORY %@ status=%ld error=%@ keys=%@ items=%lu", userId, (long)status, error.localizedDescription ?: @"-",
                          [[d allKeys] componentsJoinedByString:@","], (unsigned long)r.items.count);
         if (error) { completion(nil, error); return; }
@@ -2028,14 +2029,14 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"_uuid": [SHSettings deviceId],
     };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST"
         url:[NSString stringWithFormat:@"%@/media/%@/like/", SHApiBase, mediaPk]
         headers:h body:SHSignedBodyData(params) retries:0
         completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
             id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
             if (error) { completion(NO, error); return; }
-            completion(SHStr(SHDict(json)[@"status"]) && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+            completion(SHStr([SHDict(json) objectForKey:@"status"]) && [SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"], nil);
         }];
 }
 
@@ -2047,14 +2048,14 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"_uuid": [SHSettings deviceId],
     };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST"
         url:[NSString stringWithFormat:@"%@/media/%@/unlike/", SHApiBase, mediaPk]
         headers:h body:SHSignedBodyData(params) retries:0
         completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
             id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
             if (error) { completion(NO, error); return; }
-            completion(SHStr(SHDict(json)[@"status"]) && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+            completion(SHStr([SHDict(json) objectForKey:@"status"]) && [SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"], nil);
         }];
 }
 
@@ -2068,11 +2069,11 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *comments = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(d[@"comments"])) {
+        for (NSDictionary *item in SHArr([d objectForKey:@"comments"])) {
             SHComment *c = [SHComment fromJSON:item];
             if (c) [comments addObject:c];
         }
-        completion(comments, SHStr(d[@"next_min_id"]), nil);
+        completion(comments, SHStr([d objectForKey:@"next_min_id"]), nil);
     }];
 }
 
@@ -2084,14 +2085,14 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
         @"_uuid": [SHSettings deviceId],
     };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST"
         url:[NSString stringWithFormat:@"%@/media/%@/comment/", SHApiBase, mediaPk]
         headers:h body:SHSignedBodyData(params) retries:0
         completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
             id json = body.length ? [SHUtils JSONObjectFromData:body] : nil;
             if (error) { completion(NO, error); return; }
-            completion(SHStr(SHDict(json)[@"status"]) && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+            completion(SHStr([SHDict(json) objectForKey:@"status"]) && [SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"], nil);
         }];
 }
 
@@ -2103,7 +2104,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSMutableArray *users = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(SHDict(json)[@"users"])) {
+        for (NSDictionary *item in SHArr([SHDict(json) objectForKey:@"users"])) {
             SHUser *u = [SHUser fromJSON:item];
             if (u) [users addObject:u];
         }
@@ -2117,7 +2118,7 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 {
     NSDictionary *params = @{ @"_uid": [SHSettings userId], @"_uuid": [SHSettings deviceId], @"user_id": pk };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST"
         url:[NSString stringWithFormat:@"%@/friendships/create/%@/", SHApiBase, pk]
         headers:h body:SHSignedBodyData(params) retries:0
@@ -2133,8 +2134,8 @@ static BOOL SHKeepSessionFromAnswer(NSDictionary *answer, NSString *body, NSDict
 // into a request); also the plain question of where the relationship stands.
 static void SHReadFriendship(NSDictionary *fs, BOOL *following, BOOL *requested)
 {
-    *following = SHBool(fs[@"following"]);
-    *requested = SHBool(fs[@"outgoing_request"]);
+    *following = SHBool([fs objectForKey:@"following"]);
+    *requested = SHBool([fs objectForKey:@"outgoing_request"]);
 }
 
 + (SHHTTPTask *)friendshipWithUser:(NSString *)pk completion:(void (^)(BOOL following, BOOL requested, NSError *error))completion
@@ -2152,7 +2153,7 @@ static void SHReadFriendship(NSDictionary *fs, BOOL *following, BOOL *requested)
 {
     NSDictionary *params = @{ @"_uid": [SHSettings userId] ?: @"", @"_uuid": [SHSettings deviceId], @"user_id": pk ?: @"" };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *url = [NSString stringWithFormat:@"%@/friendships/%@/%@/", SHApiBase, follow ? @"create" : @"destroy", pk];
     return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
@@ -2163,7 +2164,7 @@ static void SHReadFriendship(NSDictionary *fs, BOOL *following, BOOL *requested)
             return;
         }
         BOOL following = follow, requested = NO;
-        NSDictionary *fs = SHDict(d[@"friendship_status"]);
+        NSDictionary *fs = SHDict([d objectForKey:@"friendship_status"]);
         if (fs) SHReadFriendship(fs, &following, &requested);
         completion(following, requested, nil);
     }];
@@ -2173,7 +2174,7 @@ static void SHReadFriendship(NSDictionary *fs, BOOL *following, BOOL *requested)
 {
     NSDictionary *params = @{ @"_uid": [SHSettings userId], @"_uuid": [SHSettings deviceId], @"user_id": pk };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST"
         url:[NSString stringWithFormat:@"%@/friendships/destroy/%@/", SHApiBase, pk]
         headers:h body:SHSignedBodyData(params) retries:0
@@ -2191,7 +2192,7 @@ static void SHReadFriendship(NSDictionary *fs, BOOL *following, BOOL *requested)
 {
     NSDictionary *params = @{ @"_uid": [SHSettings userId], @"_uuid": [SHSettings deviceId] };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST"
         url:[SHApiBase stringByAppendingString:@"/accounts/logout/"]
         headers:h body:SHSignedBodyData(params) retries:0
@@ -2227,15 +2228,15 @@ static NSDictionary *g_challengeStepData = nil;  // step_data of the current ste
 // Every call of a stopped session brings the same challenge; only a new one replaces the pending one (and its step).
 + (void)challengeRequiredNotification:(NSNotification *)note
 {
-    NSDictionary *c = SHDict(SHDict(note.userInfo[@"json"])[@"challenge"]);
-    NSString *path = SHStr(note.userInfo[@"path"]);
+    NSDictionary *c = SHDict([SHDict([note.userInfo objectForKey:@"json"]) objectForKey:@"challenge"]);
+    NSString *path = SHStr([note.userInfo objectForKey:@"path"]);
     if (!path.length) { SHLog(@"Instagram stopped the session for a security check, without a challenge path"); return; }
     if ([path isEqualToString:g_challengePath]) return;
     [self setChallengePath:path];
-    g_challengeContext = [SHStr(c[@"challenge_context"]) copy];
+    g_challengeContext = [SHStr([c objectForKey:@"challenge_context"]) copy];
     SHLog(@"Instagram stopped the session for a security check: %@ path, native_flow=%@ lock=%@ logout=%@ flow_render_type=%@ context=%@",
-          [path componentsSeparatedByString:@"/"].count >= 5 ? @"user/nonce" : @"generic", c[@"native_flow"], c[@"lock"], c[@"logout"],
-          c[@"flow_render_type"], g_challengeContext.length ? @"yes" : @"no");
+          [path componentsSeparatedByString:@"/"].count >= 5 ? @"user/nonce" : @"generic", [c objectForKey:@"native_flow"], [c objectForKey:@"lock"], [c objectForKey:@"logout"],
+          [c objectForKey:@"flow_render_type"], g_challengeContext.length ? @"yes" : @"no");
 }
 
 // The challenge_context the app sends with the step request: the reply's own, else (like the app) one naming the
@@ -2246,7 +2247,7 @@ static NSString *SHChallengeContextParameter(void)
     NSArray *parts = [g_challengePath componentsSeparatedByString:@"/"];
     NSUInteger i = [parts indexOfObject:@"challenge"];
     if (i == NSNotFound || i + 2 >= parts.count) return nil;
-    NSString *user = parts[i + 1], *nonce = parts[i + 2];
+    NSString *user = [parts objectAtIndex:i + 1], *nonce = [parts objectAtIndex:i + 2];
     if (!nonce.length || [user longLongValue] <= 0) return nil;
     NSData *json = [SHUtils JSONDataFromObject:@{ @"step_name": @"", @"nonce_code": nonce, @"user_id": @([user longLongValue]), @"is_stateless": @NO }];
     return json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;
@@ -2276,9 +2277,9 @@ static NSString *SHChallengeContextParameter(void)
     return [SHHTTP getJSON:u headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { SHLog(@"Challenge step request failed: HTTP %ld %@", (long)status, error.localizedDescription); completion(nil, NO, error); return; }
         NSDictionary *d = SHDict(json);
-        g_challengeStepData = SHDict(d[@"step_data"]);
-        NSString *step = SHStr(d[@"step_name"]) ?: @"";
-        if (!step.length && [SHStr(d[@"action"]) isEqualToString:@"close"]) step = @"close";
+        g_challengeStepData = SHDict([d objectForKey:@"step_data"]);
+        NSString *step = SHStr([d objectForKey:@"step_name"]) ?: @"";
+        if (!step.length && [SHStr([d objectForKey:@"action"]) isEqualToString:@"close"]) step = @"close";
         completion(step, [step isEqualToString:@"select_verify_method"] || [step isEqualToString:@"select_contact_point_recovery"], nil);
     }];
 }
@@ -2292,19 +2293,19 @@ static NSString *SHChallengeContextParameter(void)
     NSDictionary *params = @{ @"choice": [NSString stringWithFormat:@"%ld", (long)choice], @"_csrftoken": [SHSettings csrfToken] ?: @"",
                               @"_uuid": [SHSettings deviceId], @"guid": [SHSettings deviceId], @"device_id": [SHSettings androidId] };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         if (error) { completion(nil, NO, error); return; }
         if (status >= 400) {
-            SHLog(@"Challenge answer refused: HTTP %ld %@", (long)status, SHStr(d[@"message"]) ?: @"-");
+            SHLog(@"Challenge answer refused: HTTP %ld %@", (long)status, SHStr([d objectForKey:@"message"]) ?: @"-");
             completion(nil, NO, SHMakeError(status, [SHHTTP messageFromErrorJSON:d] ?: L(@"That code didn't work. Try again.")));
             return;
         }
-        g_challengeStepData = SHDict(d[@"step_data"]);
-        NSString *step = SHStr(d[@"step_name"]) ?: @"";
-        if (!step.length) step = [SHStr(d[@"action"]) isEqualToString:@"close"] || [SHStr(d[@"status"]) isEqualToString:@"ok"] ? @"close" : @"verify_code";
+        g_challengeStepData = SHDict([d objectForKey:@"step_data"]);
+        NSString *step = SHStr([d objectForKey:@"step_name"]) ?: @"";
+        if (!step.length) step = [SHStr([d objectForKey:@"action"]) isEqualToString:@"close"] || [SHStr([d objectForKey:@"status"]) isEqualToString:@"ok"] ? @"close" : @"verify_code";
         if ([step isEqualToString:@"close"]) [self setChallengePath:nil];
         completion(step, [step isEqualToString:@"select_verify_method"] || [step isEqualToString:@"select_contact_point_recovery"], nil);
     }];
@@ -2315,7 +2316,7 @@ static NSString *SHChallengeContextParameter(void)
     NSString *url = [self challengeURL];
     if (!url) { completion(nil, SHMakeError(SHErrorAPI, L(@"There is no pending verification."))); return nil; }
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *c = [code stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
     NSData *body = SHSignedBodyData(@{ @"security_code": c, @"_csrftoken": [SHSettings csrfToken] ?: @"", @"_uuid": [SHSettings deviceId],
                                        @"guid": [SHSettings deviceId], @"device_id": [SHSettings androidId] });
@@ -2325,7 +2326,7 @@ static NSString *SHChallengeContextParameter(void)
         if (newCsrf) [SHSettings setCsrfToken:newCsrf];
         SHSaveTokensFromHeaders(headers);
         NSDictionary *d = SHDict(bodyData.length ? [SHUtils JSONObjectFromData:bodyData] : nil);
-        NSDictionary *loggedIn = SHDict(d[@"logged_in_user"]);
+        NSDictionary *loggedIn = SHDict([d objectForKey:@"logged_in_user"]);
         if (loggedIn) {
             SHUser *user = [SHUser fromJSON:loggedIn];
             if (user.pk.length) { [SHSettings setUserId:user.pk]; [SHSettings setUsername:user.username]; [SHSettings save]; }
@@ -2333,13 +2334,13 @@ static NSString *SHChallengeContextParameter(void)
             completion(user, nil);
             return;
         }
-        NSString *action = SHStr(d[@"action"]) ?: @"";
-        if (([action isEqualToString:@"close"] || [SHStr(d[@"status"]) isEqualToString:@"ok"]) && [SHSettings isLoggedIn]) {
+        NSString *action = SHStr([d objectForKey:@"action"]) ?: @"";
+        if (([action isEqualToString:@"close"] || [SHStr([d objectForKey:@"status"]) isEqualToString:@"ok"]) && [SHSettings isLoggedIn]) {
             [self setChallengePath:nil];
             completion(nil, nil);   // the token arrived in the headers; the feed will load the account
             return;
         }
-        NSString *msg = SHStr(d[@"message"]) ?: (error.localizedDescription ?: L(@"That code didn't work. Try again."));
+        NSString *msg = SHStr([d objectForKey:@"message"]) ?: (error.localizedDescription ?: L(@"That code didn't work. Try again."));
         completion(nil, SHMakeError(status ?: SHErrorAPI, msg));
     }];
 }
@@ -2371,7 +2372,7 @@ static NSString *SHChallengeContextParameter(void)
             return;
         }
         NSArray *parts = [enc componentsSeparatedByString:@":"];
-        NSData *payload = parts.count >= 4 ? [SHUtils base64Decode:parts[3]] : nil;
+        NSData *payload = parts.count >= 4 ? [SHUtils base64Decode:[parts objectAtIndex:3]] : nil;
         size_t expected = 2 + 12 + 2 + 256 + 16 + strlen(sample);
         if (payload.length < 32) { completion(NO, @"payload too short / base64 decode failed"); return; }
         const unsigned char *p = payload.bytes;
@@ -2397,11 +2398,11 @@ static NSString *SHChallengeContextParameter(void)
                 NSString *bodyStr = body.length ? ([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"") : @"";
                 NSDictionary *d = SHDict([SHUtils JSONObjectFromData:body]);
                 BOOL needsUpgrade = [bodyStr rangeOfString:@"out of date" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                    [SHStr(d[@"error_type"]) isEqualToString:@"needs_upgrade"];
+                    [SHStr([d objectForKey:@"error_type"]) isEqualToString:@"needs_upgrade"];
                 NSString *bloks = SHExtractBloksError(bodyStr);
                 NSString *snippet = bodyStr.length > 160 ? [bodyStr substringToIndex:160] : bodyStr;
                 completion([NSString stringWithFormat:@"CAA HTTP %ld needs_upgrade=%@ error_type=%@ bloksErr=%@ body=%@",
-                    (long)status, needsUpgrade ? @"YES" : @"no", SHStr(d[@"error_type"]) ?: @"-",
+                    (long)status, needsUpgrade ? @"YES" : @"no", SHStr([d objectForKey:@"error_type"]) ?: @"-",
                     bloks ?: @"-", snippet]);
             }];
     }];
@@ -2414,7 +2415,7 @@ static NSString *SHChallengeContextParameter(void)
     NSString *url = [SHApiBase stringByAppendingString:@"/accounts/current_user/?edit=true"];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
-        SHUser *user = [SHUser fromJSON:SHDict(SHDict(json)[@"user"])];
+        SHUser *user = [SHUser fromJSON:SHDict([SHDict(json) objectForKey:@"user"])];
         if (!user) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"Couldn't load your profile."))); return; }
         if (user.pk.length) [SHSettings setUserId:user.pk];
         completion(user, nil);
@@ -2432,11 +2433,11 @@ static NSString *SHChallengeContextParameter(void)
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *users = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(d[@"users"])) {
+        for (NSDictionary *item in SHArr([d objectForKey:@"users"])) {
             SHUser *u = [SHUser fromJSON:item];
             if (u.pk.length) [users addObject:u];
         }
-        completion(users, SHStr(d[@"next_max_id"]), nil);
+        completion(users, SHStr([d objectForKey:@"next_max_id"]), nil);
     }];
 }
 
@@ -2460,7 +2461,7 @@ static NSString *SHChallengeContextParameter(void)
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSMutableArray *users = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(SHDict(json)[@"users"])) {
+        for (NSDictionary *item in SHArr([SHDict(json) objectForKey:@"users"])) {
             SHUser *u = [SHUser fromJSON:item];
             if (u.pk.length) [users addObject:u];
         }
@@ -2473,7 +2474,7 @@ static NSString *SHChallengeContextParameter(void)
     NSString *url = [NSString stringWithFormat:@"%@/media/%@/info/", SHApiBase, mediaPk];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
-        SHPost *p = [SHPost fromJSON:SHDict([SHArr(SHDict(json)[@"items"]) firstObject])];
+        SHPost *p = [SHPost fromJSON:SHDict([SHArr([SHDict(json) objectForKey:@"items"]) firstObject])];
         if (!p.pk.length) { completion(nil, SHMakeError(SHErrorBadResponse, L(@"That post isn't available."))); return; }
         completion(p, nil);
     }];
@@ -2488,7 +2489,7 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
         for (id child in node) SHCollectMedia(child, out, seen);
     } else if ([node isKindOfClass:[NSDictionary class]]) {
         NSDictionary *d = node;
-        BOOL looksLikeMedia = d[@"media_type"] && (d[@"image_versions2"] || d[@"carousel_media"] || d[@"video_versions"]) && (d[@"pk"] || d[@"id"]);
+        BOOL looksLikeMedia = [d objectForKey:@"media_type"] && ([d objectForKey:@"image_versions2"] || [d objectForKey:@"carousel_media"] || [d objectForKey:@"video_versions"]) && ([d objectForKey:@"pk"] || [d objectForKey:@"id"]);
         if (looksLikeMedia) {
             SHPost *p = [SHPost fromJSON:d];
             NSString *key = p.pk ?: @"";
@@ -2498,7 +2499,7 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
             }
             return;   // don't descend into a media's own nested media (carousel children)
         }
-        for (id key in d) SHCollectMedia(d[key], out, seen);
+        for (id key in d) SHCollectMedia([d objectForKey:key], out, seen);
     }
 }
 
@@ -2510,7 +2511,7 @@ static void SHCollectMedia(id node, NSMutableArray *out, NSMutableSet *seen)
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
         if (!maxId.length) SHResponseCacheStore(@"explore", d);
-        completion(SHParseExplore(d), SHStr(d[@"next_max_id"]) ?: SHStr(d[@"rank_token"]), nil);
+        completion(SHParseExplore(d), SHStr([d objectForKey:@"next_max_id"]) ?: SHStr([d objectForKey:@"rank_token"]), nil);
     }];
 }
 
@@ -2553,7 +2554,7 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
     NSDictionary *params = @{ @"_uuid": [SHSettings deviceId], @"_csrftoken": [SHSettings csrfToken] ?: @"",
                               @"container_module": @"clips_viewer_clips_tab", @"pagination_source": @"clips_viewer_clips_tab" };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     __block SHHTTPTask *task = nil;
     task = [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
@@ -2562,13 +2563,13 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
         if (!cursor.length && posts.count) SHResponseCacheStore(@"reels", d);   // the next opening starts with these
         if ([[NSFileManager defaultManager] fileExistsAtPath:[[SHUtils documentsPath] stringByAppendingPathComponent:@"debug"]])
             SHLog(@"REELS %@ status=%ld items=%lu with_ads=%lu firstKeys=%@ videos=%lu msg=%@", endpoint, (long)status,
-                  (unsigned long)SHArr(d[@"items"]).count, (unsigned long)SHArr(d[@"items_with_ads"]).count,
-                  [[SHDict([SHArr(d[@"items_with_ads"]) firstObject]) allKeys] componentsJoinedByString:@","],
-                  (unsigned long)posts.count, SHStr(d[@"message"]) ?: @"-");
+                  (unsigned long)SHArr([d objectForKey:@"items"]).count, (unsigned long)SHArr([d objectForKey:@"items_with_ads"]).count,
+                  [[SHDict([SHArr([d objectForKey:@"items_with_ads"]) firstObject]) allKeys] componentsJoinedByString:@","],
+                  (unsigned long)posts.count, SHStr([d objectForKey:@"message"]) ?: @"-");
         if (posts.count) {
-            NSDictionary *paging = SHDict(d[@"paging_info"]);
-            NSString *next = SHStr(paging[@"max_id"]) ?: SHStr(d[@"next_max_id"]);
-            BOOL more = paging[@"more_available"] ? SHBool(paging[@"more_available"]) : next.length > 0;
+            NSDictionary *paging = SHDict([d objectForKey:@"paging_info"]);
+            NSString *next = SHStr([paging objectForKey:@"max_id"]) ?: SHStr([d objectForKey:@"next_max_id"]);
+            BOOL more = [paging objectForKey:@"more_available"] ? SHBool([paging objectForKey:@"more_available"]) : next.length > 0;
             if (more && next.length && source == 1) next = [@"connected:" stringByAppendingString:next];
             completion(posts, more ? next : nil, nil);
             return;
@@ -2591,11 +2592,11 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
         if (error) { completion(nil, nil, error); return; }
         NSDictionary *d = SHDict(json);
         NSMutableArray *posts = [NSMutableArray array];
-        for (NSDictionary *item in SHArr(d[@"items"])) {
-            SHPost *p = [SHPost fromJSON:SHDict(item[@"media"]) ?: item];
+        for (NSDictionary *item in SHArr([d objectForKey:@"items"])) {
+            SHPost *p = [SHPost fromJSON:SHDict([item objectForKey:@"media"]) ?: item];
             if (p.pk.length) [posts addObject:p];
         }
-        completion(posts, SHStr(d[@"next_max_id"]), nil);
+        completion(posts, SHStr([d objectForKey:@"next_max_id"]), nil);
     }];
 }
 
@@ -2603,12 +2604,12 @@ static NSInteger g_reelsSource = 0;   // 0 discover, 1 connected, 2 explore vide
 {
     NSDictionary *params = @{ @"_uid": [SHSettings userId], @"_uuid": [SHSettings deviceId] };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *url = [NSString stringWithFormat:@"%@/media/%@/%@/", SHApiBase, mediaPk, saved ? @"save" : @"unsave"];
     return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         if (error) { completion(NO, error); return; }
-        completion([SHStr(SHDict([SHUtils JSONObjectFromData:body])[@"status"]) isEqualToString:@"ok"], nil);
+        completion([SHStr([SHDict([SHUtils JSONObjectFromData:body]) objectForKey:@"status"]) isEqualToString:@"ok"], nil);
     }];
 }
 
@@ -2633,13 +2634,13 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
         if (!cursor.length) {
             SHResponseCacheStore(@"inbox", SHDict(json));
             // the message requests waiting (they are not in this list): counted by the same answer, no request more
-            g_pendingMessageRequests = SHInt(SHDict(json)[@"pending_requests_total"]);
+            g_pendingMessageRequests = SHInt([SHDict(json) objectForKey:@"pending_requests_total"]);
             if (SHDebugLogging()) SHLog(@"INBOX threads=%lu pending_requests_total=%ld seq_id=%@", (unsigned long)threads.count,
-                                        (long)g_pendingMessageRequests, SHStr(SHDict(json)[@"seq_id"]) ?: @"-");
+                                        (long)g_pendingMessageRequests, SHStr([SHDict(json) objectForKey:@"seq_id"]) ?: @"-");
             [[SHDirectMonitor shared] noteInboxThreads:threads];   // the Direct tab's badge
             // where the live connection's message sync starts (the snapshot this page is)
-            [[SHRealtime shared] noteInboxSeqId:[SHStr(SHDict(json)[@"seq_id"]) longLongValue]
-                                     snapshotAt:[SHStr(SHDict(json)[@"snapshot_at_ms"]) longLongValue]];
+            [[SHRealtime shared] noteInboxSeqId:[SHStr([SHDict(json) objectForKey:@"seq_id"]) longLongValue]
+                                     snapshotAt:[SHStr([SHDict(json) objectForKey:@"snapshot_at_ms"]) longLongValue]];
         }
         if (completion) completion(threads, next, nil);
     }];
@@ -2653,7 +2654,7 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
                 completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSMutableArray *users = [NSMutableArray array];
-        for (id u in SHArr(SHDict(json)[@"users"])) { SHUser *user = [SHUser fromJSON:SHDict(u)]; if (user.pk.length) [users addObject:user]; }
+        for (id u in SHArr([SHDict(json) objectForKey:@"users"])) { SHUser *user = [SHUser fromJSON:SHDict(u)]; if (user.pk.length) [users addObject:user]; }
         if (SHDebugLogging()) SHLog(@"FOLLOWREQ pending=%lu", (unsigned long)users.count);
         completion(users, nil);
     }];
@@ -2665,12 +2666,12 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
     NSDictionary *params = @{ @"_uuid": [SHSettings deviceId], @"_uid": [SHSettings userId] ?: @"", @"user_id": userPk ?: @"",
                               @"radio_type": @"wifi-none" };
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *url = [NSString stringWithFormat:@"%@/friendships/%@/%@/", SHApiBase, approve ? @"approve" : @"ignore", userPk ?: @""];
     return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
-        BOOL ok = !error && status < 400 && [SHStr(d[@"status"]) isEqualToString:@"ok"];
+        BOOL ok = !error && status < 400 && [SHStr([d objectForKey:@"status"]) isEqualToString:@"ok"];
         if (SHDebugLogging()) SHLog(@"FOLLOWREQ %@ %@ status=%ld ok=%d", approve ? @"approve" : @"ignore", userPk, (long)status, ok);
         completion(ok, ok ? nil : (error ?: SHMakeError(status >= 400 ? status : SHErrorAPI, [SHHTTP messageFromErrorJSON:d] ?: L(@"Something went wrong."))));
     }];
@@ -2693,14 +2694,14 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
 + (SHHTTPTask *)answerMessageRequest:(NSString *)threadId accept:(BOOL)accept completion:(SHActionCompletion)completion
 {
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{ @"_uuid": [SHSettings deviceId] }];
-    if ([SHSettings csrfToken].length) fields[@"_csrftoken"] = [SHSettings csrfToken];
-    if (accept) fields[@"filter"] = @"DEFAULT";
-    else fields[@"use_unified_inbox"] = @"true";
+    if ([SHSettings csrfToken].length) SHLegacyDictionarySet(fields, @"_csrftoken", [SHSettings csrfToken]);
+    if (accept) SHLegacyDictionarySet(fields, @"filter", @"DEFAULT");
+    else SHLegacyDictionarySet(fields, @"use_unified_inbox", @"true");
     NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/%@/%@/", SHApiBase, threadId ?: @"", accept ? @"approve" : @"hide"];
     return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
-        BOOL ok = !error && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"];
+        BOOL ok = !error && [SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"];
         if (SHDebugLogging()) SHLog(@"MSGREQ %@ status=%ld ok=%d", accept ? @"approve" : @"hide", (long)status, ok);
         if (ok && g_pendingMessageRequests > 0) g_pendingMessageRequests--;
         completion(ok, ok ? nil : (error ?: SHMakeError(SHErrorAPI, [SHHTTP messageFromErrorJSON:json] ?: L(@"Something went wrong."))));
@@ -2713,9 +2714,9 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
     if (cursor.length) [url appendFormat:@"&cursor=%@", [SHUtils urlEncode:cursor]];
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, nil, error); return; }
-        NSDictionary *t = SHDict(SHDict(json)[@"thread"]);
+        NSDictionary *t = SHDict([SHDict(json) objectForKey:@"thread"]);
         SHDirectThread *thread = [SHDirectThread fromJSON:t];
-        completion(thread, SHBool(t[@"has_older"]) ? SHStr(t[@"oldest_cursor"]) : nil, nil);
+        completion(thread, SHBool([t objectForKey:@"has_older"]) ? SHStr([t objectForKey:@"oldest_cursor"]) : nil, nil);
     }];
 }
 
@@ -2728,7 +2729,7 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
                     completion:(SHActionCompletion)completion
 {
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
         @"action": @"send_item",
         @"thread_ids": [NSString stringWithFormat:@"[%@]", threadId],
@@ -2739,14 +2740,14 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
     }];
     // a reply names the message it answers (as instagrapi's direct_send does)
     if (reply.pk.length) {
-        fields[@"replied_to_action_source"] = @"swipe";
-        fields[@"replied_to_item_id"] = reply.pk;
-        if (reply.clientContext.length) fields[@"replied_to_client_context"] = reply.clientContext;
+        SHLegacyDictionarySet(fields, @"replied_to_action_source", @"swipe");
+        SHLegacyDictionarySet(fields, @"replied_to_item_id", reply.pk);
+        if (reply.clientContext.length) SHLegacyDictionarySet(fields, @"replied_to_client_context", reply.clientContext);
     }
     NSString *url = [SHApiBase stringByAppendingString:@"/direct_v2/threads/broadcast/text/"];
     return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(NO, error); return; }
-        completion([SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"], nil);
+        completion([SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"], nil);
     }];
 }
 
@@ -2755,15 +2756,15 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
 + (SHHTTPTask *)unsendDirectItem:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/%@/items/%@/delete/", SHApiBase, threadId ?: @"", itemId ?: @""];
     NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{ @"_uuid": [SHSettings deviceId] ?: @"" }];
-    if ([SHSettings csrfToken].length) params[@"_csrftoken"] = [SHSettings csrfToken];
+    if ([SHSettings csrfToken].length) SHLegacyDictionarySet(params, @"_csrftoken", [SHSettings csrfToken]);
     return [SHHTTP request:@"POST" url:url headers:h body:SHSignedBodyData(params) retries:0
                 completion:^(NSInteger status, NSData *body, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil);
         if (error) { completion(NO, error); return; }
-        if (status >= 400 || ![SHStr(d[@"status"]) isEqualToString:@"ok"]) {
+        if (status >= 400 || ![SHStr([d objectForKey:@"status"]) isEqualToString:@"ok"]) {
             completion(NO, SHMakeError(status ?: SHErrorAPI, [SHHTTP messageFromErrorJSON:d] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status]));
             return;
         }
@@ -2775,7 +2776,7 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
 + (SHHTTPTask *)markDirectItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *token = SHMutationToken();
     NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
         @"action": @"mark_seen",
@@ -2786,10 +2787,10 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
         @"use_unified_inbox": @"true",
         @"_uuid": [SHSettings deviceId],
     }];
-    if ([SHSettings csrfToken].length) fields[@"_csrftoken"] = [SHSettings csrfToken];
+    if ([SHSettings csrfToken].length) SHLegacyDictionarySet(fields, @"_csrftoken", [SHSettings csrfToken]);
     NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/%@/items/%@/seen/", SHApiBase, threadId ?: @"", itemId ?: @""];
     return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
-        BOOL ok = !error && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"];
+        BOOL ok = !error && [SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"];
         if (SHDebugLogging()) SHLog(@"DMSEEN status=%ld ok=%d %@", (long)status, ok, ok ? @"" : (error.localizedDescription ?: @""));
         if (completion) completion(ok, ok ? nil : (error ?: SHMakeError(SHErrorAPI, [SHHTTP messageFromErrorJSON:json] ?: L(@"Something went wrong."))));
     }];
@@ -2800,16 +2801,16 @@ static NSInteger g_pendingMessageRequests = 0;   // what the inbox's first page 
 + (SHHTTPTask *)markVisualItemSeen:(NSString *)itemId inThread:(NSString *)threadId completion:(SHActionCompletion)completion
 {
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSMutableDictionary *fields = [NSMutableDictionary dictionaryWithDictionary:@{
         @"item_ids": [NSString stringWithFormat:@"[%@]", itemId ?: @""],
         @"_uuid": [SHSettings deviceId],
         @"_uid": [SHSettings userId] ?: @"",
     }];
-    if ([SHSettings csrfToken].length) fields[@"_csrftoken"] = [SHSettings csrfToken];
+    if ([SHSettings csrfToken].length) SHLegacyDictionarySet(fields, @"_csrftoken", [SHSettings csrfToken]);
     NSString *url = [NSString stringWithFormat:@"%@/direct_v2/visual_threads/%@/item_seen/", SHApiBase, threadId ?: @""];
     return [SHHTTP postForm:url headers:h fields:fields completion:^(id json, NSInteger status, NSError *error) {
-        BOOL ok = !error && [SHStr(SHDict(json)[@"status"]) isEqualToString:@"ok"];
+        BOOL ok = !error && [SHStr([SHDict(json) objectForKey:@"status"]) isEqualToString:@"ok"];
         if (SHDebugLogging()) SHLog(@"DMVISUALSEEN status=%ld ok=%d %@", (long)status, ok, ok ? @"" : (error.localizedDescription ?: @""));
         if (completion) completion(ok, error);
     }];
@@ -2842,25 +2843,25 @@ static SHHTTPTask *SHDirectBroadcast(NSString *item, NSDictionary *fields, NSStr
 {
     NSString *token = SHMutationToken();
     NSMutableDictionary *f = [NSMutableDictionary dictionaryWithDictionary:fields ?: @{}];
-    f[@"action"] = @"send_item";
-    f[@"client_context"] = token;
-    f[@"mutation_token"] = token;
-    f[@"offline_threading_id"] = token;
-    f[@"_uuid"] = [SHSettings deviceId];
-    f[@"device_id"] = [SHSettings androidId];
-    if ([SHSettings csrfToken].length) f[@"_csrftoken"] = [SHSettings csrfToken];
-    if (threadId.length) f[@"thread_ids"] = [NSString stringWithFormat:@"[%@]", threadId];
-    else f[@"recipient_users"] = [NSString stringWithFormat:@"[[%@]]", userPk ?: @""];
+    SHLegacyDictionarySet(f, @"action", @"send_item");
+    SHLegacyDictionarySet(f, @"client_context", token);
+    SHLegacyDictionarySet(f, @"mutation_token", token);
+    SHLegacyDictionarySet(f, @"offline_threading_id", token);
+    SHLegacyDictionarySet(f, @"_uuid", [SHSettings deviceId]);
+    SHLegacyDictionarySet(f, @"device_id", [SHSettings androidId]);
+    if ([SHSettings csrfToken].length) SHLegacyDictionarySet(f, @"_csrftoken", [SHSettings csrfToken]);
+    if (threadId.length) SHLegacyDictionarySet(f, @"thread_ids", [NSString stringWithFormat:@"[%@]", threadId]);
+    else SHLegacyDictionarySet(f, @"recipient_users", [NSString stringWithFormat:@"[[%@]]", userPk ?: @""]);
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSString *url = [NSString stringWithFormat:@"%@/direct_v2/threads/broadcast/%@/", SHApiBase, item];
     return [SHHTTP postForm:url headers:h fields:f completion:^(id json, NSInteger status, NSError *error) {
         NSDictionary *d = SHDict(json);
-        BOOL ok = !error && [SHStr(d[@"status"]) isEqualToString:@"ok"];
-        NSString *thread = SHStr(SHDict(d[@"payload"])[@"thread_id"]) ?: SHStr(SHDict([SHArr(d[@"message_metadata"]) firstObject])[@"thread_id"]) ?: threadId;
+        BOOL ok = !error && [SHStr([d objectForKey:@"status"]) isEqualToString:@"ok"];
+        NSString *thread = SHStr([SHDict([d objectForKey:@"payload"]) objectForKey:@"thread_id"]) ?: SHStr([SHDict([SHArr([d objectForKey:@"message_metadata"]) firstObject]) objectForKey:@"thread_id"]) ?: threadId;
         if (SHDebugLogging())
             SHLog(@"DIRECT %@ status=%ld ok=%d thread=%@ %@", item, (long)status, ok, thread ?: @"-",
-                  SHStr(d[@"message"]) ?: error.localizedDescription ?: @"");
+                  SHStr([d objectForKey:@"message"]) ?: error.localizedDescription ?: @"");
         NSError *failure = nil;
         if (!ok) {
             // Instagram's own words when it has any; its HTTP 500 says just "None"
@@ -2887,22 +2888,22 @@ static NSMutableDictionary *SHMessengerUploadHeaders(NSString *typeHeader)
     NSString *uid = [SHSettings userId] ?: @"";
     NSMutableDictionary *h = [NSMutableDictionary dictionary];
     NSString *token = [SHSettings sessionToken];
-    if (token.length) h[@"authorization"] = [@"Bearer IGT:2:" stringByAppendingString:token];
-    h[@"ig-intended-user-id"] = uid;
-    h[@"ig-u-ds-user-id"] = uid;
-    h[@"accept-language"] = @"en-US";
-    h[@"priority"] = @"u=6, i";
-    h[@"user-agent"] = SHUserAgent();
-    h[@"x-fb-client-ip"] = @"True";
-    h[@"x-fb-friendly-name"] = @"undefined:media-upload";
-    h[@"x-fb-http-engine"] = @"Tigon/MNS/TCP";
-    h[@"x-fb-request-analytics-tags"] = [NSString stringWithFormat:@"{\"network_tags\":{\"product\":\"%@\",\"surface\":\"undefined\","
-                                         "\"request_category\":\"media_upload\",\"purpose\":\"none\",\"retry_attempt\":\"0\"}}", SHAppId];
-    h[@"x-fb-rmd"] = @"state=URL_ELIGIBLE";
-    h[@"x-fb-server-cluster"] = @"True";
-    h[@"x-tigon-is-retry"] = @"False";
-    h[@"x-ig-salt-ids"] = @"51052545";
-    h[typeHeader] = @"FILE_ATTACHMENT";   // image_type / audio_type
+    if (token.length) SHLegacyDictionarySet(h, @"authorization", [@"Bearer IGT:2:" stringByAppendingString:token]);
+    SHLegacyDictionarySet(h, @"ig-intended-user-id", uid);
+    SHLegacyDictionarySet(h, @"ig-u-ds-user-id", uid);
+    SHLegacyDictionarySet(h, @"accept-language", @"en-US");
+    SHLegacyDictionarySet(h, @"priority", @"u=6, i");
+    SHLegacyDictionarySet(h, @"user-agent", SHUserAgent());
+    SHLegacyDictionarySet(h, @"x-fb-client-ip", @"True");
+    SHLegacyDictionarySet(h, @"x-fb-friendly-name", @"undefined:media-upload");
+    SHLegacyDictionarySet(h, @"x-fb-http-engine", @"Tigon/MNS/TCP");
+    SHLegacyDictionarySet(h, @"x-fb-request-analytics-tags", [NSString stringWithFormat:@"{\"network_tags\":{\"product\":\"%@\",\"surface\":\"undefined\","
+                                         "\"request_category\":\"media_upload\",\"purpose\":\"none\",\"retry_attempt\":\"0\"}}", SHAppId]);
+    SHLegacyDictionarySet(h, @"x-fb-rmd", @"state=URL_ELIGIBLE");
+    SHLegacyDictionarySet(h, @"x-fb-server-cluster", @"True");
+    SHLegacyDictionarySet(h, @"x-tigon-is-retry", @"False");
+    SHLegacyDictionarySet(h, @"x-ig-salt-ids", @"51052545");
+    SHLegacyDictionarySet(h, typeHeader, @"FILE_ATTACHMENT");   // image_type / audio_type
     return h;
 }
 
@@ -2920,17 +2921,17 @@ static SHHTTPTask *SHMessengerUpload(NSString *kind, NSString *entity, NSData *d
                                      NSUInteger offset, void (^completion)(NSString *mediaId, NSError *error))
 {
     NSMutableDictionary *h = SHMessengerUploadHeaders(typeHeader);
-    h[@"content-type"] = @"application/octet-stream";
-    h[@"offset"] = [NSString stringWithFormat:@"%lu", (unsigned long)offset];
-    h[@"x-entity-length"] = [NSString stringWithFormat:@"%lu", (unsigned long)data.length];
-    h[@"x-entity-name"] = entity;
-    h[@"x-entity-type"] = entityType;
+    SHLegacyDictionarySet(h, @"content-type", @"application/octet-stream");
+    SHLegacyDictionarySet(h, @"offset", [NSString stringWithFormat:@"%lu", (unsigned long)offset]);
+    SHLegacyDictionarySet(h, @"x-entity-length", [NSString stringWithFormat:@"%lu", (unsigned long)data.length]);
+    SHLegacyDictionarySet(h, @"x-entity-name", entity);
+    SHLegacyDictionarySet(h, @"x-entity-type", entityType);
     NSData *body = offset > 0 && offset < data.length ? [data subdataWithRange:NSMakeRange(offset, data.length - offset)] : data;
     NSString *url = [NSString stringWithFormat:@"https://rupload.facebook.com/messenger_%@/%@", kind, entity];
     return [SHHTTP request:@"POST" url:url headers:h body:body retries:0
                 completion:^(NSInteger status, NSData *resp, NSDictionary *headers, NSError *error) {
         NSDictionary *d = SHDict(resp.length ? [SHUtils JSONObjectFromData:resp] : nil);
-        NSString *mediaId = SHStr(d[@"media_id"]);
+        NSString *mediaId = SHStr([d objectForKey:@"media_id"]);
         if (SHDebugLogging())
             SHLog(@"UPLOAD messenger_%@ %lu B status=%ld media_id=%@ %@", kind, (unsigned long)data.length, (long)status,
                   mediaId.length ? @"yes" : @"no", mediaId.length ? @"" : SHShortBody(resp));
@@ -3000,7 +3001,7 @@ static SHHTTPTask *SHMessengerUpload(NSString *kind, NSString *entity, NSData *d
             completion(NO, error ?: SHMakeError(status >= 400 ? status : SHErrorAPI, L(@"The upload failed.")));
             return;
         }
-        NSInteger offset = SHInt(SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil)[@"offset"]);
+        NSInteger offset = SHInt([SHDict(body.length ? [SHUtils JSONObjectFromData:body] : nil) objectForKey:@"offset"]);
         if (offset < 0 || (NSUInteger)offset >= audio.length) offset = 0;
         SHHTTPTask *upload = SHMessengerUpload(@"audio", entity, audio, @"audio/mp4", @"audio_type", (NSUInteger)offset,
                                                ^(NSString *mediaId, NSError *err) {
@@ -3025,17 +3026,17 @@ static NSArray *SHParseTagSections(NSDictionary *d)
     NSMutableArray *posts = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
     void (^add)(id) = ^(id node) {
-        SHPost *p = [SHPost fromJSON:SHDict(SHDict(node)[@"media"])];
+        SHPost *p = [SHPost fromJSON:SHDict([SHDict(node) objectForKey:@"media"])];
         if (p.pk.length && ![seen containsObject:p.pk] && (p.image.url.length || p.carouselMedia.count)) { [seen addObject:p.pk]; [posts addObject:p]; }
     };
-    for (id section in SHArr(d[@"sections"])) {
-        NSDictionary *content = SHDict(SHDict(section)[@"layout_content"]);
-        for (id node in SHArr(content[@"medias"])) add(node);
-        for (id node in SHArr(content[@"fill_items"])) add(node);
-        for (id node in SHArr(SHDict(SHDict(content[@"one_by_two_item"])[@"clips"])[@"items"])) add(node);
+    for (id section in SHArr([d objectForKey:@"sections"])) {
+        NSDictionary *content = SHDict([SHDict(section) objectForKey:@"layout_content"]);
+        for (id node in SHArr([content objectForKey:@"medias"])) add(node);
+        for (id node in SHArr([content objectForKey:@"fill_items"])) add(node);
+        for (id node in SHArr([SHDict([SHDict([content objectForKey:@"one_by_two_item"]) objectForKey:@"clips"]) objectForKey:@"items"])) add(node);
     }
-    for (id item in SHArr(d[@"items"])) add(@{ @"media": item });          // feed/tag/ answers a flat list
-    for (id item in SHArr(d[@"ranked_items"])) add(@{ @"media": item });
+    for (id item in SHArr([d objectForKey:@"items"])) add(@{ @"media": item });          // feed/tag/ answers a flat list
+    for (id item in SHArr([d objectForKey:@"ranked_items"])) add(@{ @"media": item });
     return posts;
 }
 
@@ -3045,7 +3046,7 @@ static NSArray *SHParseTagSections(NSDictionary *d)
     NSMutableString *url = [NSMutableString stringWithFormat:@"%@/tags/%@/sections/", SHApiBase, t];
     if (maxId.length) [url appendFormat:@"?max_id=%@", [SHUtils urlEncode:maxId]];
     NSMutableDictionary *h = [SHAuthHeaders() mutableCopy];
-    h[@"Content-Type"] = @"application/x-www-form-urlencoded";
+    SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
     NSDictionary *fields = @{ @"media_recency_filter": @"default", @"tab": @"top", @"_uuid": [SHSettings deviceId],
                               @"include_persistent": @"false", @"rank_token": [SHUniqueIdentifier() lowercaseString] };
     __block SHHTTPTask *task = nil;
@@ -3053,11 +3054,11 @@ static NSArray *SHParseTagSections(NSDictionary *d)
         NSDictionary *d = SHDict(json);
         NSArray *posts = error ? @[] : SHParseTagSections(d);
         if (SHDebugLogging())
-            SHLog(@"TAG #%@ status=%ld sections=%lu posts=%lu more=%@ %@", tag, (long)status, (unsigned long)SHArr(d[@"sections"]).count,
-                  (unsigned long)posts.count, SHStr(d[@"more_available"]) ?: @"-", error.localizedDescription ?: @"");
+            SHLog(@"TAG #%@ status=%ld sections=%lu posts=%lu more=%@ %@", tag, (long)status, (unsigned long)SHArr([d objectForKey:@"sections"]).count,
+                  (unsigned long)posts.count, SHStr([d objectForKey:@"more_available"]) ?: @"-", error.localizedDescription ?: @"");
         if (posts.count || maxId.length) {
-            BOOL more = SHBool(d[@"more_available"]);
-            completion(posts, more ? SHStr(d[@"next_max_id"]) : nil, posts.count ? nil : error);
+            BOOL more = SHBool([d objectForKey:@"more_available"]);
+            completion(posts, more ? SHStr([d objectForKey:@"next_max_id"]) : nil, posts.count ? nil : error);
             return;
         }
         // the older endpoint: a plain list of the tag's posts
@@ -3067,7 +3068,7 @@ static NSArray *SHParseTagSections(NSDictionary *d)
             NSArray *posts2 = error2 ? @[] : SHParseTagSections(d2);
             if (SHDebugLogging()) SHLog(@"TAG feed/tag #%@ status=%ld posts=%lu", tag, (long)status2, (unsigned long)posts2.count);
             if (!posts2.count && (error || error2)) { completion(nil, nil, error ?: error2); return; }
-            completion(posts2, SHBool(d2[@"more_available"]) ? SHStr(d2[@"next_max_id"]) : nil, nil);
+            completion(posts2, SHBool([d2 objectForKey:@"more_available"]) ? SHStr([d2 objectForKey:@"next_max_id"]) : nil, nil);
         }];
         task.cancelBlock = ^{ [inner cancel]; };
     }];
@@ -3082,9 +3083,9 @@ static NSArray *SHParseTagSections(NSDictionary *d)
     return [SHHTTP getJSON:url headers:SHAuthHeaders() completion:^(id json, NSInteger status, NSError *error) {
         if (error) { completion(nil, error); return; }
         NSMutableArray *tags = [NSMutableArray array];
-        for (id r in SHArr(SHDict(json)[@"results"])) {
-            NSString *name = SHStr(SHDict(r)[@"name"]);
-            if (name.length) [tags addObject:@{ @"name": name, @"count": @(SHInt(SHDict(r)[@"media_count"])) }];
+        for (id r in SHArr([SHDict(json) objectForKey:@"results"])) {
+            NSString *name = SHStr([SHDict(r) objectForKey:@"name"]);
+            if (name.length) [tags addObject:@{ @"name": name, @"count": @(SHInt([SHDict(r) objectForKey:@"media_count"])) }];
         }
         completion(tags, nil);
     }];

@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHThreadViewController.h"
 #import "SHProfileViewController.h"
 #import "SHPostDetailViewController.h"
@@ -175,7 +176,7 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
         _voiceLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _voiceLabel.font = [UIFont boldSystemFontOfSize:12];
         _voiceLabel.backgroundColor = [UIColor clearColor];
-        _voiceLabel.textAlignment = NSTextAlignmentRight;
+        _voiceLabel.textAlignment = UITextAlignmentRight;
         [_bubble addSubview:_voiceLabel];
 
         _heartView = [[UIImageView alloc] initWithFrame:CGRectZero];
@@ -190,8 +191,8 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
 
         _systemLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _systemLabel.font = [UIFont boldSystemFontOfSize:12];
-        _systemLabel.textAlignment = NSTextAlignmentCenter;
-        _systemLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        _systemLabel.textAlignment = UITextAlignmentCenter;
+        _systemLabel.lineBreakMode = UILineBreakModeTailTruncation;
         _systemLabel.backgroundColor = [UIColor clearColor];
         [theme embossLabel:_systemLabel];
         _systemLabel.hidden = YES;
@@ -330,7 +331,7 @@ static NSAttributedString *SHBubbleText(SHDirectMessage *m)
     }
 
     _timeLabel.text = timeText ?: @"";
-    _timeLabel.textAlignment = outgoing ? NSTextAlignmentRight : NSTextAlignmentLeft;
+    _timeLabel.textAlignment = outgoing ? UITextAlignmentRight : UITextAlignmentLeft;
     _timeLabel.frame = outgoing ? CGRectMake(x - 60, SHRowGap + bsz.height + 2, bsz.width + 60 - tail - 4, SHTimeH)
                                 : CGRectMake(x + tail + 4, SHRowGap + bsz.height + 2, bsz.width + 60, SHTimeH);
 }
@@ -555,7 +556,7 @@ static const CGFloat SHReplyH = 40;   // the strip of the message being answered
 
 - (void)indexUsers:(NSArray *)users
 {
-    for (SHUser *u in users) if (u.pk.length) _usersByPk[u.pk] = u;
+    for (SHUser *u in users) if (u.pk.length) SHLegacyDictionarySet(_usersByPk, u.pk, u);
 }
 
 - (SHUser *)otherUser { return [_thread.users firstObject]; }
@@ -574,7 +575,7 @@ static const CGFloat SHReplyH = 40;   // the strip of the message being answered
     [titleButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [titleButton setTitleShadowColor:[UIColor colorWithWhite:0 alpha:0.6] forState:UIControlStateNormal];
     titleButton.titleLabel.shadowOffset = CGSizeMake(0, -1);
-    titleButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    titleButton.titleLabel.lineBreakMode = UILineBreakModeTailTruncation;
     [titleButton addTarget:self action:@selector(titleTapped) forControlEvents:UIControlEventTouchUpInside];
     self.navigationItem.titleView = titleButton;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:L(@"Chat theme")
@@ -716,7 +717,7 @@ static const CGFloat SHReplyH = 40;   // the strip of the message being answered
     _replyLabel.font = [UIFont boldSystemFontOfSize:13];
     _replyLabel.textColor = [theme textColor];
     _replyLabel.backgroundColor = [UIColor clearColor];
-    _replyLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    _replyLabel.lineBreakMode = UILineBreakModeTailTruncation;
     [theme embossLabel:_replyLabel];
     [_replyView addSubview:_replyLabel];
     UIButton *cancelReply = [self barGlyphButton:nil action:@selector(cancelReply)];
@@ -887,7 +888,7 @@ static BOOL SHIsCopyOfLocal(SHDirectMessage *m, SHDirectMessage *local)
     NSMutableSet *pagePks = [NSMutableSet set];
     for (SHDirectMessage *m in page) if (m.pk.length) [pagePks addObject:m.pk];
     NSMutableDictionary *shown = [NSMutableDictionary dictionary];
-    for (SHDirectMessage *m in _messages) if (!SHIsLocalMessage(m)) shown[m.pk] = m;
+    for (SHDirectMessage *m in _messages) if (!SHIsLocalMessage(m)) SHLegacyDictionarySet(shown, m.pk, m);
     SHDirectMessage *oldestOfPage = [page firstObject];
     NSDate *pageStart = oldestOfPage.timestamp;
 
@@ -897,7 +898,7 @@ static BOOL SHIsCopyOfLocal(SHDirectMessage *m, SHDirectMessage *local)
         if (pageStart && m.timestamp && [m.timestamp compare:pageStart] == NSOrderedAscending) [merged addObject:m];
     }
     for (SHDirectMessage *m in page) {
-        SHDirectMessage *old = shown[m.pk ?: @""];
+        SHDirectMessage *old = [shown objectForKey:m.pk ?: @""];
         [merged addObject:(old && SHSameMessage(old, m)) ? old : m];
     }
     NSSet *shownPks = [NSSet setWithArray:[shown allKeys]];
@@ -915,14 +916,14 @@ static BOOL SHIsCopyOfLocal(SHDirectMessage *m, SHDirectMessage *local)
     BOOL firstLoad = !_loadedOnce;
     _loadedOnce = YES;
     BOOL same = merged.count == _messages.count && [(seenPk ?: @"") isEqualToString:(_seenPk ?: @"")];
-    for (NSUInteger i = 0; same && i < merged.count; i++) same = merged[i] == _messages[i];
+    for (NSUInteger i = 0; same && i < merged.count; i++) same = [merged objectAtIndex:i] == [_messages objectAtIndex:i];
     if (!same) {
         BOOL follow = firstLoad || [self isNearBottom];
         if (!firstLoad) SHLog(@"DM thread updated: %lu messages (was %lu)%@", (unsigned long)merged.count, (unsigned long)_messages.count, seenPk ? @", seen" : @"");
         // a message of theirs new since the last look: the sound of Messages (the live connection plays its own)
         if (!firstLoad && ![SHRealtime shared].live) {
             for (SHDirectMessage *m in merged) {
-                if (SHIsLocalMessage(m) || m.systemRow || shown[m.pk ?: @""] || [m.senderPk isEqualToString:_myId ?: @""]) continue;
+                if (SHIsLocalMessage(m) || m.systemRow || [shown objectForKey:m.pk ?: @""] || [m.senderPk isEqualToString:_myId ?: @""]) continue;
                 if (pageStart && m.timestamp && [m.timestamp compare:pageStart] == NSOrderedAscending) continue;
                 [SHSounds playReceived];
                 break;
@@ -942,7 +943,7 @@ static BOOL SHIsCopyOfLocal(SHDirectMessage *m, SHDirectMessage *local)
 {
     SHDirectMessage *last = [messages lastObject];
     if (!last || SHIsLocalMessage(last) || last.systemRow || ![last.senderPk isEqualToString:_myId] || _thread.users.count != 1) return nil;
-    NSDate *theirs = _lastSeenAt[[[_thread.users firstObject] pk] ?: @""];
+    NSDate *theirs = [_lastSeenAt objectForKey:[[_thread.users firstObject] pk] ?: @""];
     return (theirs && last.timestamp && [theirs compare:last.timestamp] != NSOrderedAscending) ? last.pk : nil;
 }
 
@@ -966,7 +967,7 @@ static BOOL SHRealtimeLogging(void)
 
 - (BOOL)isThisThread:(NSNotification *)note
 {
-    return _thread.threadId.length && [note.userInfo[SHRealtimeThreadKey] isEqualToString:_thread.threadId];
+    return _thread.threadId.length && [[note.userInfo objectForKey:SHRealtimeThreadKey] isEqualToString:_thread.threadId];
 }
 
 // A message of this chat by the live connection, at once: a new one goes in by its time (Instagram's copy of one
@@ -975,10 +976,10 @@ static BOOL SHRealtimeLogging(void)
 {
     if (![self isThisThread:note] || !_loadedOnce) return;
     NSDictionary *info = note.userInfo;
-    NSString *op = info[SHRealtimeOpKey];
-    NSString *itemId = info[SHRealtimeItemIdKey] ?: @"";
+    NSString *op = [info objectForKey:SHRealtimeOpKey];
+    NSString *itemId = [info objectForKey:SHRealtimeItemIdKey] ?: @"";
     NSUInteger index = NSNotFound;
-    for (NSUInteger i = 0; i < _messages.count; i++) if ([[_messages[i] pk] isEqualToString:itemId]) { index = i; break; }
+    for (NSUInteger i = 0; i < _messages.count; i++) if ([[[_messages objectAtIndex:i] pk] isEqualToString:itemId]) { index = i; break; }
 
     if ([op isEqualToString:@"remove"]) {
         if (index == NSNotFound) return;
@@ -988,7 +989,7 @@ static BOOL SHRealtimeLogging(void)
         if (SHRealtimeLogging()) SHLog(@"DM live: removed %@", itemId);
         return;
     }
-    SHDirectMessage *m = [SHDirectMessage fromJSON:info[SHRealtimeItemKey]];
+    SHDirectMessage *m = [SHDirectMessage fromJSON:[info objectForKey:SHRealtimeItemKey]];
     if (!m) return;
     if (!m.pk.length) m.pk = itemId;
     if (!m.pk.length) return;
@@ -996,7 +997,7 @@ static BOOL SHRealtimeLogging(void)
     BOOL follow = [self isNearBottom];
 
     if (index != NSNotFound) {
-        SHDirectMessage *old = _messages[index];
+        SHDirectMessage *old = [_messages objectAtIndex:index];
         if (SHSameMessage(old, m)) return;
         if (old.localImage && !m.localImage) m.localImage = old.localImage;
         [_messages replaceObjectAtIndex:index withObject:m];
@@ -1004,12 +1005,12 @@ static BOOL SHRealtimeLogging(void)
         NSUInteger localIndex = NSNotFound;
         if (mine) {
             for (NSUInteger i = 0; i < _messages.count; i++) {
-                SHDirectMessage *l = _messages[i];
+                SHDirectMessage *l = [_messages objectAtIndex:i];
                 if (SHIsLocalMessage(l) && SHIsCopyOfLocal(m, l)) { localIndex = i; break; }
             }
         }
         if (localIndex != NSNotFound) {
-            SHDirectMessage *local = _messages[localIndex];
+            SHDirectMessage *local = [_messages objectAtIndex:localIndex];
             if (local.localImage && !m.localImage) m.localImage = local.localImage;   // (no flash)
             [_messages replaceObjectAtIndex:localIndex withObject:m];
         } else {
@@ -1026,7 +1027,7 @@ static BOOL SHRealtimeLogging(void)
             // by its time (a burst may come out of order); what is still on its way from here stays at the end
             NSUInteger at = _messages.count;
             while (at > 0) {
-                SHDirectMessage *prev = _messages[at - 1];
+                SHDirectMessage *prev = [_messages objectAtIndex:at - 1];
                 if (!SHIsLocalMessage(prev) && (!m.timestamp || !prev.timestamp || [prev.timestamp compare:m.timestamp] != NSOrderedDescending)) break;
                 at--;
             }
@@ -1048,9 +1049,9 @@ static BOOL SHRealtimeLogging(void)
 {
     if (![self isThisThread:note]) return;
     NSDictionary *info = note.userInfo;
-    NSString *user = info[SHRealtimeUserKey];
-    NSDate *date = info[SHRealtimeDateKey];
-    NSString *itemId = info[SHRealtimeItemIdKey];
+    NSString *user = [info objectForKey:SHRealtimeUserKey];
+    NSDate *date = [info objectForKey:SHRealtimeDateKey];
+    NSString *itemId = [info objectForKey:SHRealtimeItemIdKey];
     if (itemId.length) {
         for (SHDirectMessage *m in _messages) {
             if (![m.pk isEqualToString:itemId]) continue;
@@ -1059,10 +1060,10 @@ static BOOL SHRealtimeLogging(void)
         }
     }
     if (!user.length || !date) return;
-    NSDate *before = _lastSeenAt[user];
+    NSDate *before = [_lastSeenAt objectForKey:user];
     if (before && [before compare:date] != NSOrderedAscending) return;
     NSMutableDictionary *seen = [NSMutableDictionary dictionaryWithDictionary:_lastSeenAt ?: @{}];
-    seen[user] = date;
+    SHLegacyDictionarySet(seen, user, date);
     _lastSeenAt = seen;
     if (SHRealtimeLogging()) SHLog(@"DM live: seen by %@", [user isEqualToString:_myId] ? @"me" : @"them");
     if ([self updateSeenMarker]) [_tableView reloadData];
@@ -1072,9 +1073,9 @@ static BOOL SHRealtimeLogging(void)
 {
     if (![self isThisThread:note]) return;
     NSDictionary *info = note.userInfo;
-    if ([info[SHRealtimeUserKey] isEqualToString:_myId ?: @""]) return;
-    if (![info[SHRealtimeTypingKey] boolValue]) { [self showTyping:NO]; return; }
-    NSTimeInterval ttl = MAX(1, [info[SHRealtimeTTLKey] doubleValue]);
+    if ([[info objectForKey:SHRealtimeUserKey] isEqualToString:_myId ?: @""]) return;
+    if (![[info objectForKey:SHRealtimeTypingKey] boolValue]) { [self showTyping:NO]; return; }
+    NSTimeInterval ttl = MAX(1, [[info objectForKey:SHRealtimeTTLKey] doubleValue]);
     _typingUntil = [NSDate dateWithTimeIntervalSinceNow:ttl];
     [self showTyping:YES];
     __weak SHThreadViewController *weakSelf = self;
@@ -1143,7 +1144,7 @@ static BOOL SHRealtimeLogging(void)
     _seenMarkedPk = newest.pk;
     NSString *threadId = _thread.threadId;
     NSDate *upTo = newest.timestamp;
-    NSDate *mine = _lastSeenAt[_myId ?: @""];
+    NSDate *mine = [_lastSeenAt objectForKey:_myId ?: @""];
     if (mine && upTo && [mine compare:upTo] != NSOrderedAscending) {   // read already (here before, or elsewhere)
         [[SHDirectMonitor shared] noteThreadRead:threadId upTo:upTo];
         return;
@@ -1215,10 +1216,10 @@ static BOOL SHRealtimeLogging(void)
 
 - (void)keyboardWillChange:(NSNotification *)note
 {
-    CGRect end = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect end = [[note.userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGRect endInView = [self.view convertRect:end fromView:nil];
     _keyboardOverlap = MAX(0, self.view.bounds.size.height - endInView.origin.y);
-    CGFloat dur = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    CGFloat dur = [[note.userInfo objectForKey:UIKeyboardAnimationDurationUserInfoKey] doubleValue];
     [UIView animateWithDuration:dur animations:^{ [self layoutBars]; } completion:^(BOOL f) { [self scrollToBottom:NO]; }];
 }
 
@@ -1475,7 +1476,7 @@ static BOOL SHRealtimeLogging(void)
 
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info
 {
-    UIImage *image = info[UIImagePickerControllerOriginalImage];
+    UIImage *image = [info objectForKey:UIImagePickerControllerOriginalImage];
     [self closePicker:picker];
     if (image) [self attachPhoto:image];
 }
@@ -1721,7 +1722,7 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
 - (void)reloadRowForPk:(NSString *)pk
 {
     for (NSUInteger i = 0; i < _messages.count; i++) {
-        if ([[_messages[i] pk] isEqualToString:pk]) {
+        if ([[[_messages objectAtIndex:i] pk] isEqualToString:pk]) {
             [_tableView reloadRowsAtIndexPaths:@[ [NSIndexPath indexPathForRow:(NSInteger)i inSection:0] ] withRowAnimation:UITableViewRowAnimationNone];
             return;
         }
@@ -1752,7 +1753,7 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
     item.image = img;
     item.takenAt = m.timestamp;
     SHStoryReel *reel = [[SHStoryReel alloc] init];
-    reel.user = _usersByPk[m.senderPk ?: @""] ?: [self otherUser];
+    reel.user = [_usersByPk objectForKey:m.senderPk ?: @""] ?: [self otherUser];
     reel.items = @[ item ];
     reel.reelId = [@"dm:" stringByAppendingString:m.pk ?: @""];
     reel.fromChat = YES;
@@ -1791,7 +1792,7 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
         img.width = 1;
         img.height = 1;
         p.image = p.mediumImage = p.thumbImage = img;
-        p.user = _usersByPk[m.senderPk ?: @""];
+        p.user = [_usersByPk objectForKey:m.senderPk ?: @""];
         [self.navigationController pushViewController:[[SHPostDetailViewController alloc] initWithPost:p] animated:YES];
         return;
     }
@@ -1934,7 +1935,7 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    return [SHBubbleCell heightForMessage:_messages[(NSUInteger)indexPath.row] width:tableView.bounds.size.width];
+    return [SHBubbleCell heightForMessage:[_messages objectAtIndex:(NSUInteger)indexPath.row] width:tableView.bounds.size.width];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -1943,14 +1944,14 @@ static void *SHVoiceStatusContext = &SHVoiceStatusContext;
     if (!cell) cell = [[SHBubbleCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:SHMsgCellId];
     cell.delegate = self;
     NSUInteger i = (NSUInteger)indexPath.row;
-    SHDirectMessage *m = _messages[i];
+    SHDirectMessage *m = [_messages objectAtIndex:i];
     BOOL outgoing = m.senderPk.length && [m.senderPk isEqualToString:_myId];
     // the picture sits by the last bubble of a run from the same sender, as in the real app
-    BOOL lastOfRun = i + 1 >= _messages.count || ![[_messages[i + 1] senderPk] isEqualToString:m.senderPk] || [_messages[i + 1] systemRow];
+    BOOL lastOfRun = i + 1 >= _messages.count || ![[[_messages objectAtIndex:i + 1] senderPk] isEqualToString:m.senderPk] || [[_messages objectAtIndex:i + 1] systemRow];
     BOOL playing = [_playingPk isEqualToString:m.pk];
     NSString *timeText = [self timeTextFor:m];
     if (_seenPk && [m.pk isEqualToString:_seenPk]) timeText = [NSString stringWithFormat:@"%@  %@", timeText, L(@"Seen")];
-    [cell configureWithMessage:m outgoing:outgoing sender:_usersByPk[m.senderPk ?: @""] showAvatar:lastOfRun
+    [cell configureWithMessage:m outgoing:outgoing sender:[_usersByPk objectForKey:m.senderPk ?: @""] showAvatar:lastOfRun
                          width:tableView.bounds.size.width playing:playing progress:playing ? _voiceProgress : 0 timeText:timeText];
     if (cell.bubble.image) cell.bubble.image = [[SHTheme shared] bubbleImageOutgoing:outgoing palette:[SHSettings themeForThread:_thread.threadId]];
     return cell;

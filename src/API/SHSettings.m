@@ -127,7 +127,7 @@ static NSString * const SHCsrfTokenKey    = @"shutter.csrfToken";
     if (!q.length) return;
     NSMutableArray *list = [[self searchHistory] mutableCopy];
     for (NSInteger i = (NSInteger)list.count - 1; i >= 0; i--)
-        if ([list[(NSUInteger)i] caseInsensitiveCompare:q] == NSOrderedSame) [list removeObjectAtIndex:(NSUInteger)i];
+        if ([[list objectAtIndex:(NSUInteger)i] caseInsensitiveCompare:q] == NSOrderedSame) [list removeObjectAtIndex:(NSUInteger)i];
     [list insertObject:q atIndex:0];
     while (list.count > 20) [list removeLastObject];
     [DEF setObject:list forKey:@"searchHistory"];

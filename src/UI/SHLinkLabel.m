@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHLinkLabel.h"
 #import "SHLinkRouter.h"
 #import "SHTheme.h"
@@ -32,42 +33,42 @@ static id SHCTFont(UIFont *font)
     static NSMutableDictionary *made;
     if (!made) made = [NSMutableDictionary dictionary];
     NSString *key = [NSString stringWithFormat:@"%@|%.2f", font.fontName, font.pointSize];
-    id f = made[key];
+    id f = [made objectForKey:key];
     if (!f) {
         f = (__bridge_transfer id)CTFontCreateWithName((__bridge CFStringRef)font.fontName, font.pointSize, NULL);
-        if (f) made[key] = f;
+        if (f) SHLegacyDictionarySet(made, key, f);
     }
     return f;
 }
 
-static id SHParagraph(NSTextAlignment alignment)
+static id SHParagraph(UITextAlignment alignment)
 {
     static NSMutableDictionary *styles;
     if (!styles) styles = [NSMutableDictionary dictionary];
     NSNumber *key = @(alignment);
-    id style = styles[key];
+    id style = [styles objectForKey:key];
     if (!style) {
-        CTTextAlignment a = alignment == NSTextAlignmentCenter ? kCTTextAlignmentCenter
-                          : alignment == NSTextAlignmentRight ? kCTTextAlignmentRight : kCTTextAlignmentLeft;
+        CTTextAlignment a = alignment == UITextAlignmentCenter ? kCTTextAlignmentCenter
+                          : alignment == UITextAlignmentRight ? kCTTextAlignmentRight : kCTTextAlignmentLeft;
         CTLineBreakMode lb = kCTLineBreakByWordWrapping;
         CTParagraphStyleSetting settings[2] = {
             { kCTParagraphStyleSpecifierAlignment, sizeof(a), &a },
             { kCTParagraphStyleSpecifierLineBreakMode, sizeof(lb), &lb },
         };
         style = (__bridge_transfer id)CTParagraphStyleCreate(settings, 2);
-        styles[key] = style;
+        SHLegacyDictionarySet(styles, key, style);
     }
     return style;
 }
 
-static CGFloat SHFlushFactor(NSTextAlignment alignment)
+static CGFloat SHFlushFactor(UITextAlignment alignment)
 {
-    return alignment == NSTextAlignmentCenter ? 0.5f : alignment == NSTextAlignmentRight ? 1.0f : 0;
+    return alignment == UITextAlignmentCenter ? 0.5f : alignment == UITextAlignmentRight ? 1.0f : 0;
 }
 
 // The text with Core Text's attributes (CTFont, CGColor, the paragraph), the links in their colour.
 static NSAttributedString *SHCoreTextString(NSAttributedString *text, UIFont *font, UIColor *color, UIColor *linkColor,
-                                            NSArray *links, NSTextAlignment alignment)
+                                            NSArray *links, UITextAlignment alignment)
 {
     NSString *s = text.string ?: @"";
     NSMutableAttributedString *out = [[NSMutableAttributedString alloc] initWithString:s];
@@ -77,12 +78,12 @@ static NSAttributedString *SHCoreTextString(NSAttributedString *text, UIFont *fo
     NSString *colorKey = (__bridge NSString *)kCTForegroundColorAttributeName;
     NSString *paragraphKey = (__bridge NSString *)kCTParagraphStyleAttributeName;
     [text enumerateAttributesInRange:NSMakeRange(0, s.length) options:0 usingBlock:^(NSDictionary *attrs, NSRange range, BOOL *stop) {
-        UIFont *f = [attrs[NSFontAttributeName] isKindOfClass:[UIFont class]] ? attrs[NSFontAttributeName] : font;
-        UIColor *c = [attrs[NSForegroundColorAttributeName] isKindOfClass:[UIColor class]] ? attrs[NSForegroundColorAttributeName] : color;
+        UIFont *f = [[attrs objectForKey:NSFontAttributeName] isKindOfClass:[UIFont class]] ? [attrs objectForKey:NSFontAttributeName] : font;
+        UIColor *c = [[attrs objectForKey:NSForegroundColorAttributeName] isKindOfClass:[UIColor class]] ? [attrs objectForKey:NSForegroundColorAttributeName] : color;
         id ctFont = SHCTFont(f);
         NSMutableDictionary *a = [NSMutableDictionary dictionaryWithObject:paragraph forKey:paragraphKey];
-        if (ctFont) a[fontKey] = ctFont;
-        if (c) a[colorKey] = (__bridge id)c.CGColor;
+        if (ctFont) SHLegacyDictionarySet(a, fontKey, ctFont);
+        if (c) SHLegacyDictionarySet(a, colorKey, (__bridge id)c.CGColor);
         [out setAttributes:a range:range];
     }];
     if (linkColor) {
@@ -94,7 +95,7 @@ static NSAttributedString *SHCoreTextString(NSAttributedString *text, UIFont *fo
     return out;
 }
 
-static SHTextLayout *SHLayoutText(NSAttributedString *ct, CGFloat width, NSInteger maxLines, NSTextAlignment alignment)
+static SHTextLayout *SHLayoutText(NSAttributedString *ct, CGFloat width, NSInteger maxLines, UITextAlignment alignment)
 {
     SHTextLayout *layout = [[SHTextLayout alloc] init];
     layout.width = width;
@@ -294,7 +295,7 @@ static CGFloat SHDistanceToRect(CGRect r, CGPoint p)
 - (void)setFont:(UIFont *)font { _font = font ?: [UIFont systemFontOfSize:14]; [self rebuild]; }
 - (void)setTextColor:(UIColor *)textColor { _textColor = textColor; [self rebuild]; }
 - (void)setLinkColor:(UIColor *)linkColor { _linkColor = linkColor; [self rebuild]; }
-- (void)setTextAlignment:(NSTextAlignment)textAlignment { _textAlignment = textAlignment; [self rebuild]; }
+- (void)setTextAlignment:(UITextAlignment)textAlignment { _textAlignment = textAlignment; [self rebuild]; }
 - (void)setShadowColor:(UIColor *)shadowColor { _shadowColor = shadowColor; [self setNeedsDisplay]; }
 - (void)setShadowOffset:(CGSize)shadowOffset { _shadowOffset = shadowOffset; [self setNeedsDisplay]; }
 - (void)setNumberOfLines:(NSInteger)numberOfLines { _numberOfLines = numberOfLines; _layout = nil; [self setNeedsDisplay]; }
@@ -334,8 +335,8 @@ static NSString *SHMeasureKey(NSAttributedString *text, CGFloat width, NSInteger
     NSString *key = SHMeasureKey(text, width, lines);
     NSValue *known = [cache objectForKey:key];
     if (known) return [known CGSizeValue];
-    NSAttributedString *ct = SHCoreTextString(text, [UIFont systemFontOfSize:14], [UIColor blackColor], nil, nil, NSTextAlignmentLeft);
-    CGSize size = SHLayoutText(ct, width, lines, NSTextAlignmentLeft).size;
+    NSAttributedString *ct = SHCoreTextString(text, [UIFont systemFontOfSize:14], [UIColor blackColor], nil, nil, UITextAlignmentLeft);
+    CGSize size = SHLayoutText(ct, width, lines, UITextAlignmentLeft).size;
     [cache setObject:[NSValue valueWithCGSize:size] forKey:key];
     return size;
 }
@@ -355,16 +356,16 @@ static NSString *SHMeasureKey(NSAttributedString *text, CGFloat width, NSInteger
     SHTextLayout *layout = [self currentLayout];
     NSMutableArray *rects = [NSMutableArray array];
     for (NSUInteger i = 0; i < layout.lines.count; i++) {
-        CTLineRef line = (__bridge CTLineRef)layout.lines[i];
-        NSUInteger offset = [layout.offsets[i] unsignedIntegerValue];
+        CTLineRef line = (__bridge CTLineRef)[layout.lines objectAtIndex:i];
+        NSUInteger offset = [[layout.offsets objectAtIndex:i] unsignedIntegerValue];
         CFRange lr = CTLineGetStringRange(line);
         NSRange lineRange = NSMakeRange((NSUInteger)lr.location + offset, (NSUInteger)lr.length);
         NSRange common = NSIntersectionRange(lineRange, range);
         if (!common.length) continue;
         CGFloat x0 = CTLineGetOffsetForStringIndex(line, (CFIndex)(common.location - offset), NULL);
         CGFloat x1 = CTLineGetOffsetForStringIndex(line, (CFIndex)(NSMaxRange(common) - offset), NULL);
-        CGPoint o = [layout.origins[i] CGPointValue];
-        CGFloat ascent = [layout.ascents[i] floatValue], descent = [layout.descents[i] floatValue];
+        CGPoint o = [[layout.origins objectAtIndex:i] CGPointValue];
+        CGFloat ascent = [[layout.ascents objectAtIndex:i] floatValue], descent = [[layout.descents objectAtIndex:i] floatValue];
         [rects addObject:[NSValue valueWithCGRect:CGRectMake(o.x + MIN(x0, x1), o.y - ascent, (CGFloat)fabs(x1 - x0), ascent + descent)]];
     }
     return rects;
@@ -400,9 +401,9 @@ static NSString *SHMeasureKey(NSAttributedString *text, CGFloat width, NSInteger
     CGContextScaleCTM(ctx, 1, -1);
     if (_shadowColor) CGContextSetShadowWithColor(ctx, _shadowOffset, 0, _shadowColor.CGColor);   // (offsets are not flipped)
     for (NSUInteger i = 0; i < layout.lines.count; i++) {
-        CGPoint o = [layout.origins[i] CGPointValue];
+        CGPoint o = [[layout.origins objectAtIndex:i] CGPointValue];
         CGContextSetTextPosition(ctx, o.x, h - o.y);
-        CTLineDraw((__bridge CTLineRef)layout.lines[i], ctx);
+        CTLineDraw((__bridge CTLineRef)[layout.lines objectAtIndex:i], ctx);
     }
     CGContextRestoreGState(ctx);
 }

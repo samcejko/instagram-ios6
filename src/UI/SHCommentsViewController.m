@@ -204,14 +204,14 @@ static NSAttributedString *SHCommentText(SHComment *c)
     SHCommentCell *cell = [tableView dequeueReusableCellWithIdentifier:@"C"];
     if (!cell) cell = [[SHCommentCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"C"];
     [[SHTheme shared] styleCell:cell];
-    [cell configureWithComment:_comments[(NSUInteger)indexPath.row]];
+    [cell configureWithComment:[_comments objectAtIndex:(NSUInteger)indexPath.row]];
     return cell;
 }
 
 // As tall as the comment needs (a long one is not cut off after two lines).
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    SHComment *c = _comments[(NSUInteger)indexPath.row];
+    SHComment *c = [_comments objectAtIndex:(NSUInteger)indexPath.row];
     CGFloat w = tableView.bounds.size.width - SHCommentTextX - 12;
     CGFloat h = [SHLinkLabel sizeForAttributedText:SHCommentText(c) width:w lines:0].height;
     return MAX(SHCommentAvatar + 20, 10 + h + 3 + 14 + 10);
@@ -242,7 +242,7 @@ static NSAttributedString *SHCommentText(SHComment *c)
 
 - (void)kbShow:(NSNotification *)n
 {
-    CGRect kf = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect kf = [[n.userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGFloat h = kf.size.height;
     CGRect f = _inputBar.frame;
     f.origin.y = self.view.bounds.size.height - h - f.size.height;

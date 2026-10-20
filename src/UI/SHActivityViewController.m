@@ -100,7 +100,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 30, 0)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _statusLabel.numberOfLines = 0;
-    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.textAlignment = UITextAlignmentCenter;
     _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [theme secondaryTextColor];
     _statusLabel.backgroundColor = [UIColor clearColor];
@@ -155,7 +155,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
     SHNewsCell *cell = [tableView dequeueReusableCellWithIdentifier:SHNewsCellId];
     if (!cell) cell = [[SHNewsCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:SHNewsCellId];
     [[SHTheme shared] styleCell:cell];
-    SHNewsStory *n = _stories[(NSUInteger)indexPath.row];
+    SHNewsStory *n = [_stories objectAtIndex:(NSUInteger)indexPath.row];
     [cell.avatar setImageURL:n.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:44]];
     if (n.requestUsers.count) {
         // the pinned row: "Follow requests" in bold, who asked under it
@@ -184,7 +184,7 @@ static NSString * const SHNewsCellId = @"NewsCell";
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    SHNewsStory *n = _stories[(NSUInteger)indexPath.row];
+    SHNewsStory *n = [_stories objectAtIndex:(NSUInteger)indexPath.row];
     if (n.requestUsers.count) {
         SHFollowRequestsViewController *vc = [[SHFollowRequestsViewController alloc] init];
         __weak SHActivityViewController *weakSelf = self;

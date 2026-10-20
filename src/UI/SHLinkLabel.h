@@ -28,7 +28,7 @@ typedef enum {
 @property (nonatomic, strong) UIColor *shadowColor;
 @property (nonatomic) CGSize shadowOffset;
 @property (nonatomic) NSInteger numberOfLines;                    // 0 = all; a cut text ends with "…"
-@property (nonatomic) NSTextAlignment textAlignment;
+@property (nonatomic) UITextAlignment textAlignment;
 @property (nonatomic, strong, readonly) NSArray *links;           // SHTextLink, in the order of the text
 @property (nonatomic, copy) void (^linkHandler)(SHTextLink *link);   // instead of the usual way of opening it
 @property (nonatomic, copy) void (^textTapHandler)(void);            // a tap on the text off the links

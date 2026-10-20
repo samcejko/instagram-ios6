@@ -30,7 +30,7 @@ static NSMutableArray *g_choices;
 - (void)actionSheet:(UIActionSheet *)sheet didDismissWithButtonIndex:(NSInteger)index
 {
     sheet.delegate = nil;
-    if (self.chosen >= 0) [SHLinkRouter openWebLink:self.links[(NSUInteger)self.chosen] from:self.controller anchor:self.anchor];
+    if (self.chosen >= 0) [SHLinkRouter openWebLink:[self.links objectAtIndex:(NSUInteger)self.chosen] from:self.controller anchor:self.anchor];
     SHLinkChoice *me = self;
     dispatch_async(dispatch_get_main_queue(), ^{ [g_choices removeObject:me]; });
 }
@@ -125,22 +125,22 @@ static NSMutableArray *g_choices;
     if (![host isEqualToString:@"instagram.com"] && ![host hasSuffix:@".instagram.com"] && ![host isEqualToString:@"instagr.am"]) return NO;
 
     NSArray *parts = [[path stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] componentsSeparatedByString:@"/"];
-    if (parts.count >= 2 && ([[parts[0] lowercaseString] isEqualToString:@"p"] || [[parts[0] lowercaseString] isEqualToString:@"reel"]
-                             || [[parts[0] lowercaseString] isEqualToString:@"tv"])) {
-        [self openPost:parts[1]];
+    if (parts.count >= 2 && ([[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"p"] || [[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"reel"]
+                             || [[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"tv"])) {
+        [self openPost:[parts objectAtIndex:1]];
         return YES;
     }
-    if (parts.count >= 3 && [[parts[0] lowercaseString] isEqualToString:@"explore"] && [[parts[1] lowercaseString] isEqualToString:@"tags"]) {
-        [self openHashtag:parts[2]];
+    if (parts.count >= 3 && [[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"explore"] && [[[parts objectAtIndex:1] lowercaseString] isEqualToString:@"tags"]) {
+        [self openHashtag:[parts objectAtIndex:2]];
         return YES;
     }
-    if (parts.count >= 2 && [[parts[0] lowercaseString] isEqualToString:@"stories"]) {   // stories/<name>/<id>: whose they are
-        [self openProfile:parts[1]];
+    if (parts.count >= 2 && [[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"stories"]) {   // stories/<name>/<id>: whose they are
+        [self openProfile:[parts objectAtIndex:1]];
         return YES;
     }
-    if (parts.count >= 1 && [parts[0] length] && ![[parts[0] lowercaseString] isEqualToString:@"explore"]
-        && ![[parts[0] lowercaseString] isEqualToString:@"about"] && ![[parts[0] lowercaseString] isEqualToString:@"accounts"]) {
-        [self openProfile:parts[0]];
+    if (parts.count >= 1 && [[parts objectAtIndex:0] length] && ![[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"explore"]
+        && ![[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"about"] && ![[[parts objectAtIndex:0] lowercaseString] isEqualToString:@"accounts"]) {
+        [self openProfile:[parts objectAtIndex:0]];
         return YES;
     }
     return NO;
@@ -228,7 +228,7 @@ static NSString *SHMediaPkFromShortcode(NSString *code)
 + (void)openWebLinks:(NSArray *)links from:(UIViewController *)controller anchor:(UIView *)anchor
 {
     if (!links.count) return;
-    if (links.count == 1) { [self openWebLink:links[0] from:controller anchor:anchor]; return; }
+    if (links.count == 1) { [self openWebLink:[links objectAtIndex:0] from:controller anchor:anchor]; return; }
     SHLinkChoice *choice = [[SHLinkChoice alloc] init];
     choice.links = links;
     choice.controller = controller;

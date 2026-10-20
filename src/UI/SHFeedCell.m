@@ -141,7 +141,7 @@ static CGFloat SHCaptionHeight(SHPost *post, CGFloat width)
         _timeLabel.font = [UIFont boldSystemFontOfSize:11];
         _timeLabel.textColor = [theme secondaryTextColor];
         _timeLabel.backgroundColor = [UIColor clearColor];
-        _timeLabel.textAlignment = NSTextAlignmentRight;
+        _timeLabel.textAlignment = UITextAlignmentRight;
         [theme embossLabel:_timeLabel];
         [_headerView addSubview:_timeLabel];
 

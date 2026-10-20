@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHDirectMonitor.h"
 #import "SHInstagram.h"
 #import "SHRealtime.h"
@@ -45,7 +46,7 @@ NSString * const SHDirectUnreadDidChangeNotification = @"SHDirectUnreadDidChange
 - (BOOL)threadIsUnread:(SHDirectThread *)thread
 {
     if (!thread.unread) return NO;
-    NSDate *read = _readUpTo[thread.threadId ?: @""];
+    NSDate *read = [_readUpTo objectForKey:thread.threadId ?: @""];
     // (read here up to its newest message: Instagram's answer was older than the reading)
     return !(read && thread.lastActivity && [thread.lastActivity compare:read] != NSOrderedDescending);
 }
@@ -78,8 +79,8 @@ NSString * const SHDirectUnreadDidChangeNotification = @"SHDirectUnreadDidChange
 {
     if (!threadId.length) return;
     if (newest) {
-        NSDate *before = _readUpTo[threadId];
-        if (!before || [newest compare:before] == NSOrderedDescending) _readUpTo[threadId] = newest;
+        NSDate *before = [_readUpTo objectForKey:threadId];
+        if (!before || [newest compare:before] == NSOrderedDescending) SHLegacyDictionarySet(_readUpTo, threadId, newest);
     }
     if (![_unread containsObject:threadId]) return;
     NSMutableSet *unread = [_unread mutableCopy];
@@ -115,13 +116,13 @@ NSString * const SHDirectUnreadDidChangeNotification = @"SHDirectUnreadDidChange
 - (void)realtimeItem:(NSNotification *)note
 {
     NSDictionary *info = note.userInfo;
-    NSString *thread = info[SHRealtimeThreadKey];
-    NSDictionary *item = info[SHRealtimeItemKey];
-    if (![info[SHRealtimeOpKey] isEqualToString:@"add"] || !thread.length || !item) return;
-    NSString *type = SHStr(item[@"item_type"]) ?: @"";
+    NSString *thread = [info objectForKey:SHRealtimeThreadKey];
+    NSDictionary *item = [info objectForKey:SHRealtimeItemKey];
+    if (![[info objectForKey:SHRealtimeOpKey] isEqualToString:@"add"] || !thread.length || !item) return;
+    NSString *type = SHStr([item objectForKey:@"item_type"]) ?: @"";
     if ([type isEqualToString:@"video_call_event"] || [type isEqualToString:@"action_log"]) return;   // (no unread for these)
-    NSString *sender = SHStr(item[@"user_id"]) ?: @"";
-    double ts = SHDbl(item[@"timestamp"]);
+    NSString *sender = SHStr([item objectForKey:@"user_id"]) ?: @"";
+    double ts = SHDbl([item objectForKey:@"timestamp"]);
     if (ts > 1e14) ts /= 1e6;
     NSDate *when = ts > 0 ? [NSDate dateWithTimeIntervalSince1970:ts] : nil;
     if ([sender isEqualToString:[SHSettings userId] ?: @""]) { [self noteThreadRead:thread upTo:when]; return; }
@@ -138,14 +139,14 @@ NSString * const SHDirectUnreadDidChangeNotification = @"SHDirectUnreadDidChange
 - (void)realtimeSeen:(NSNotification *)note
 {
     NSDictionary *info = note.userInfo;
-    if (![info[SHRealtimeUserKey] isEqualToString:[SHSettings userId] ?: @""]) return;
-    [self noteThreadRead:info[SHRealtimeThreadKey] upTo:info[SHRealtimeDateKey]];
+    if (![[info objectForKey:SHRealtimeUserKey] isEqualToString:[SHSettings userId] ?: @""]) return;
+    [self noteThreadRead:[info objectForKey:SHRealtimeThreadKey] upTo:[info objectForKey:SHRealtimeDateKey]];
 }
 
 - (void)realtimeInboxChanged:(NSNotification *)note
 {
-    NSString *thread = note.userInfo[SHRealtimeThreadKey];
-    NSString *op = note.userInfo[SHRealtimeOpKey];
+    NSString *thread = [note.userInfo objectForKey:SHRealtimeThreadKey];
+    NSString *op = [note.userInfo objectForKey:SHRealtimeOpKey];
     if ([op isEqualToString:@"remove"] && thread.length) {   // a chat deleted (or hidden)
         [_known removeObject:thread];
         if ([_unread containsObject:thread]) {

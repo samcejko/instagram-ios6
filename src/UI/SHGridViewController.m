@@ -48,7 +48,7 @@ static NSString * const SHGridCellId = @"GridRow";
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 30, 0)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _statusLabel.numberOfLines = 0;
-    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.textAlignment = UITextAlignmentCenter;
     _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [[SHTheme shared] secondaryTextColor];
     _statusLabel.backgroundColor = [UIColor clearColor];
@@ -142,7 +142,7 @@ static NSString * const SHGridCellId = @"GridRow";
     NSUInteger cols = [SHGridRowCell columns];
     NSUInteger start = (NSUInteger)indexPath.row * cols;
     NSMutableArray *row = [NSMutableArray array];
-    for (NSUInteger i = start; i < start + cols && i < _posts.count; i++) [row addObject:_posts[i]];
+    for (NSUInteger i = start; i < start + cols && i < _posts.count; i++) [row addObject:[_posts objectAtIndex:i]];
     [cell configureWithPosts:row];
     return cell;
 }

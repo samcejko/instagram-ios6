@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHTheme.h"
 #import "SHSettings.h"
 #import "SHUtils.h"
@@ -144,10 +145,10 @@ static UIImage *SHDrawImage(CGSize size, void (^draw)(CGContextRef ctx))
 
 - (UIImage *)cachedImage:(NSString *)key builder:(UIImage *(^)(void))builder
 {
-    UIImage *image = self.imageCache[key];
+    UIImage *image = [self.imageCache objectForKey:key];
     if (!image) {
         image = builder();
-        if (image) self.imageCache[key] = image;
+        if (image) SHLegacyDictionarySet(self.imageCache, key, image);
     }
     return image;
 }
@@ -1074,7 +1075,7 @@ static UIImage *SHRowImage(UIColor *top, UIColor *bottom, UIColor *highlight, UI
     label.font = [self logoFontOfSize:26];
     label.textColor = [UIColor whiteColor];
     label.backgroundColor = [UIColor clearColor];
-    label.textAlignment = NSTextAlignmentCenter;
+    label.textAlignment = UITextAlignmentCenter;
     label.shadowColor = [UIColor colorWithWhite:0 alpha:0.6];
     label.shadowOffset = CGSizeMake(0, -1);
     return label;

@@ -49,14 +49,14 @@ static NSURL *SHSisterURL(NSURL *url, NSString **name)
     }
     if ([host isEqualToString:@"twitch.tv"] || [host hasSuffix:@".twitch.tv"]) {
         NSArray *parts = [[url.path stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] componentsSeparatedByString:@"/"];
-        NSString *first = parts.count ? [parts[0] lowercaseString] : @"";
+        NSString *first = parts.count ? [[parts objectAtIndex:0] lowercaseString] : @"";
         NSString *target = nil;
         if ([host isEqualToString:@"clips.twitch.tv"]) {
-            if (first.length) target = [@"twitcher:clip/" stringByAppendingString:parts[0]];
+            if (first.length) target = [@"twitcher:clip/" stringByAppendingString:[parts objectAtIndex:0]];
         } else if ([first isEqualToString:@"videos"]) {
-            if (parts.count > 1 && [parts[1] length]) target = [@"twitcher:video/" stringByAppendingString:parts[1]];
-        } else if (parts.count > 2 && [[parts[1] lowercaseString] isEqualToString:@"clip"]) {
-            if ([parts[2] length]) target = [@"twitcher:clip/" stringByAppendingString:parts[2]];
+            if (parts.count > 1 && [[parts objectAtIndex:1] length]) target = [@"twitcher:video/" stringByAppendingString:[parts objectAtIndex:1]];
+        } else if (parts.count > 2 && [[[parts objectAtIndex:1] lowercaseString] isEqualToString:@"clip"]) {
+            if ([[parts objectAtIndex:2] length]) target = [@"twitcher:clip/" stringByAppendingString:[parts objectAtIndex:2]];
         } else if (SHLooksLikeTwitchLogin(first) && ![SHTwitchReservedPaths() containsObject:first]) {
             target = [@"twitcher:channel/" stringByAppendingString:first];
         }
@@ -168,7 +168,7 @@ static NSString *SHSisterTitle(NSString *name)
 - (void)actionSheet:(UIActionSheet *)sheet clickedButtonAtIndex:(NSInteger)index
 {
     if (index < 0 || index == sheet.cancelButtonIndex || index >= (NSInteger)self.actions.count) return;
-    switch ((SHOpenAction)[self.actions[(NSUInteger)index] integerValue]) {
+    switch ((SHOpenAction)[[self.actions objectAtIndex:(NSUInteger)index] integerValue]) {
         case SHOpenCopy: [UIPasteboard generalPasteboard].string = self.url.absoluteString; break;
         case SHOpenSister: if (![SHExternalOpen openInSisterApp:self.url]) [SHExternalOpen openInSafari:self.url]; break;
         case SHOpenSafari: [SHExternalOpen openInSafari:self.url]; break;

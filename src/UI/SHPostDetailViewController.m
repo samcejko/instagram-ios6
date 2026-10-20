@@ -186,7 +186,7 @@ static const CGFloat SHDetailHeaderH = 50;
         _tagLayers = [NSMutableArray array];
         _tagUsers = [NSMutableArray array];
         for (NSUInteger i = 0; i < items.count; i++) {
-            SHPost *item = items[i];
+            SHPost *item = [items objectAtIndex:i];
             SHImageView *iv = [[SHImageView alloc] initWithFrame:CGRectMake(w * (CGFloat)i, 0, w, imgH)];
             iv.contentMode = UIViewContentModeScaleAspectFill;
             iv.clipsToBounds = YES;
@@ -400,7 +400,7 @@ static const CGFloat SHDetailHeaderH = 50;
 - (void)tagTapped:(UIButton *)button
 {
     if (button.tag < 0 || button.tag >= (NSInteger)_tagUsers.count) return;
-    SHUser *u = _tagUsers[(NSUInteger)button.tag];
+    SHUser *u = [_tagUsers objectAtIndex:(NSUInteger)button.tag];
     SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:u.username pk:u.pk];
     if (self.navigationController) [self.navigationController pushViewController:vc animated:YES];
 }

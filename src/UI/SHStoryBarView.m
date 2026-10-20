@@ -51,7 +51,7 @@ static const CGFloat SHStoryPad = 10;
     CGFloat ringSize = SHStorySize + 10;
     CGFloat x = SHStoryPad;
     for (NSUInteger i = 0; i < reels.count; i++) {
-        SHStoryReel *reel = reels[i];
+        SHStoryReel *reel = [reels objectAtIndex:i];
         UIView *container = [[UIView alloc] initWithFrame:CGRectMake(x, 5, ringSize, self.bounds.size.height - 8)];
         container.tag = (NSInteger)i;
 
@@ -73,8 +73,8 @@ static const CGFloat SHStoryPad = 10;
         name.font = [UIFont boldSystemFontOfSize:10];
         name.textColor = reel.seen && !highlight ? [theme secondaryTextColor] : [theme textColor];
         name.backgroundColor = [UIColor clearColor];
-        name.textAlignment = NSTextAlignmentCenter;
-        name.lineBreakMode = NSLineBreakByTruncatingTail;
+        name.textAlignment = UITextAlignmentCenter;
+        name.lineBreakMode = UILineBreakModeTailTruncation;
         [theme embossLabel:name];
         [container addSubview:name];
 
@@ -90,7 +90,7 @@ static const CGFloat SHStoryPad = 10;
 {
     NSUInteger idx = (NSUInteger)gesture.view.tag;
     if (idx < _reels.count && [_delegate respondsToSelector:@selector(storyBar:didSelectReel:atIndex:)])
-        [_delegate storyBar:self didSelectReel:_reels[idx] atIndex:idx];
+        [_delegate storyBar:self didSelectReel:[_reels objectAtIndex:idx] atIndex:idx];
 }
 
 @end

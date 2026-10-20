@@ -28,12 +28,12 @@ static CFAbsoluteTime g_lastPlayed;
 
 + (void)liveItem:(NSNotification *)note
 {
-    if (![note.userInfo[SHRealtimeOpKey] isEqualToString:@"add"]) return;
-    NSDictionary *item = SHDict(note.userInfo[SHRealtimeItemKey]);
-    NSString *sender = SHStr(item[@"user_id"]);
+    if (![[note.userInfo objectForKey:SHRealtimeOpKey] isEqualToString:@"add"]) return;
+    NSDictionary *item = SHDict([note.userInfo objectForKey:SHRealtimeItemKey]);
+    NSString *sender = SHStr([item objectForKey:@"user_id"]);
     NSString *me = [SHSettings userId];
     if (!sender.length || [sender isEqualToString:me ?: @""]) return;   // (mine echo back too)
-    if ([SHStr(item[@"item_type"]) isEqualToString:@"action_log"]) return;   // (a line of the history, not a message)
+    if ([SHStr([item objectForKey:@"item_type"]) isEqualToString:@"action_log"]) return;   // (a line of the history, not a message)
     [self playReceived];
 }
 

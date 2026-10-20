@@ -86,7 +86,7 @@ static const CGFloat SHStoryBarHeight = 96;
     [self.view addSubview:_spinner];
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, SHStoryBarHeight + 44, self.view.bounds.size.width - 40, 120)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.textAlignment = UITextAlignmentCenter;
     _statusLabel.numberOfLines = 0;
     _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [theme secondaryTextColor];
@@ -180,7 +180,7 @@ static const CGFloat SHStoryBarHeight = 96;
 - (SHPost *)postAt:(NSIndexPath *)ip
 {
     NSArray *src = ip.section == 0 ? _posts : _suggested;
-    return (NSUInteger)ip.row < src.count ? src[(NSUInteger)ip.row] : nil;
+    return (NSUInteger)ip.row < src.count ? [src objectAtIndex:(NSUInteger)ip.row] : nil;
 }
 
 // The tray, then (one request) the stories of the circles that came without them; only circles with a story to

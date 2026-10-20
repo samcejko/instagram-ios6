@@ -41,7 +41,7 @@
     title.font = [theme logoFontOfSize:56];
     title.textColor = [theme textColor];
     title.backgroundColor = [UIColor clearColor];
-    title.textAlignment = NSTextAlignmentCenter;
+    title.textAlignment = UITextAlignmentCenter;
     title.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     [theme embossLabel:title];
     [_scrollView addSubview:title];
@@ -52,7 +52,7 @@
     subtitle.font = [UIFont boldSystemFontOfSize:14];
     subtitle.textColor = [theme secondaryTextColor];
     subtitle.backgroundColor = [UIColor clearColor];
-    subtitle.textAlignment = NSTextAlignmentCenter;
+    subtitle.textAlignment = UITextAlignmentCenter;
     subtitle.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     [theme embossLabel:subtitle];
     [_scrollView addSubview:subtitle];
@@ -136,7 +136,7 @@
 
 - (void)keyboardWillShow:(NSNotification *)note
 {
-    CGRect kbFrame = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect kbFrame = [[note.userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
     _scrollView.contentInset = UIEdgeInsetsMake(0, 0, kbFrame.size.height, 0);
 }
 

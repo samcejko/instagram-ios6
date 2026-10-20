@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHLiveRemux.h"
 #import "SHHTTPRequest.h"
 #import "SHSettings.h"
@@ -227,7 +228,7 @@ static void SHAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
     for (int hop = 0; hop < 5 && !self.stopped; hop++) {
         SHHTTPRequest *r = [[SHHTTPRequest alloc] initWithMethod:@"GET" URL:url];
         NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:self.headers ?: @{}];
-        h[@"Accept"] = @"*/*";
+        SHLegacyDictionarySet(h, @"Accept", @"*/*");
         r.headers = h;
         r.verifyTLS = [SHSettings verifyTLS];
         r.highPriority = YES;
@@ -241,7 +242,7 @@ static void SHAppendTimestamp(NSMutableData *pes, uint8_t prefix, int64_t ts)
         NSURL *current = url;
         r.onHeaders = ^(NSInteger s, NSDictionary *hdrs) {
             status = s;
-            if (s >= 300 && s < 400 && [hdrs[@"location"] length]) redirect = [[NSURL URLWithString:hdrs[@"location"] relativeToURL:current] absoluteURL];
+            if (s >= 300 && s < 400 && [[hdrs objectForKey:@"location"] length]) redirect = [[NSURL URLWithString:[hdrs objectForKey:@"location"] relativeToURL:current] absoluteURL];
         };
         r.onData = ^(NSData *data) {
             SHLiveRemux *me = weakSelf;

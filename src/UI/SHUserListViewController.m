@@ -165,7 +165,7 @@ static NSString * const SHUserCellId = @"UserCell";
 {
     SHUserRowCell *cell = [tableView dequeueReusableCellWithIdentifier:SHUserCellId];
     if (!cell) cell = [[SHUserRowCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:SHUserCellId];
-    SHUser *u = _users[(NSUInteger)indexPath.row];
+    SHUser *u = [_users objectAtIndex:(NSUInteger)indexPath.row];
     [[SHTheme shared] styleCell:cell];
     [cell.avatar setImageURL:u.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:42]];
     cell.nameLabel.text = u.username;
@@ -183,7 +183,7 @@ static NSString * const SHUserCellId = @"UserCell";
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    SHUser *u = _users[(NSUInteger)indexPath.row];
+    SHUser *u = [_users objectAtIndex:(NSUInteger)indexPath.row];
     SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:u.username pk:u.pk];
     [self.navigationController pushViewController:vc animated:YES];
 }

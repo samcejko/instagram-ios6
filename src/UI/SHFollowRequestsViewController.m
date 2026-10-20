@@ -119,7 +119,7 @@
     _statusLabel = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 30, 0)];
     _statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _statusLabel.numberOfLines = 0;
-    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.textAlignment = UITextAlignmentCenter;
     _statusLabel.font = [UIFont boldSystemFontOfSize:15];
     _statusLabel.textColor = [theme secondaryTextColor];
     _statusLabel.backgroundColor = [UIColor clearColor];
@@ -158,7 +158,7 @@
     SHFollowRequestCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Req"];
     if (!cell) cell = [[SHFollowRequestCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"Req"];
     [[SHTheme shared] styleCell:cell];
-    SHUser *u = _users[(NSUInteger)indexPath.row];
+    SHUser *u = [_users objectAtIndex:(NSUInteger)indexPath.row];
     [cell.avatar setImageURL:u.profilePicURL placeholder:[[SHTheme shared] avatarPlaceholderWithSize:44]];
     cell.nameLabel.text = u.username;
     cell.fullNameLabel.text = [SHUtils displayText:u.fullName];
@@ -191,7 +191,7 @@
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    SHUser *u = _users[(NSUInteger)indexPath.row];
+    SHUser *u = [_users objectAtIndex:(NSUInteger)indexPath.row];
     SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:u.username pk:u.pk];
     [self.navigationController pushViewController:vc animated:YES];
 }

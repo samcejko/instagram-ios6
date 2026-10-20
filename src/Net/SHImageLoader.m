@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHImageLoader.h"
 #import "SHSettings.h"
 #import "SHHTTP.h"
@@ -64,9 +65,9 @@ static UIImage *SHAnimatedImage(CGImageSourceRef source, size_t count, NSUIntege
             double delay = 0.1;
             CFDictionaryRef props = CGImageSourceCopyPropertiesAtIndex(source, i, NULL);
             if (props) {
-                NSDictionary *gif = SHDict(((__bridge NSDictionary *)props)[(__bridge NSString *)kCGImagePropertyGIFDictionary]);
-                NSNumber *n = gif[(__bridge NSString *)kCGImagePropertyGIFUnclampedDelayTime];
-                if (![n isKindOfClass:[NSNumber class]] || n.doubleValue <= 0) n = gif[(__bridge NSString *)kCGImagePropertyGIFDelayTime];
+                NSDictionary *gif = SHDict([((__bridge NSDictionary *)props) objectForKey:(__bridge NSString *)kCGImagePropertyGIFDictionary]);
+                NSNumber *n = [gif objectForKey:(__bridge NSString *)kCGImagePropertyGIFUnclampedDelayTime];
+                if (![n isKindOfClass:[NSNumber class]] || n.doubleValue <= 0) n = [gif objectForKey:(__bridge NSString *)kCGImagePropertyGIFDelayTime];
                 if ([n isKindOfClass:[NSNumber class]] && n.doubleValue > 0) delay = n.doubleValue;
                 CFRelease(props);
             }
@@ -86,8 +87,8 @@ static UIImage *SHAnimatedImage(CGImageSourceRef source, size_t count, NSUIntege
         // UIImage shows every entry for the same time: a frame that stays longer is entered several times
         NSMutableArray *spread = [NSMutableArray arrayWithCapacity:(NSUInteger)(total / gcd)];
         for (NSUInteger i = 0; i < frames.count; i++) {
-            NSInteger repeat = [delays[i] integerValue] / gcd;
-            for (NSInteger k = 0; k < repeat; k++) [spread addObject:frames[i]];
+            NSInteger repeat = [[delays objectAtIndex:i] integerValue] / gcd;
+            for (NSInteger k = 0; k < repeat; k++) [spread addObject:[frames objectAtIndex:i]];
         }
         if (spread.count) sequence = spread;
     }
@@ -107,8 +108,8 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
         CGFloat limit = maxPixels > 0 ? maxPixels : 1024;
         CGImageRef image = NULL;
         NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
-        CGFloat width = [properties[(__bridge id)kCGImagePropertyPixelWidth] doubleValue];
-        CGFloat height = [properties[(__bridge id)kCGImagePropertyPixelHeight] doubleValue];
+        CGFloat width = [[properties objectForKey:(__bridge id)kCGImagePropertyPixelWidth] doubleValue];
+        CGFloat height = [[properties objectForKey:(__bridge id)kCGImagePropertyPixelHeight] doubleValue];
         if (MAX(width, height) > limit) {
             NSDictionary *options = @{
                 (__bridge id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
@@ -214,7 +215,7 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
 
 - (BOOL)hasFailed:(NSString *)url
 {
-    NSDate *when = url.length ? self.failed[url] : nil;
+    NSDate *when = url.length ? [self.failed objectForKey:url] : nil;
     if (!when) return NO;
     if (-[when timeIntervalSinceNow] > SHFailureRetryInterval) {
         [self.failed removeObjectForKey:url];
@@ -225,14 +226,14 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
 
 - (SHImageJob *)jobForURL:(NSString *)url maxPixels:(CGFloat)maxPixels
 {
-    SHImageJob *job = self.jobs[url];
+    SHImageJob *job = [self.jobs objectForKey:url];
     if (!job) {
         job = [[SHImageJob alloc] init];
         job.url = url;
         job.dataSaver = [SHSettings dataSaver];
         job.maxPixels = maxPixels;
         job.tokens = [NSMutableArray array];
-        self.jobs[url] = job;
+        SHLegacyDictionarySet(self.jobs, url, job);
         [self.queue addObject:job];
     } else if (!job.started) {
         // asked for again: to the front of the line
@@ -279,7 +280,7 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
     if (![token isKindOfClass:[SHImageToken class]]) return;
     SHImageToken *t = token;
     t.completion = nil;
-    SHImageJob *job = t.url ? self.jobs[t.url] : nil;
+    SHImageJob *job = t.url ? [self.jobs objectForKey:t.url] : nil;
     if (!job) return;
     [job.tokens removeObjectIdenticalTo:t];
     if (!job.started && !job.notify && job.tokens.count == 0) {
@@ -348,12 +349,12 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
 - (void)finishJob:(SHImageJob *)job image:(UIImage *)image cost:(NSUInteger)cost
 {
     self.running--;
-    if (self.jobs[job.url] == job) [self.jobs removeObjectForKey:job.url];
+    if ([self.jobs objectForKey:job.url] == job) [self.jobs removeObjectForKey:job.url];
     if (image) {
         if (job.dataSaver == [SHSettings dataSaver]) [self.memory setObject:image forKey:job.url cost:MAX(cost, (NSUInteger)1024)];
         [self.failed removeObjectForKey:job.url];
     } else {
-        self.failed[job.url] = [NSDate date];
+        SHLegacyDictionarySet(self.failed, job.url, [NSDate date]);
     }
     for (SHImageToken *token in [job.tokens copy]) {
         void (^completion)(UIImage *) = token.completion;
@@ -422,11 +423,11 @@ static UIImage *SHDecodeImage(NSData *data, CGFloat maxPixels, BOOL animate, NSU
                 [files addObject:@[modified, @([attributes fileSize]), path]];
             }
             if (total > SHDiskMaxBytes) {
-                [files sortUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) { return [a[0] compare:b[0]]; }];
+                [files sortUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) { return [[a objectAtIndex:0] compare:[b objectAtIndex:0]]; }];
                 for (NSArray *f in files) {
                     if (total <= SHDiskMaxBytes * 3 / 4) break;
-                    [fm removeItemAtPath:f[2] error:NULL];
-                    total -= MIN(total, [f[1] unsignedLongLongValue]);
+                    [fm removeItemAtPath:[f objectAtIndex:2] error:NULL];
+                    total -= MIN(total, [[f objectAtIndex:1] unsignedLongLongValue]);
                     removed++;
                 }
             }

@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #include <limits.h>
 #import "SHHTTPRequest.h"
 #import "SHTLSSocket.h"
@@ -104,7 +105,7 @@ static dispatch_semaphore_t SHConnectionSlots(void)
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         UIDevice *d = [UIDevice currentDevice];
-        NSString *v = [[NSBundle mainBundle] infoDictionary][@"CFBundleShortVersionString"] ?: @"0";
+        NSString *v = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"] ?: @"0";
         agent = [NSString stringWithFormat:@"Shutter/%@ (%@; iOS %@)", v, d.model, d.systemVersion];
     });
     return agent;
@@ -199,7 +200,7 @@ static dispatch_semaphore_t SHConnectionSlots(void)
         if ([lk isEqualToString:@"host"] || [lk isEqualToString:@"content-length"] || [lk isEqualToString:@"connection"] ||
             [lk isEqualToString:@"accept-encoding"] || [lk isEqualToString:@"transfer-encoding"] || [lk isEqualToString:@"expect"] ||
             [lk isEqualToString:@"keep-alive"]) continue;
-        NSString *value = [[self.headers[key] description] stringByReplacingOccurrencesOfString:@"\r" withString:@" "];
+        NSString *value = [[[self.headers objectForKey:key] description] stringByReplacingOccurrencesOfString:@"\r" withString:@" "];
         value = [value stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
         [given addObject:lk];
         [s appendFormat:@"%@: %@\r\n", key, value];
@@ -430,13 +431,13 @@ static dispatch_semaphore_t SHConnectionSlots(void)
     NSString *head = [[NSString alloc] initWithBytes:bytes length:end encoding:NSISOLatin1StringEncoding] ?: @"";
     [buffer replaceBytesInRange:NSMakeRange(0, end + 4) withBytes:NULL length:0];
     NSArray *lines = [head componentsSeparatedByString:@"\r\n"];
-    NSString *statusLine = lines.count ? lines[0] : @"";
+    NSString *statusLine = lines.count ? [lines objectAtIndex:0] : @"";
     if (![statusLine hasPrefix:@"HTTP/"]) {
         if (error) *error = SHMakeError(SHErrorBadResponse, [NSString stringWithFormat:L(@"Unexpected response: %@"), statusLine.length > 80 ? [statusLine substringToIndex:80] : statusLine]);
         return -1;
     }
     NSArray *parts = [statusLine componentsSeparatedByString:@" "];
-    NSInteger status = parts.count >= 2 ? [parts[1] integerValue] : 0;
+    NSInteger status = parts.count >= 2 ? [[parts objectAtIndex:1] integerValue] : 0;
     if (status < 100 || status > 999) {
         if (error) *error = SHMakeError(SHErrorBadResponse, [NSString stringWithFormat:L(@"Unexpected response: %@"), statusLine]);
         return -1;
@@ -448,7 +449,7 @@ static dispatch_semaphore_t SHConnectionSlots(void)
     NSMutableDictionary *headers = [NSMutableDictionary dictionary];
     NSMutableArray *cookies = [NSMutableArray array];
     for (NSUInteger i = 1; i < lines.count; i++) {
-        NSString *line = lines[i];
+        NSString *line = [lines objectAtIndex:i];
         NSRange colon = [line rangeOfString:@":"];
         if (colon.location == NSNotFound || colon.location == 0) continue;
         NSString *name = [[line substringToIndex:colon.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
@@ -460,21 +461,21 @@ static dispatch_semaphore_t SHConnectionSlots(void)
             [cookies addObject:value];
             continue;
         }
-        NSString *existing = headers[lname];
-        headers[lname] = existing ? [NSString stringWithFormat:@"%@, %@", existing, value] : value;
+        NSString *existing = [headers objectForKey:lname];
+        SHLegacyDictionarySet(headers, lname, existing ? [NSString stringWithFormat:@"%@, %@", existing, value] : value);
     }
     self.statusCode = status;
     self.responseHeaders = headers;
     self.responseHeaderPairs = pairs;
     self.setCookieHeaders = cookies;
-    NSString *connection = [headers[@"connection"] lowercaseString] ?: @"";
+    NSString *connection = [[headers objectForKey:@"connection"] lowercaseString] ?: @"";
     self.connectionClose = [connection rangeOfString:@"close"].location != NSNotFound || (!self.http11 && [connection rangeOfString:@"keep-alive"].location == NSNotFound);
-    NSString *te = [headers[@"transfer-encoding"] lowercaseString];
+    NSString *te = [[headers objectForKey:@"transfer-encoding"] lowercaseString];
     self.chunked = te && [te rangeOfString:@"chunked"].location != NSNotFound;
-    NSString *cl = headers[@"content-length"];
+    NSString *cl = [headers objectForKey:@"content-length"];
     self.contentLength = (cl && !self.chunked) ? [cl longLongValue] : -1;
     self.noBody = [self.method isEqualToString:@"HEAD"] || status == 204 || status == 304;
-    NSString *ce = [[headers[@"content-encoding"] lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    NSString *ce = [[[headers objectForKey:@"content-encoding"] lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
     if (!self.noBody && ([ce isEqualToString:@"gzip"] || [ce isEqualToString:@"x-gzip"] || [ce isEqualToString:@"deflate"])) {
         if ([self setupInflate]) self.decodedContentEncoding = YES;
     }

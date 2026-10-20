@@ -16,7 +16,7 @@ static NSError *SHCannotFinishHere(void)
 // A value of the step's data, or nil when Instagram left it empty ("None" in some replies).
 static NSString *SHStepValue(NSString *key)
 {
-    NSString *v = SHStr([SHInstagram challengeStepData][key]);
+    NSString *v = SHStr([[SHInstagram challengeStepData] objectForKey:key]);
     return (v.length && ![v isEqualToString:@"None"] && ![v isEqualToString:@"null"]) ? v : nil;
 }
 
@@ -118,7 +118,7 @@ static NSString *SHStepValue(NSString *key)
         [self finish:NO error:nil];
         return;
     }
-    [self postChoice:[_methodChoices[(NSUInteger)buttonIndex] integerValue]];   // 1 = e-mail, 0 = SMS
+    [self postChoice:[[_methodChoices objectAtIndex:(NSUInteger)buttonIndex] integerValue]];   // 1 = e-mail, 0 = SMS
 }
 
 - (void)askReview:(NSString *)message

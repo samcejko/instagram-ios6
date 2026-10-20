@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHUtils.h"
 #import "SHCommon.h"
 #include <CommonCrypto/CommonDigest.h>
@@ -342,7 +343,7 @@ static unichar SHPlainLetter(UTF32Char c)
         NSString *name = eq.location == NSNotFound ? pair : [pair substringToIndex:eq.location];
         NSString *value = eq.location == NSNotFound ? @"" : [pair substringFromIndex:eq.location + 1];
         value = [value stringByReplacingOccurrencesOfString:@"+" withString:@" "];
-        result[name] = [value stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ?: value;
+        SHLegacyDictionarySet(result, name, [value stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding] ?: value);
     }
     return result;
 }
@@ -396,7 +397,7 @@ static unichar SHPlainLetter(UTF32Char c)
 + (NSString *)appVersion
 {
     NSDictionary *info = [[NSBundle mainBundle] infoDictionary];
-    return [NSString stringWithFormat:@"%@ (%@)", info[@"CFBundleShortVersionString"] ?: @"0", info[@"CFBundleVersion"] ?: @"0"];
+    return [NSString stringWithFormat:@"%@ (%@)", [info objectForKey:@"CFBundleShortVersionString"] ?: @"0", [info objectForKey:@"CFBundleVersion"] ?: @"0"];
 }
 
 + (NSString *)ensureDirectory:(NSString *)path
@@ -412,13 +413,13 @@ static unichar SHPlainLetter(UTF32Char c)
 + (NSString *)cachesPath
 {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
-    return [self ensureDirectory:paths[0]];
+    return [self ensureDirectory:[paths objectAtIndex:0]];
 }
 
 + (NSString *)documentsPath
 {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    return [self ensureDirectory:paths[0]];
+    return [self ensureDirectory:[paths objectAtIndex:0]];
 }
 
 + (void)alertWithTitle:(NSString *)title message:(NSString *)message

@@ -115,8 +115,8 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
 
     if ([target hasPrefix:@"user/"]) { [SHLinkRouter openProfile:[target substringFromIndex:@"user/".length]]; return YES; }
     if ([target hasPrefix:@"post/"]) { [SHLinkRouter openPost:[target substringFromIndex:@"post/".length]]; return YES; }
-    if ([target isEqualToString:@"open"] && [params[@"url"] length]) {
-        if (![SHLinkRouter openLink:params[@"url"]]) [SHUtils alertWithTitle:L(@"Open a link") message:L(@"That does not look like an Instagram link.")];
+    if ([target isEqualToString:@"open"] && [[params objectForKey:@"url"] length]) {
+        if (![SHLinkRouter openLink:[params objectForKey:@"url"]]) [SHUtils alertWithTitle:L(@"Open a link") message:L(@"That does not look like an Instagram link.")];
         return YES;
     }
 
@@ -129,8 +129,8 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     }
     if ([target isEqualToString:@"rt"]) {
         // the live connection: its state; off=1 stops it (polling only, as when it fails), on=1 starts it again
-        if ([params[@"off"] boolValue]) [[SHRealtime shared] stop];
-        if ([params[@"on"] boolValue] && [SHSettings isLoggedIn]) {
+        if ([[params objectForKey:@"off"] boolValue]) [[SHRealtime shared] stop];
+        if ([[params objectForKey:@"on"] boolValue] && [SHSettings isLoggedIn]) {
             [[SHRealtime shared] start];
             [SHInstagram directInboxWithCursor:nil completion:nil];   // (its seq_id starts the connection)
         }
@@ -139,7 +139,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     }
     if ([target isEqualToString:@"thread"]) {
         // a chat of the inbox's first page opened by its id on the Direct tab (as a tap on its row would)
-        NSString *threadId = params[@"id"] ?: @"";
+        NSString *threadId = [params objectForKey:@"id"] ?: @"";
         [SHInstagram directInboxWithCursor:nil completion:^(NSArray *threads, NSString *cursor, NSError *error) {
             SHDirectThread *found = nil;
             for (SHDirectThread *t in threads) if ([t.threadId isEqualToString:threadId]) found = t;
@@ -192,14 +192,14 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
         return YES;
     }
     if ([target isEqualToString:@"tab"]) {
-        NSInteger idx = [params[@"i"] integerValue];
+        NSInteger idx = [[params objectForKey:@"i"] integerValue];
         UIViewController *root = self.window.rootViewController;
         if ([root isKindOfClass:[UITabBarController class]] && idx >= 0 && idx < (NSInteger)[(UITabBarController *)root viewControllers].count)
             [(UITabBarController *)root setSelectedIndex:idx];
         return YES;
     }
     if ([target isEqualToString:@"press"]) {
-        CGPoint pt = CGPointMake([params[@"x"] floatValue], [params[@"y"] floatValue]);
+        CGPoint pt = CGPointMake([[params objectForKey:@"x"] floatValue], [[params objectForKey:@"y"] floatValue]);
         [self pressAtPoint:pt];
         return YES;
     }
@@ -207,9 +207,9 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
         // text into the top screen as if typed: in=search (the search bar, default) or in=field&n=<index> (its text
         // fields outside search bars, in view order); submit=1 also presses Search / Return
         UIViewController *top = [self topController];
-        NSString *text = params[@"text"] ?: @"";
-        BOOL submit = [params[@"submit"] boolValue];
-        if (![params[@"in"] isEqualToString:@"field"]) {
+        NSString *text = [params objectForKey:@"text"] ?: @"";
+        BOOL submit = [[params objectForKey:@"submit"] boolValue];
+        if (![[params objectForKey:@"in"] isEqualToString:@"field"]) {
             UISearchBar *bar = (UISearchBar *)SHDebugFindView(top.view, [UISearchBar class], 0, NO);
             if (bar) {
                 bar.text = text;
@@ -219,7 +219,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
             SHLog(@"type -> search bar %@ of %@", bar ? @"found" : @"missing", NSStringFromClass([top class]));
             return YES;
         }
-        UITextField *field = (UITextField *)SHDebugFindView(top.view, [UITextField class], [params[@"n"] integerValue], YES);
+        UITextField *field = (UITextField *)SHDebugFindView(top.view, [UITextField class], [[params objectForKey:@"n"] integerValue], YES);
         if (field) {
             field.text = text;
             if (submit && [field.delegate respondsToSelector:@selector(textFieldShouldReturn:)]) [field.delegate textFieldShouldReturn:field];
@@ -230,7 +230,7 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     if ([target isEqualToString:@"alert"]) {
         // the alert on screen answered with button n (default: its cancel button); iOS 6 alerts live in a window of
         // their own that press cannot reach
-        NSInteger n = params[@"n"] ? [params[@"n"] integerValue] : -1;
+        NSInteger n = [params objectForKey:@"n"] ? [[params objectForKey:@"n"] integerValue] : -1;
         UIAlertView *alert = nil;
         for (UIWindow *w in [UIApplication sharedApplication].windows) {
             NSInteger first = 0;
@@ -272,13 +272,13 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
         UIViewController *top = [self topController];
         UIScrollView *sv = [top.view isKindOfClass:[UIScrollView class]] ? (UIScrollView *)top.view : nil;
         for (UIView *v in top.view.subviews) if (!sv && [v isKindOfClass:[UIScrollView class]]) sv = (UIScrollView *)v;
-        CGFloat y = [params[@"y"] floatValue];
+        CGFloat y = [[params objectForKey:@"y"] floatValue];
         [sv setContentOffset:CGPointMake(0, MIN(y, MAX(0, sv.contentSize.height - sv.bounds.size.height))) animated:NO];
         SHLog(@"scroll -> %@ y=%.0f of %.0f", NSStringFromClass([sv class]), sv.contentOffset.y, sv.contentSize.height);
         return YES;
     }
     if ([target isEqualToString:@"lang"]) {
-        NSString *set = params[@"set"] ?: @"system";
+        NSString *set = [params objectForKey:@"set"] ?: @"system";
         NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
         if ([set isEqualToString:@"system"]) [d removeObjectForKey:@"AppleLanguages"];
         else [d setObject:@[ set ] forKey:@"AppleLanguages"];
@@ -300,11 +300,11 @@ static UIView *SHDebugFindView(UIView *root, Class cls, NSInteger index, BOOL ou
     if (self.sessionEndHandled) return;
     if (![self.window.rootViewController isKindOfClass:[SHMainTabController class]]) return;
     self.sessionEndHandled = YES;
-    NSDictionary *json = SHDict(note.userInfo[@"json"]);
-    NSString *title = SHStr(json[@"error_title"]);
-    NSString *body = SHStr(json[@"error_body"]);
-    NSString *reason = SHStr(json[@"logout_reason"]);
-    NSInteger status = [note.userInfo[@"status"] integerValue];
+    NSDictionary *json = SHDict([note.userInfo objectForKey:@"json"]);
+    NSString *title = SHStr([json objectForKey:@"error_title"]);
+    NSString *body = SHStr([json objectForKey:@"error_body"]);
+    NSString *reason = SHStr([json objectForKey:@"logout_reason"]);
+    NSInteger status = [[note.userInfo objectForKey:@"status"] integerValue];
     SHLog(@"Session ended by Instagram (HTTP %ld, logout_reason %@, had a session: %@)", (long)status, reason ?: @"-",
           [SHSettings isLoggedIn] ? @"yes" : @"no");
     [SHInstagram clearResponseCache];

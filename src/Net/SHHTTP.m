@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHHTTP.h"
 #import "SHHTTPRequest.h"
 #import "SHSettings.h"
@@ -31,7 +32,7 @@ static NSDictionary *SHChallengeInReply(NSInteger status, NSData *body, id parse
     static const char marker[] = "challenge_required";
     if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
     NSDictionary *d = SHDict(parsed ?: [SHUtils JSONObjectFromData:body]);
-    return [SHStr(d[@"message"]) isEqualToString:@"challenge_required"] ? d : nil;
+    return [SHStr([d objectForKey:@"message"]) isEqualToString:@"challenge_required"] ? d : nil;
 }
 
 // Instagram's "this session is not valid" ({"message":"login_required"}, HTTP 403 as a rule, any 4xx counts), from
@@ -43,7 +44,7 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
     static const char marker[] = "login_required";
     if (![body rangeOfData:[NSData dataWithBytes:marker length:sizeof(marker) - 1] options:0 range:NSMakeRange(0, body.length)].length) return nil;
     NSDictionary *d = SHDict(parsed ?: [SHUtils JSONObjectFromData:body]);
-    return [SHStr(d[@"message"]) isEqualToString:@"login_required"] ? d : nil;
+    return [SHStr([d objectForKey:@"message"]) isEqualToString:@"login_required"] ? d : nil;
 }
 
 @interface SHHTTPTask ()
@@ -84,7 +85,7 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
         NSInteger status = request.statusCode;
         NSDictionary *responseHeaders = request.responseHeaders;
         if (!error && status >= 300 && status < 400 && status != 304 && hops < SHMaxRedirects) {
-            NSString *location = responseHeaders[@"location"];
+            NSString *location = [responseHeaders objectForKey:@"location"];
             NSURL *next = location.length ? [[NSURL URLWithString:location relativeToURL:url] absoluteURL] : nil;
             if (next.host.length) {
                 BOOL safe = [method isEqualToString:@"GET"] || [method isEqualToString:@"HEAD"];
@@ -96,7 +97,7 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
                     for (NSString *key in headers) {
                         NSString *lower = [key lowercaseString];
                         if ([lower isEqualToString:@"authorization"] || [lower isEqualToString:@"client-id"]) continue;
-                        trimmed[key] = headers[key];
+                        SHLegacyDictionarySet(trimmed, key, [headers objectForKey:key]);
                     }
                     nextHeaders = trimmed;
                 }
@@ -129,10 +130,10 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
         dispatch_async(dispatch_get_main_queue(), ^{
             if (task.isCancelled) return;
             if (challenge) {
-                NSDictionary *c = SHDict(challenge[@"challenge"]);
+                NSDictionary *c = SHDict([challenge objectForKey:@"challenge"]);
                 NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:challenge forKey:@"json"];
-                NSString *path = SHStr(c[@"api_path"]) ?: SHStr(c[@"url"]);
-                if (path.length) info[@"path"] = path;
+                NSString *path = SHStr([c objectForKey:@"api_path"]) ?: SHStr([c objectForKey:@"url"]);
+                if (path.length) SHLegacyDictionarySet(info, @"path", path);
                 [[NSNotificationCenter defaultCenter] postNotificationName:SHHTTPChallengeRequiredNotification object:nil userInfo:info];
             }
             if (loggedOut)
@@ -183,12 +184,12 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
     NSDictionary *d = SHDict(json);
     if (!d) {
         NSDictionary *first = SHDict([SHArr(json) firstObject]);
-        return SHStr(first[@"error"]) ?: SHStr(first[@"message"]);
+        return SHStr([first objectForKey:@"error"]) ?: SHStr([first objectForKey:@"message"]);
     }
-    NSString *message = SHStr(d[@"message"]);
-    if (!message.length) message = SHStr(d[@"error_description"]);
-    if (!message.length) message = SHStr(SHDict([SHArr(d[@"errors"]) firstObject])[@"message"]);
-    if (!message.length && [d[@"error"] isKindOfClass:[NSString class]]) message = d[@"error"];
+    NSString *message = SHStr([d objectForKey:@"message"]);
+    if (!message.length) message = SHStr([d objectForKey:@"error_description"]);
+    if (!message.length) message = SHStr([SHDict([SHArr([d objectForKey:@"errors"]) firstObject]) objectForKey:@"message"]);
+    if (!message.length && [[d objectForKey:@"error"] isKindOfClass:[NSString class]]) message = [d objectForKey:@"error"];
     // Instagram's machine-readable reasons, in the user's words
     if ([message isEqualToString:@"challenge_required"] || [message isEqualToString:@"checkpoint_required"]) return L(@"Instagram wants to check it's you.");
     if ([message isEqualToString:@"login_required"]) return L(@"Your session expired. Please log in again.");
@@ -202,7 +203,7 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
         if (error) { completion(nil, 0, error); return; }
         if (status >= 400) {
             NSString *message = [self messageFromErrorJSON:json] ?: [NSString stringWithFormat:L(@"Request failed (HTTP %ld)."), (long)status];
-            BOOL challenge = [SHStr(SHDict(json)[@"message"]) isEqualToString:@"challenge_required"];
+            BOOL challenge = [SHStr([SHDict(json) objectForKey:@"message"]) isEqualToString:@"challenge_required"];
             completion(json, status, SHMakeError(challenge ? SHErrorChallenge : status, message));
             return;
         }
@@ -217,7 +218,7 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
 + (SHHTTPTask *)getJSON:(NSString *)url headers:(NSDictionary *)headers completion:(SHJSONCompletion)completion
 {
     NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:headers ?: @{}];
-    if (!h[@"Accept"]) h[@"Accept"] = @"application/json";
+    if (![h objectForKey:@"Accept"]) SHLegacyDictionarySet(h, @"Accept", @"application/json");
     return [self start:@"GET" url:url headers:h body:nil retries:1 parseJSON:YES completion:[self jsonHandler:completion]];
 }
 
@@ -225,8 +226,8 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
               completion:(SHJSONCompletion)completion
 {
     NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:headers ?: @{}];
-    if (!h[@"Accept"]) h[@"Accept"] = @"application/json";
-    if (!h[@"Content-Type"]) h[@"Content-Type"] = @"application/json";
+    if (![h objectForKey:@"Accept"]) SHLegacyDictionarySet(h, @"Accept", @"application/json");
+    if (![h objectForKey:@"Content-Type"]) SHLegacyDictionarySet(h, @"Content-Type", @"application/json");
     NSData *body = [SHUtils JSONDataFromObject:object] ?: [NSData data];
     return [self start:@"POST" url:url headers:h body:body retries:retries parseJSON:YES completion:[self jsonHandler:completion]];
 }
@@ -235,12 +236,12 @@ static NSDictionary *SHLoginRequiredInReply(NSURL *url, NSInteger status, NSData
 {
     NSMutableArray *pairs = [NSMutableArray array];
     for (NSString *key in fields) {
-        [pairs addObject:[NSString stringWithFormat:@"%@=%@", [SHUtils urlEncode:key], [SHUtils urlEncode:[fields[key] description]]]];
+        [pairs addObject:[NSString stringWithFormat:@"%@=%@", [SHUtils urlEncode:key], [SHUtils urlEncode:[[fields objectForKey:key] description]]]];
     }
     NSData *body = [[pairs componentsJoinedByString:@"&"] dataUsingEncoding:NSUTF8StringEncoding];
     NSMutableDictionary *h = [NSMutableDictionary dictionaryWithDictionary:headers ?: @{}];
-    if (!h[@"Content-Type"]) h[@"Content-Type"] = @"application/x-www-form-urlencoded";
-    if (!h[@"Accept"]) h[@"Accept"] = @"application/json";
+    if (![h objectForKey:@"Content-Type"]) SHLegacyDictionarySet(h, @"Content-Type", @"application/x-www-form-urlencoded");
+    if (![h objectForKey:@"Accept"]) SHLegacyDictionarySet(h, @"Accept", @"application/json");
     return [self start:@"POST" url:url headers:h body:body retries:0 parseJSON:YES completion:[self jsonHandler:completion]];
 }
 

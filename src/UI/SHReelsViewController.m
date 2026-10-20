@@ -1,3 +1,4 @@
+#import "SHLegacyCollections.h"
 #import "SHReelsViewController.h"
 #import "SHPostDetailViewController.h"
 #import "SHCommentsViewController.h"
@@ -126,7 +127,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 
         _likeButton = [self roundButton:nil action:@selector(likeTapped)];
         _likeCount = [self shadowLabel:[UIFont boldSystemFontOfSize:12]];
-        _likeCount.textAlignment = NSTextAlignmentCenter;
+        _likeCount.textAlignment = UITextAlignmentCenter;
         _commentButton = [self roundButton:[SHTabIcons commentBubbleWithSize:24 color:[UIColor whiteColor] dark:YES] action:@selector(commentTapped)];
         _shareButton = [self roundButton:[SHTabIcons paperPlaneWithSize:24 color:[UIColor whiteColor] dark:YES] action:@selector(shareTapped)];
         _shareButton.accessibilityLabel = L(@"Share");
@@ -294,7 +295,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     _titleLabel.font = [UIFont boldSystemFontOfSize:18];
     _titleLabel.textColor = [UIColor whiteColor];
     _titleLabel.backgroundColor = [UIColor clearColor];
-    _titleLabel.textAlignment = NSTextAlignmentCenter;
+    _titleLabel.textAlignment = UITextAlignmentCenter;
     _titleLabel.shadowColor = [UIColor colorWithWhite:0 alpha:0.8];
     _titleLabel.shadowOffset = CGSizeMake(0, 1);
     [self.view addSubview:_titleLabel];
@@ -316,7 +317,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     _messageLabel.textColor = [UIColor colorWithWhite:0.85 alpha:1];
     _messageLabel.font = [UIFont boldSystemFontOfSize:16];
     _messageLabel.numberOfLines = 0;
-    _messageLabel.textAlignment = NSTextAlignmentCenter;
+    _messageLabel.textAlignment = UITextAlignmentCenter;
     _messageLabel.backgroundColor = [UIColor clearColor];
     _messageLabel.hidden = YES;
     [self.view addSubview:_messageLabel];
@@ -368,7 +369,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     // (phones with a notch: the close button and the bottom row keep clear of the sensor housing and the home bar)
     UIEdgeInsets safe = SHSafeAreaInsets(self.view);
     for (NSNumber *k in _pages) {
-        SHReelPage *page = _pages[k];
+        SHReelPage *page = [_pages objectForKey:k];
         page.bottomInset = safe.bottom;
         page.frame = CGRectMake(0, s.height * k.integerValue, s.width, s.height);
     }
@@ -439,7 +440,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     });
 }
 
-- (SHPost *)postAt:(NSInteger)i { return (i >= 0 && i < (NSInteger)_posts.count) ? _posts[(NSUInteger)i] : nil; }
+- (SHPost *)postAt:(NSInteger)i { return (i >= 0 && i < (NSInteger)_posts.count) ? [_posts objectAtIndex:(NSUInteger)i] : nil; }
 
 #pragma mark - Pages
 
@@ -449,7 +450,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     CGSize s = _scroll.bounds.size;
     for (NSNumber *k in [_pages allKeys]) {
         if (labs(k.integerValue - _current) > 1) {
-            SHReelPage *page = _pages[k];
+            SHReelPage *page = [_pages objectForKey:k];
             [page detachPlayer];
             [page removeFromSuperview];
             [_pages removeObjectForKey:k];
@@ -457,13 +458,13 @@ static void *SHReelReadyContext = &SHReelReadyContext;
     }
     for (NSInteger i = _current - 1; i <= _current + 1; i++) {
         SHPost *p = [self postAt:i];
-        if (!p || _pages[@(i)]) continue;
+        if (!p || [_pages objectForKey:@(i)]) continue;
         SHReelPage *page = [[SHReelPage alloc] initWithFrame:CGRectMake(0, s.height * i, s.width, s.height)];
         page.bottomInset = SHSafeAreaInsets(self.view).bottom;
         page.delegate = self;
         [page showPost:p];
         [_scroll addSubview:page];
-        _pages[@(i)] = page;
+        SHLegacyDictionarySet(_pages, @(i), page);
     }
     if ((NSUInteger)_current + 3 >= _posts.count) [self load:YES];
 }
@@ -472,7 +473,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 {
     [_player pause];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
-    for (NSNumber *k in _pages) [_pages[k] detachPlayer];
+    for (NSNumber *k in _pages) [[_pages objectForKey:k] detachPlayer];
     _player = nil;
 }
 
@@ -481,7 +482,7 @@ static void *SHReelReadyContext = &SHReelReadyContext;
 {
     [self stopPlayer];
     SHPost *p = [self postAt:index];
-    SHReelPage *page = _pages[@(index)];
+    SHReelPage *page = [_pages objectForKey:@(index)];
     if (!p.videoURL.length || !page) return;
     NSString *proxied = [[SHMediaProxy shared] proxyURLForURL:[NSURL URLWithString:p.videoURL]];
     if (!proxied.length) return;

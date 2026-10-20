@@ -88,12 +88,12 @@
         [[SHTheme shared] styleAvatar:cell.imageView radius:5];
     }
     [[SHTheme shared] styleCell:cell];
-    id result = _results[(NSUInteger)indexPath.row];
+    id result = [_results objectAtIndex:(NSUInteger)indexPath.row];
     if ([result isKindOfClass:[NSDictionary class]]) {
         // a tag: its name and how many posts it has, a "#" disc for the picture
-        cell.textLabel.text = [@"#" stringByAppendingString:result[@"name"] ?: @""];
+        cell.textLabel.text = [@"#" stringByAppendingString:[result objectForKey:@"name"] ?: @""];
         cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
-        cell.detailTextLabel.text = [NSString stringWithFormat:L(@"%@ posts"), [SHUtils formatCount:[result[@"count"] integerValue]]];
+        cell.detailTextLabel.text = [NSString stringWithFormat:L(@"%@ posts"), [SHUtils formatCount:[[result objectForKey:@"count"] integerValue]]];
         cell.detailTextLabel.font = [UIFont systemFontOfSize:13];
         cell.detailTextLabel.textColor = [[SHTheme shared] secondaryTextColor];
         cell.imageView.image = [self hashImage];
@@ -116,7 +116,7 @@
                 // (the row may show somebody else by now)
                 NSIndexPath *now = [tableView indexPathForCell:cell];
                 if (!now || (NSUInteger)now.row >= self->_results.count) return;
-                id shown = self->_results[(NSUInteger)now.row];
+                id shown = [self->_results objectAtIndex:(NSUInteger)now.row];
                 if (![shown isKindOfClass:[SHUser class]] || ![[shown profilePicURL] isEqualToString:url]) return;
             }
             CGFloat scale = image.size.width > 0 ? image.size.width * image.scale / 40.0f : 1;   // shown 40 points wide
@@ -154,8 +154,8 @@
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    id result = _results[(NSUInteger)indexPath.row];
-    if ([result isKindOfClass:[NSDictionary class]]) { [SHLinkRouter openHashtag:result[@"name"]]; return; }
+    id result = [_results objectAtIndex:(NSUInteger)indexPath.row];
+    if ([result isKindOfClass:[NSDictionary class]]) { [SHLinkRouter openHashtag:[result objectForKey:@"name"]]; return; }
     SHUser *u = result;
     SHProfileViewController *vc = [[SHProfileViewController alloc] initWithUsername:u.username pk:u.pk];
     [self.navigationController pushViewController:vc animated:YES];
